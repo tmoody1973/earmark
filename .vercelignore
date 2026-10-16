@@ -1,12 +1,25 @@
-# Never upload secrets or local-only material. .env.example stays (placeholders).
+# Mirrors every local-only pattern in .gitignore, so nothing git-ignored is ever uploaded to Vercel.
+# Secrets (.env.example stays: placeholders only)
 .env*
 !.env.example
+# Local tool state, design mocks and review material (may contain real Bee-derived names)
+.impeccable/
+.remember/
 .superpowers/
 .claude/
+.vercel/
+.eve/
+.DS_Store
+# Test output and auth state
 test-results/
 playwright-report/
 playwright/.clerk/
-docs/design/screens/
+# Design captures
 docs/design/inspiration/
+docs/design/screens/
+# Build output (Vercel rebuilds)
 .next/
-.eve/
+/out
+/build
+*.tsbuildinfo
+next-env.d.ts

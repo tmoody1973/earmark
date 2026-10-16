@@ -8,11 +8,18 @@ export function secretMatches(given: string | null, expected: string): boolean {
   return timingSafeEqual(digest(given), digest(expected)); // equal-length digests, constant time
 }
 
+// The relay's secret travels in a header (never the URL, which lands in access logs): `x-earmark-key: <secret>` or
+// `Authorization: Bearer <secret>`.
+export function presentedSecret(request: Request): string | null {
+  const bearer = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "");
+  return request.headers.get("x-earmark-key") ?? bearer?.[1] ?? null;
+}
+
 export async function handleRelayRequest(
   request: Request,
   opts: { secret: string; waitUntil: (p: Promise<unknown>) => void; handle: (evt: BeeEvent) => Promise<void> },
 ): Promise<Response> {
-  if (!secretMatches(new URL(request.url).searchParams.get("key"), opts.secret)) {
+  if (!secretMatches(presentedSecret(request), opts.secret)) {
     return Response.json({ ok: false }, { status: 401 });
   }
   let body: unknown;
