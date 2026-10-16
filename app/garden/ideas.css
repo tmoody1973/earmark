@@ -17,7 +17,10 @@
 /* hairlines stay hairlines at every size */
 .plant * { vector-effect: non-scaling-stroke; }
 .plant--sm { width: 3.25rem; height: 4.0625rem; }
-.plant--lg { width: 7rem; height: 8.75rem; stroke-width: 1.35px; }
+.plant--lg { width: 7rem; height: auto; aspect-ratio: 80 / 100; stroke-width: 1.35px; }
+/* Header only: a seedling or sprout has nothing above it, so the box keeps just the drawn part (bottom-anchored). */
+.plant--lg[data-level="seed"] { aspect-ratio: 80 / 40; }
+.plant--lg[data-level="sprout"] { aspect-ratio: 80 / 50; }
 .plant .ground { stroke: var(--ink-3); stroke-width: 0.9px; opacity: 0.7; }
 .plant .speck { stroke: var(--ink-3); }
 .plant .vein { stroke-width: 0.75px; opacity: 0.75; }
@@ -32,7 +35,7 @@
 .plant--sm .petal-vein { display: none; } /* below ~60px the fine detail turns to noise */
 
 /* Unconfirmed ideas still grow (decision 004), drawn lighter. */
-.plant--unconfirmed { --plant-ink: #9a9083; }
+.plant--unconfirmed { --plant-ink: #8f8579; } /* 3.22:1 on ground, 3.50:1 on surface: still ≥ 3:1 for graphics */
 .plant--unconfirmed .plant-flower { opacity: 0.6; }
 .plant--dismissed { --plant-ink: #a39a8e; filter: grayscale(1); opacity: 0.6; }
 
@@ -73,15 +76,22 @@
 .idea-link:focus-visible { outline: none; }
 .idea-link:focus-visible::after { outline: 2px solid var(--ink); outline-offset: 2px; }
 .idea-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.5rem;
+  display: block;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--ink-2);
 }
-.bloom-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--accent); flex: none; }
+.bloom-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.4em;
+  vertical-align: 0.1em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.idea-stage { color: var(--ink); font-weight: 500; white-space: nowrap; }
+.idea-meta-part { white-space: nowrap; }
 .idea-line {
   margin: 0.25rem 0 0;
   font-family: var(--serif);
@@ -261,12 +271,12 @@
 .idea-action:hover { border-color: #cdc2b1; background: #fbf8f2; }
 .idea-action-status { font-size: 0.875rem; color: var(--ink-2); }
 
-.idea-page--dismissed .idea-head h1,
-.idea-page--dismissed .idea-panel { opacity: 0.72; }
+/* Dismissed: greyed by colour, never by opacity, so every line keeps AA contrast (ink-2: 6.31:1 on ground, 6.87:1 on surface). */
+.idea-page--dismissed :is(.idea-head h1, .idea-stage, .idea-panel h2, .growth-note, .growth blockquote, .draft) { color: var(--ink-2); }
 
 @media (min-width: 48rem) {
   .idea-page { padding: 2rem 2rem 5rem; }
-  .plant--lg { width: 8rem; height: 10rem; }
+  .plant--lg { width: 8rem; }
   .idea-head h1 { font-size: 2.75rem; }
   .idea-panel { padding: 1.75rem 2rem 2rem; }
 }

@@ -1,4 +1,4 @@
-import { formatTimelineDate, type TimelineEntry } from "../ideas/timeline";
+import { formatTimelineDate, NOTE_AGAIN, type TimelineEntry } from "../ideas/timeline-format";
 import type { IdeaStage, Source } from "../types";
 import { stageLabel } from "./plant";
 
@@ -59,21 +59,38 @@ export interface GrowthStep {
 
 // One step per timeline line, oldest first. Each line was written for one mention at that mention's own time
 // (timelineEntryJson), so lines pair with mentions by time, one-to-one. A line whose mention was dismissed is dropped
-// with its excerpt; a line with no mention row (older data) still shows, without an excerpt.
+// with its excerpt; a line with no mention row (older data) still shows, without an excerpt. A non-dismissed mention
+// with no line of its own still gets a step ("mentioned again"), so the steps never undercount the mentions.
 export function growthSteps(entries: readonly TimelineEntry[], mentions: readonly MentionRef[]): GrowthStep[] {
   const unused = [...mentions];
-  return entries.flatMap((e, i) => {
+  const step = (date: string, note: string, m: MentionRef | null, key: string): GrowthStep => ({
+    key,
+    date,
+    dateLabel: formatTimelineDate(new Date(date)),
+    note,
+    source: m ? (SOURCE_LABEL[m.source as Source] ?? null) : null,
+    excerpt: m?.excerpt ?? null,
+    unconfirmed: m?.reviewStatus === "needs_review",
+  });
+  const fromLines = entries.flatMap((e, i) => {
     const at = unused.findIndex((m) => Date.parse(m.spokenAt) === Date.parse(e.date));
     const m = at === -1 ? null : unused.splice(at, 1)[0]!;
-    if (m?.reviewStatus === "dismissed") return [];
-    return [{
-      key: `${e.date}-${i}`,
-      date: e.date,
-      dateLabel: formatTimelineDate(new Date(e.date)),
-      note: timelineNote(e.line),
-      source: m ? (SOURCE_LABEL[m.source as Source] ?? null) : null,
-      excerpt: m?.excerpt ?? null,
-      unconfirmed: m?.reviewStatus === "needs_review",
-    }];
+    return m?.reviewStatus === "dismissed" ? [] : [step(e.date, timelineNote(e.line), m, `${e.date}-${i}`)];
   });
+  const unpaired = unused
+    .filter((m) => m.reviewStatus !== "dismissed")
+    .map((m) => step(new Date(m.spokenAt).toISOString(), NOTE_AGAIN, m, `mention-${m.id}`));
+  return [...fromLines, ...unpaired].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The newest line by date, skipping lines written for mentions that were later dismissed (one skip per dismissal). */
+export function latestLine(entries: readonly TimelineEntry[], dismissedAt: readonly string[]): string | null {
+  const dismissed = dismissedAt.map((d) => Date.parse(d));
+  const kept = entries.filter((e) => {
+    const at = dismissed.indexOf(Date.parse(e.date));
+    if (at === -1) return true;
+    dismissed.splice(at, 1);
+    return false;
+  });
+  return kept.at(-1)?.line ?? null;
 }
