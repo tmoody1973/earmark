@@ -30,6 +30,10 @@ describe("BeeClient.changes", () => {
     expect(() => BeeChangesSchema.parse({ ...empty })).toThrow();
   });
 
+  it("rejects an item that is neither an id nor an object with an id", () => {
+    expect(() => BeeChangesSchema.parse({ ...meta, conversations: [{ foo: 1 }] })).toThrow();
+  });
+
   it("parses the real (redacted) fixture", () => {
     const fixture = JSON.parse(readFileSync("tests/fixtures/bee-changes.json", "utf8"));
     const r = BeeChangesSchema.parse(fixture);

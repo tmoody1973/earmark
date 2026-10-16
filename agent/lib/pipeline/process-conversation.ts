@@ -23,7 +23,7 @@ export interface PipelineDeps {
 }
 
 // saved: ids from the save transaction — M3's rec lane and M2's clustering hook on these.
-export interface ConversationResult { skipped: boolean; ideas: number; recs: number; reviews: number; failed: number; incomplete: boolean; saved: SavedIds }
+export interface ConversationResult { skipped: boolean; ideas: number; recs: number; reviews: number; failed: number; incomplete: boolean; saved: SavedIds; reason?: "capturing" }
 
 export function resolveDeps(deps: Partial<PipelineDeps>): PipelineDeps {
   return {
@@ -127,7 +127,7 @@ export async function processConversation(
   const d = resolveDeps(deps);
   const { deadline } = deps;
   const { conversation } = await d.bee.getConversation(id);
-  if (conversation.state !== "COMPLETED") return skipped; // still capturing, so unclaimed; the backfill picks it up later
+  if (conversation.state !== "COMPLETED") return { ...skipped, reason: "capturing" }; // still capturing, so unclaimed; the backfill picks it up later
 
   // Claim before any work so concurrent runs cannot both save. Anything that fails after this releases the claim.
   if (!(await markConversationProcessed(id, { ideas: 0, recs: 0 }))) return skipped;
