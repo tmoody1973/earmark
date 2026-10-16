@@ -1,8 +1,10 @@
 import { db } from "../db";
 import { buildSaveQueries, savedIds, type SaveItem } from "../pipeline/save-item";
 import { toVectorLiteral } from "../ideas/embed";
+import type { DraftFormat } from "../ideas/one-pager";
 import type { TimelineEntry } from "../ideas/timeline";
 import type { IdeaStage, Source } from "../types";
+import { CLAIM_LEASE, type Txn } from "./conversations";
 
 export interface NewIdeaMention {
   beeConversationId: number | null;
@@ -91,4 +93,61 @@ export async function isClusterConfirmed(clusterId: number): Promise<boolean> {
 export async function getClusterTimeline(clusterId: number): Promise<TimelineEntry[]> {
   const rows = await db()`select timeline from idea_clusters where id = ${clusterId}`;
   return (rows[0]?.timeline ?? []) as TimelineEntry[];
+}
+
+// ── One-pager drafts (M2-T7) ──────────────────────────────────────────────────────────────────────────────────────
+// A bloomed cluster is drafted after its bloom committed (never inside the claim transaction). Claim → draft → save:
+// the claim is the done-lease pattern (migration 009); "done" = draft saved with stage 'drafted' in ONE statement.
+
+// A cluster whose draft failed this many times is left bloomed without a draft (logged) until someone resets it.
+export const MAX_DRAFT_ATTEMPTS = 3;
+
+// Claim up to `limit` bloomed clusters without a draft (optionally only these ids). SKIP LOCKED + the lease: two runners
+// never get the same cluster; a claim from a run that crashed is re-taken once older than CLAIM_LEASE.
+export async function claimDraftableClusters(opts: { clusterIds?: number[]; limit: number }): Promise<number[]> {
+  const ids = opts.clusterIds ?? null;
+  const rows = await db()`
+    with open as (
+      select id from idea_clusters
+      where stage = 'ready' and draft_md is null and draft_attempts < ${MAX_DRAFT_ATTEMPTS}
+        and (draft_claimed_at is null or draft_claimed_at < now() - ${CLAIM_LEASE}::interval)
+        and (${ids}::bigint[] is null or id = any(${ids}::bigint[]))
+      order by last_mentioned_at desc nulls last, id
+      limit ${opts.limit}
+      for update skip locked
+    )
+    update idea_clusters c set draft_claimed_at = now(), draft_attempts = c.draft_attempts + 1
+    from open where c.id = open.id
+    returning c.id`;
+  return rows.map((r) => Number(r.id));
+}
+
+// Failed draft: give the claim back so a later run retries (attempts were counted at claim time).
+export async function releaseDraftClaim(clusterId: number): Promise<void> {
+  await db()`update idea_clusters set draft_claimed_at = null where id = ${clusterId} and draft_md is null`;
+}
+
+// Every non-dismissed mention (needs_review too: unconfirmed clusters bloom and are drafted, decision 004) and the
+// stored timeline. Order is not guaranteed: callers sort by date.
+export interface ClusterForDraft {
+  id: number; title: string; timeline: TimelineEntry[]; mentions: Array<{ excerpt: string; spokenAt: Date }>;
+}
+export async function getClusterForDraft(clusterId: number): Promise<ClusterForDraft | null> {
+  const sql = db();
+  const [c] = await sql`select id, title, timeline from idea_clusters where id = ${clusterId}`;
+  if (!c) return null;
+  const ms = await sql`select excerpt, spoken_at from idea_mentions where cluster_id = ${clusterId} and review_status <> 'dismissed'`;
+  return {
+    id: Number(c.id), title: String(c.title), timeline: (c.timeline ?? []) as TimelineEntry[],
+    mentions: ms.map((m) => ({ excerpt: String(m.excerpt), spokenAt: new Date(m.spoken_at) })),
+  };
+}
+
+// Statement builder only (amendment a: no stray writers): run it inside db().transaction. Saves the draft, its format
+// and stage ready → drafted together, and only while the cluster is still ready without a draft (no row otherwise).
+export function saveDraft(txn: Txn, clusterId: number, draftMd: string, format: DraftFormat) {
+  return txn`update idea_clusters
+             set draft_md = ${draftMd}, draft_format = ${format}, stage = 'drafted', draft_claimed_at = null, updated_at = now()
+             where id = ${clusterId} and stage = 'ready' and draft_md is null
+             returning id`;
 }

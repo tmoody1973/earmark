@@ -77,6 +77,46 @@ export const BeeChangesSchema = z.object({
 });
 export type BeeChanges = z.infer<typeof BeeChangesSchema>;
 
+// Search shapes verified live (docs/research/bee-api.md §7). Neural ids are numbers, keyword ids strings.
+export const NeuralSearchSchema = z.object({
+  results: z.array(z.object({
+    id: z.number(),
+    started_at: Timestamp.nullish(),
+    stopped_at: Timestamp.nullish(),
+    link: z.string().nullish(),
+    locations: z.array(z.string()).default([]),
+    short_summary: z.string().nullish(),
+    detailed_summary: z.string().nullish(),
+  })),
+  total: z.number().optional(),
+  timezone: z.string().optional(),
+});
+export const KeywordSearchSchema = z.object({
+  results: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    score: z.number().optional(),
+    summary: z.string().nullish(),
+    snippet: z.string().nullish(),
+    title_snippet: z.string().nullish(),
+    created_at: Timestamp.nullish(),
+  })),
+  next_cursor: z.string().nullish(),
+  search_mode: z.string().optional(),
+  timezone: z.string().optional(),
+});
+const FactSchema = z.object({ id: z.number(), text: z.string(), tags: z.array(z.string()).default([]), created_at: Timestamp, confirmed: z.boolean() });
+export type NeuralSearchResult = z.infer<typeof NeuralSearchSchema>;
+export type KeywordSearchResult = z.infer<typeof KeywordSearchSchema>;
+export type BeeFact = z.infer<typeof FactSchema>;
+export type KeywordSearchOptions = {
+  filter?: "conversations" | "daily" | "facts" | "all";
+  sortBy?: "relevance" | "mostRecent";
+  since?: number;
+  until?: number;
+  limit?: number;
+};
+
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
 export type Conversation = z.infer<typeof ConversationSchema>;
 export type Journal = z.infer<typeof JournalSchema>;
@@ -118,6 +158,13 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
     changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),
+    // `q`, not `query`: that name is the query-string helper above.
+    neuralSearch: (q: string, opts: { since?: number; until?: number; limit?: number } = {}) =>
+      call("/v1/search/conversations/neural", NeuralSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }) }),
+    keywordSearch: (q: string, opts: KeywordSearchOptions = {}) =>
+      call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }) }),
+    listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
+      call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
   };
 }
 
