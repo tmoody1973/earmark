@@ -1,13 +1,17 @@
 import { db } from "../db";
 import { toVectorLiteral } from "../ideas/embed";
+import { isNewBloom } from "../ideas/stage";
 import { NOTE_AGAIN, NOTE_FIRST, timelineEntryJson } from "../ideas/timeline";
 import type { Txn } from "../store/conversations";
-import type { AttributionSource, IdeaExtraction, RecExtraction, RecType, Source } from "../types";
+import type { AttributionSource, IdeaExtraction, IdeaStage, RecExtraction, RecType, Source } from "../types";
 import { clampExcerpt } from "./excerpt";
 
 interface Common {
   route: "accept" | "review";
   beeConversationId: number | null;
+  // Live stream mentions only: the stream's conversation uuid (REST knows only the numeric id; bee_conversation_map
+  // links the two). Stored on the mention so a live mention and the later completed pass are one occasion.
+  beeConversationUuid?: string | null;
   beeJournalId: string | null;
   spokenAt: Date;
   confidence: number;
@@ -34,17 +38,22 @@ export type ClusterPlan =
   | { action: "join"; clusterId: number; embedding: number[]; timelineNote?: string };
 
 // Ids of what one transaction saved, for the lanes that hook on new items (M2 clustering, M3 rec lane).
-export interface SavedIds { recIds: number[]; ideaClusterIds: number[]; mentionIds: number[] }
-export const noneSaved = (): SavedIds => ({ recIds: [], ideaClusterIds: [], mentionIds: [] });
+// bloomedClusterIds: clusters this save moved to 'ready' (M2-T7 drafts their one-pager).
+export interface SavedIds { recIds: number[]; ideaClusterIds: number[]; mentionIds: number[]; bloomedClusterIds: number[] }
+export const noneSaved = (): SavedIds => ({ recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] });
 
 // Neon's transaction() resolves to one result (an array of rows) per statement, in order. buildSaveQueries emits
 // exactly one statement per item, so results[i] belongs to items[i]; statements after the items are ignored.
 export function savedIds(items: readonly SaveItem[], results: readonly Record<string, unknown>[][]): SavedIds {
   const row = (i: number) => results[i]![0]!;
+  const ideas = items.flatMap((it, i) => (it.kind === "idea" ? [row(i)] : []));
   return {
     recIds: items.flatMap((it, i) => (it.kind === "rec" ? [Number(row(i).id)] : [])),
-    ideaClusterIds: items.flatMap((it, i) => (it.kind === "idea" ? [Number(row(i).cluster_id)] : [])),
-    mentionIds: items.flatMap((it, i) => (it.kind === "idea" ? [Number(row(i).id)] : [])),
+    ideaClusterIds: ideas.map((r) => Number(r.cluster_id)),
+    mentionIds: ideas.map((r) => Number(r.id)),
+    bloomedClusterIds: ideas
+      .filter((r) => r.prev_stage != null && isNewBloom(r.prev_stage as IdeaStage, r.next_stage as IdeaStage))
+      .map((r) => Number(r.cluster_id)),
   };
 }
 
@@ -57,20 +66,31 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
   if (item.kind === "idea") {
     const plan = item.cluster;
     const excerpt = clampExcerpt(item.extraction.excerpt);
+    // Occasion identity: both forms of the conversation, each filled from bee_conversation_map when this caller lacks
+    // it (live knows the uuid, the completed pass the numeric id), so the unique indexes on (cluster_id, id) and
+    // (cluster_id, uuid) catch a live mention and the completed pass of one conversation whichever form each knew.
+    const convId = item.beeConversationId;
+    const convUuid = item.beeConversationUuid ?? null;
+    const status = review ? "needs_review" : "accepted";
     if (plan?.action === "join") {
       const v = toVectorLiteral(plan.embedding);
       const entry = timelineEntryJson(item.spokenAt, plan.timelineNote ?? NOTE_AGAIN);
       // Stage via idea_stage_for (= stageFor) on the row's own count, so drafted/used/dismissed never move.
       // Centroid = mean of the cluster's non-dismissed mention embeddings (accepted and needs_review) plus this one
       // (the CTE's insert is not visible to the subquery, so the new vector is added explicitly).
-      // Migration 004's unique indexes make a second mention from the same conversation/journal fail the transaction.
+      // Migration 004/006 unique indexes make a second mention from the same occasion fail the transaction.
+      // The update returns the stage before and after (Postgres 18 RETURNING old/new); the garden event's kind mirrors
+      // isNewBloom (stage.ts) in SQL, and savedIds applies isNewBloom to the same two values.
       // ponytail: two concurrent joins on one cluster may each miss the other's vector in the mean (count stays exact);
       // recompute centroids in a nightly job if live and backfill ever overlap on one idea.
       return [
         txn`with m as (
-              insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
-              values (${plan.clusterId}::bigint, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
-                      ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${review ? "needs_review" : "accepted"}::text, ${item.source}::text)
+              insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+              values (${plan.clusterId}::bigint,
+                      coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
+                      coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
+                      ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
+                      ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${status}::text, ${item.source}::text)
               returning id, cluster_id
             ), c as (
               update idea_clusters set
@@ -85,8 +105,13 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
                 timeline = coalesce(timeline, '[]'::jsonb) || ${entry}::jsonb,
                 updated_at = now()
               where id = ${plan.clusterId}::bigint
+              returning old.stage as prev_stage, new.stage as next_stage
+            ), g as (
+              insert into garden_events (kind, cluster_id)
+              select case when c.prev_stage <> 'ready' and c.next_stage = 'ready' then 'bloom' else 'mention' end, ${plan.clusterId}::bigint
+              from c
             )
-            select id, cluster_id from m`,
+            select m.id, m.cluster_id, c.prev_stage, c.next_stage from m, c`,
       ];
     }
     const counted = 1; // every mention counts, needs_review too (Tarik: review-band ideas count; decision 004)
@@ -97,12 +122,19 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
             insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, centroid, timeline)
             values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector, ${entry}::jsonb)
             returning id
+          ), m as (
+            insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+            select c.id,
+                   coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
+                   coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
+                   ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
+                   ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${status}::text, ${item.source}::text
+            from c
+            returning id, cluster_id
+          ), g as (
+            insert into garden_events (kind, cluster_id) select 'mention', id from c
           )
-          insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
-          select c.id, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
-                 ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${review ? "needs_review" : "accepted"}::text, ${item.source}::text
-          from c
-          returning id, cluster_id`,
+          select id, cluster_id, null::text as prev_stage, 'compost'::text as next_stage from m`,
     ];
   }
   const { extraction: ex, attribution } = item;

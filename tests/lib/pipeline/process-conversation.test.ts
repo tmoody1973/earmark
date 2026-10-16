@@ -85,7 +85,7 @@ describe("processConversation", () => {
   it("stores an accepted rec with a second-person attribution, and the counts, in one transaction", async () => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
     // saved ids come from the transaction's own results (statement 1 = the rec insert)
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(recs()).toHaveLength(1);
     const q = recs()[0]!;
     expect(q.sql).toContain("insert into recommenders");
@@ -107,7 +107,7 @@ describe("processConversation", () => {
     ["low confidence", { kindProbability: 0.3 }],
   ])("drops %s but still keeps the conversation claimed", async (_label, over) => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri(over) });
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(recs()).toHaveLength(0);
     expect(releaseConversation).not.toHaveBeenCalled();
   });
@@ -208,13 +208,13 @@ describe("processConversation", () => {
 
   it("a skipped conversation reports no saved ids", async () => {
     vi.mocked(isConversationProcessed).mockResolvedValueOnce(true);
-    expect((await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).saved).toEqual({ recIds: [], ideaClusterIds: [], mentionIds: [] });
+    expect((await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).saved).toEqual({ recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] });
   });
 
   it("creates an idea cluster for an accepted idea", async () => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
     expect(r.ideas).toBe(1);
-    expect(r.saved).toEqual({ recIds: [], ideaClusterIds: [101], mentionIds: [1] });
+    expect(r.saved).toEqual({ recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] });
     expect(ideas()).toHaveLength(1);
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["House music segment", "accepted", "ambient", 42]));
   });
@@ -234,13 +234,13 @@ describe("processConversation", () => {
     expect(ideas()).toHaveLength(0); // no new cluster
     const join = committed.find((q) => /update idea_clusters/.test(q.sql))!;
     expect(join.params).toEqual(expect.arrayContaining([12, "[1,0]", "accepted", "ambient", 42]));
-    expect(r).toMatchObject({ ideas: 1, saved: { ideaClusterIds: [101], mentionIds: [1] } });
+    expect(r).toMatchObject({ ideas: 1, saved: { ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
   });
 
   it("an idea the planner drops (same conversation already counted) is neither saved nor counted", async () => {
     vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) => items.filter((it) => it.kind !== "idea"));
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
-    expect(r).toMatchObject({ ideas: 0, recs: 0, saved: { ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toMatchObject({ ideas: 0, recs: 0, saved: { ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(committed.filter((q) => /idea_clusters|idea_mentions/.test(q.sql))).toHaveLength(0);
     const counts = committed.find((q) => /update processed_conversations/.test(q.sql))!;
     expect(counts.params).toEqual(expect.arrayContaining([0, 0, 42]));

@@ -81,6 +81,14 @@ describe("planIdeaClusters", () => {
     expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null });
   });
 
+  it("a live mention checks its occasion by the stream uuid too (live + completed pass = one occasion)", async () => {
+    store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+    deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+    store.hasMentionFromSameOccasion.mockResolvedValue(true);
+    expect(await planIdeaClusters([idea("Live", { beeConversationId: null, beeConversationUuid: "uuid-1" })], deps)).toEqual([]);
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: null, beeConversationUuid: "uuid-1" });
+  });
+
   it("checks the same journal for a voice note", async () => {
     store.nearestClusters.mockResolvedValue([dbCluster(12)]);
     deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });

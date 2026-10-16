@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSaveQueries, type SaveItem } from "../../../agent/lib/pipeline/save-item";
+import { buildSaveQueries, savedIds, type SaveItem } from "../../../agent/lib/pipeline/save-item";
 import type { Txn } from "../../../agent/lib/store/conversations";
 
 const txn = ((strings: TemplateStringsArray, ...params: unknown[]) => ({ sql: strings.join("?"), params })) as unknown as Txn;
@@ -68,9 +68,46 @@ describe("buildSaveQueries for ideas", () => {
     expect(q.params).not.toContain("accepted");
   });
 
+  it("join plan returns the previous and new stage and writes its garden event in the same statement", () => {
+    const q = one(idea({ cluster: { action: "join", clusterId: 12, embedding: [1] } }));
+    expect(q.sql).toMatch(/returning old\.stage as prev_stage, new\.stage as next_stage/);
+    expect(q.sql).toContain("insert into garden_events");
+    expect(q.sql).toMatch(/when c\.prev_stage <> 'ready' and c\.next_stage = 'ready' then 'bloom' else 'mention'/);
+    expect(q.sql).toMatch(/select m\.id, m\.cluster_id, c\.prev_stage, c\.next_stage/);
+  });
+
+  it("create plan writes a 'mention' garden event (a new cluster never blooms) and reports stage compost", () => {
+    const q = one(idea({ cluster: { action: "create", embedding: [1] } }));
+    expect(q.sql).toContain("insert into garden_events");
+    expect(q.sql).toMatch(/'mention'/);
+    expect(q.sql).not.toMatch(/'bloom'/);
+    expect(q.sql).toMatch(/null::text as prev_stage, 'compost'::text as next_stage/);
+  });
+
+  it.each(["create", "join"] as const)("%s: stores the stream uuid and fills either missing conversation form from bee_conversation_map", (action) => {
+    const cluster = action === "join" ? { action, clusterId: 12, embedding: [1] } : { action, embedding: [1] };
+    const q = one(idea({ beeConversationId: null, beeConversationUuid: "uuid-1", cluster }));
+    expect(q.sql).toContain("bee_conversation_uuid");
+    expect(q.sql).toMatch(/coalesce\(\?::bigint, \(select bee_conversation_id from bee_conversation_map where conversation_uuid = \?::text\)\)/);
+    expect(q.sql).toMatch(/coalesce\(\?::text, \(select conversation_uuid from bee_conversation_map where bee_conversation_id = \?::bigint\)\)/);
+    expect(q.params.filter((p) => p === "uuid-1")).toHaveLength(2);
+  });
+
   it("the centroid mean uses every non-dismissed mention (accepted and needs_review alike)", () => {
     const q = one(idea({ cluster: { action: "join", clusterId: 12, embedding: [1] } }));
     expect(q.sql).toMatch(/review_status <> 'dismissed'/);
     expect(q.sql).not.toMatch(/review_status = 'accepted'/);
+  });
+});
+
+describe("savedIds", () => {
+  it("reports a bloom only for an idea whose stage just became ready (isNewBloom on the returned stages)", () => {
+    const items = [idea(), idea(), idea()];
+    const results = [
+      [{ id: 1, cluster_id: 10, prev_stage: "sprouting", next_stage: "ready" }],
+      [{ id: 2, cluster_id: 11, prev_stage: "ready", next_stage: "ready" }],
+      [{ id: 3, cluster_id: 12, prev_stage: null, next_stage: "compost" }],
+    ];
+    expect(savedIds(items, results)).toEqual({ recIds: [], ideaClusterIds: [10, 11, 12], mentionIds: [1, 2, 3], bloomedClusterIds: [10] });
   });
 });
