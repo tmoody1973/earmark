@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   WRITE_MODEL: z.string().default("anthropic/claude-sonnet-5.5"),
   PHOTO_DECISION_PROVIDER: z.enum(["gateway", "openai"]).default("gateway"),
   OPENAI_API_KEY: z.string().optional(), // only for PHOTO_DECISION_PROVIDER=openai
+  EARMARK_CAPTURE_TOKEN: z.string().min(32).optional(), // bearer token for /api/capture/*; routes refuse everything while unset
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender

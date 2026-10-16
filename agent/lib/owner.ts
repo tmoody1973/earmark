@@ -1,6 +1,12 @@
 // Anything under /api/bee/ or /eve/v1/ bypasses Clerk: a new route there must carry its own auth.
 // /sign-out is public so a signed-in non-owner (refused everywhere else) can leave.
-const PUBLIC = [/^\/sign-in(?:\/|$)/, /^\/sign-out$/, /^\/api\/bee\//, /^\/eve\/v1\//];
+// M5 paths below do their own auth (bearer token, webhook signature, unguessable token) or are intentionally public pages.
+const PUBLIC = [
+  /^\/sign-in(?:\/|$)/, /^\/sign-out$/, /^\/api\/bee\//, /^\/eve\/v1\//,
+  /^\/api\/capture\//, /^\/api\/email\/inbound$/, /^\/api\/mcp$/,
+  /^\/api\/oauth\/token$/, /^\/\.well-known\//, /^\/r\//, /^\/s\//,
+  /^\/feed\//, /^\/privacy$/, /^\/terms$/,
+];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC.some((re) => re.test(pathname));

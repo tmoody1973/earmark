@@ -51,6 +51,23 @@ Production is the Vercel project `earmark` on the Pro team `tmoody1973s-projects
 
 Auth: the Bee route needs the webhook secret in an `x-earmark-key` header (or `Authorization: Bearer`; never the URL); cron needs `CRON_SECRET` (Nitro checks `Authorization: Bearer`); the garden is Clerk, owner only; the eve session API accepts only Vercel OIDC (no browser client). Function limit: eve runs schedules at `maxDuration: "max"`, 800 s on this Pro project (Fluid Compute), under the 15-minute claim lease.
 
+## Capture a photo
+
+Share a photo of an album, book, sign or menu from your iPhone and Earmark saves it, links it to the Bee conversation it came from (within 10 minutes, within 500 m) and credits whoever recommended it. Photos with any chance of a person in them keep the recommendation but never the image.
+
+Set `EARMARK_CAPTURE_TOKEN` (at least 32 characters: `openssl rand -base64 32`) in `.env.local` and in the Vercel project, and create a public Vercel Blob store (it adds `BLOB_READ_WRITE_TOKEN`). Then build the "Earmark this" Shortcut (Shortcuts app, + , name it "Earmark this"):
+
+1. Details (i): turn on **Show in Share Sheet**; accepted types: **Images** only.
+2. **Receive** Images from Share Sheet; if there is no input, **Ask For** Photos.
+3. **Get Details of Images**, *Date Taken*, then **Format Date** (ISO 8601, include time) and call it `TakenAt`.
+4. **Get Details of Images**, *Location*. If it has a value: **Get Details of Locations** for *Latitude* (`Lat`) and *Longitude* (`Lng`). Otherwise: **Get Current Location** and take its Latitude and Longitude into `Lat` and `Lng`.
+5. **Convert** the input **to JPEG** (Preserve Metadata off), **Resize Image** to width 1024, call it `Image1024`.
+6. **Resize Image** `Image1024` to width 256, call it `Thumb`.
+7. **Get Contents of URL** `https://<production-host>/api/capture/photo`: method **POST**, header `Authorization: Bearer <EARMARK_CAPTURE_TOKEN>`, body **Form** with `image` (File) = `Image1024`, `thumb` (File) = `Thumb`, `taken_at` (Text) = `TakenAt`, `lat` (Text) = `Lat`, `lng` (Text) = `Lng`.
+8. **Get Dictionary Value** for `message`, then **Show Notification**.
+
+Probe first: add `?dry=1` to the URL and run it on any photo. The response lists each field it received (name, type, size) without processing anything, so a mis-named Shortcut field shows up immediately. Remove `?dry=1` afterwards. Images must be JPEG or PNG and under 4 MB. Recommended at deploy: a Vercel firewall rate-limit rule on `/api/capture/*`.
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).
