@@ -1,3 +1,4 @@
+import { APICallError, RetryError } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fake Neon: transaction(fn) collects the statements fn builds and "commits" them all or none.
@@ -442,8 +443,13 @@ describe("processConversation", () => {
       expect(releaseConversation).not.toHaveBeenCalled();
     });
 
-    it.each(["APICallError", "GatewayInternalServerError", "RetryError", "TimeoutError"])("an outage error (%s) on an earmark releases the claim", async (name) => {
-      const extractRecommendation = vi.fn(async () => { throw Object.assign(new Error("down"), { name }); }) as PipelineDeps["extractRecommendation"];
+    const api = () => new APICallError({ message: "down", url: "https://x", requestBodyValues: {}, statusCode: 503 });
+    it.each([
+      ["APICallError", api()],
+      ["RetryError", new RetryError({ message: "gave up", reason: "maxRetriesExceeded", errors: [api()] })],
+      ["TimeoutError", Object.assign(new Error("down"), { name: "TimeoutError" })],
+    ])("an outage error (%s) on an earmark releases the claim", async (_name, error) => {
+      const extractRecommendation = vi.fn(async () => { throw error; }) as PipelineDeps["extractRecommendation"];
       await expect(processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) })).rejects.toThrow();
       expect(releaseConversation).toHaveBeenCalledWith(42);
     });
