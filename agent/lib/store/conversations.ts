@@ -59,11 +59,12 @@ export function conversationCountsQuery(txn: Txn, id: number, counts: { ideas: n
 
 // Deliberate "Earmark that" keys already saved from this conversation (recs and idea mentions). A re-run after a
 // released claim skips these before any model call; the unique indexes in migration 008 are the backstop.
-export async function savedDeliberateKeys(id: number): Promise<Set<string>> {
-  const rows = await db()`select deliberate_key from recommendations where bee_conversation_id = ${id} and deliberate_key is not null
-                          union
-                          select deliberate_key from idea_mentions where bee_conversation_id = ${id} and deliberate_key is not null`;
-  return new Set(rows.map((r) => r.deliberate_key as string));
+// Returns key -> the saved rec's canonical name (null for an idea), so ambient dedupe still knows the name on a retry.
+export async function savedDeliberateKeys(id: number): Promise<Map<string, string | null>> {
+  const rows = await db()`select deliberate_key, canonical_name from recommendations where bee_conversation_id = ${id} and deliberate_key is not null
+                          union all
+                          select deliberate_key, null from idea_mentions where bee_conversation_id = ${id} and deliberate_key is not null`;
+  return new Map(rows.map((r) => [r.deliberate_key as string, (r.canonical_name as string | null) ?? null]));
 }
 
 // Undo a claim when the run failed after claiming, so the backfill can retry. Guarded: a slow run that outlived its

@@ -50,7 +50,7 @@ There are two ways to say it. Either way, open the sentence with the trigger, th
 | ❌ Said this | Why |
 |---|---|
 | "Ann's ramen spot on Brady Street — earmark that." | The trigger has to come first in the sentence, so this one is ignored. |
-| "Earmark that." (nothing after) | Nothing to save. |
+| "Earmark that." (nothing after) | In a voice note: nothing to save. Mid-conversation: Earmark takes the next one or two things said, so keep talking about the item right away. |
 | "Earmark that and also the book Marcus mentioned." | Two items; only one is saved. |
 | "Earmark that place she told me about." | No name, no specific thing — Earmark can't look it up or credit anyone. |
 

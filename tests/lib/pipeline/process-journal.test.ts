@@ -198,7 +198,18 @@ describe("processJournal", () => {
 
   it("rethrows the original error even when releasing the claim also fails", async () => {
     vi.mocked(releaseJournal).mockRejectedValueOnce(new Error("release boom"));
-    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new Error("model down"); }) as PipelineDeps["extractRecommendation"] };
+    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw Object.assign(new Error("model down"), { name: "APICallError" }); }) as PipelineDeps["extractRecommendation"] };
     await expect(processJournal({ id: "61", text: "Earmark that, Ann's ramen spot", createdAt }, bad)).rejects.toThrow("model down");
+  });
+
+  it("a non-outage extraction error saves the spoken words as a raw needs_review rec instead of failing the note", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new Error("bad json"); }) as PipelineDeps["extractRecommendation"] };
+    const r = await processJournal({ id: "64", text: "Earmark that, Ann's ramen spot", createdAt }, bad);
+    expect(r.created).toBe("rec");
+    expect(committed.some((q) => q.params.includes("needs_review") && q.params.includes("Ann's ramen spot"))).toBe(true);
+    expect(releaseJournal).not.toHaveBeenCalled();
+    expect(spy.mock.calls.flat().join("\n")).toContain("journal=64");
+    spy.mockRestore();
   });
 });

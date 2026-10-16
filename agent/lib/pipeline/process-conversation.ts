@@ -120,14 +120,20 @@ function dedupe(planned: Planned[], earmarked: ReadonlySet<string>): Planned[] {
 }
 
 // Earmarks already saved from this conversation (a released claim being retried) are skipped before any model call.
-// A model failure here throws: unlike an ambient window, the person asked for this item, so the run is released and retried.
-async function planDeliberate(id: number, earmarks: DeliberateEarmark[], fallbackAt: Date, d: PipelineDeps): Promise<SaveItem[]> {
-  if (earmarks.length === 0) return [];
+// A model outage throws (run released, retried); any other failure on one earmark saves it as a raw needs_review rec (see planDeliberateItem).
+// items: what to save now. earmarkedNames: lower-cased rec names of ALL earmarks of this conversation, including ones
+// saved on an earlier attempt, so ambient never re-saves them.
+async function planDeliberate(
+  id: number, earmarks: DeliberateEarmark[], fallbackAt: Date, d: PipelineDeps,
+): Promise<{ items: SaveItem[]; earmarkedNames: Set<string> }> {
+  if (earmarks.length === 0) return { items: [], earmarkedNames: new Set() };
   const saved = await savedDeliberateKeys(id);
   const todo = earmarks.filter((e) => !saved.has(e.key));
-  return mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
+  const items = await mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
     e.body, { label: `conversation=${id}`, beeConversationId: id, beeJournalId: null, spokenAt: e.spokenAt ?? fallbackAt, deliberateKey: e.key }, d,
   ));
+  const names = [...saved.values(), ...items.map((it) => (it.kind === "rec" ? it.extraction.canonicalName : null))];
+  return { items, earmarkedNames: new Set(names.flatMap((n) => (n ? [n.toLowerCase()] : []))) };
 }
 
 // deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
@@ -154,7 +160,7 @@ export async function processConversation(
     const windows = toWindows(rest, { conversationId: id, conversationUuid: null });
     const summary = conversation.summary ?? conversation.short_summary ?? null;
     const fallbackAt = toDate(conversation.start_time) ?? d.now();
-    const deliberate = await planDeliberate(id, earmarks, fallbackAt, d);
+    const { items: deliberate, earmarkedNames } = await planDeliberate(id, earmarks, fallbackAt, d);
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
     const outcomes = await mapLimit(windows, WINDOW_CONCURRENCY, (w, i) => runWindow(w, i, id, summary, fallbackAt, d, deadline));
@@ -171,8 +177,7 @@ export async function processConversation(
       console.error(`[pipeline] systemic failure conversation=${id} reason=${systemic}`);
       throw new SystemicTriageError(systemic);
     }
-    const earmarked = new Set(deliberate.flatMap((it) => (it.kind === "rec" ? [it.extraction.canonicalName.toLowerCase()] : [])));
-    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), earmarked).map((p) => p.item)];
+    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), earmarkedNames).map((p) => p.item)];
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
     // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion.
     const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
