@@ -90,3 +90,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** low.
 - **Workaround:** name scratch scripts `.mts`, or put them under `scripts/`.
 - **Suggestion:** tsx could hint at `.mts` in that error.
+
+## F-13 · Bee: `/v1/changes` response shape is undocumented and our own brief had it wrong
+- **Task:** M2-T3 (incremental sync).
+- **Expected vs actual:** the plan said the response nests cursor fields under `meta` and that a no-cursor call bootstraps about 10 h. The real response (one read-only call) has `next_cursor`, `since`, `until`, `updated`, `timezone` at the top level, lists hold bare numeric ids, and the no-cursor window is 24 h. Docs list the ids but show no schema.
+- **Severity:** medium (a parser written from the brief would have rejected every real response, so the cursor would never advance).
+- **Workaround:** probed the real endpoint first, recorded the shape in `docs/research/bee-api.md` and a redacted fixture; the schema test parses the fixture. Non-empty journals/todos/facts lists are still unseen, so ids are accepted as bare or `{id}`.
+- **Suggestion:** document the `/v1/changes` response schema and bootstrap window.
