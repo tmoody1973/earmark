@@ -32,8 +32,25 @@ export interface CaptureRec {
 // image / links / Apple Music id, keep its status and recommender). Otherwise insert, upserting the recommender.
 // Neon transactions are a fixed batch of statements, so the duplicate lookup happens just before it; a second
 // capture racing between the two would insert a duplicate, which a single-owner app accepts (decision 033).
-export async function saveCaptureRec(rec: CaptureRec): Promise<{ id: number; upgraded: boolean }> {
+//
+// `recentDuplicateMs` (song captures): a rec from the same source with the same normalized title (and artist, when
+// given) created within that window is returned untouched with `duplicate: true`, whether or not a conversation was
+// picked. This is what makes a double press of the Action button save once.
+export interface SaveOptions {
+  recentDuplicateMs?: number;
+}
+export interface SaveResult {
+  id: number;
+  upgraded: boolean;
+  duplicate?: boolean;
+}
+
+export async function saveCaptureRec(rec: CaptureRec, opts: SaveOptions = {}): Promise<SaveResult> {
   const sql = db();
+  if (opts.recentDuplicateMs) {
+    const dupId = await findRecentDuplicate(rec, opts.recentDuplicateMs);
+    if (dupId !== null) return { id: dupId, upgraded: false, duplicate: true };
+  }
   const existingId = await findExisting(rec);
   const photo = rec.photo;
   const photoArgs = photo
@@ -91,5 +108,16 @@ async function findExisting(rec: CaptureRec): Promise<number | null> {
   const rows = await db()`select id, canonical_name from recommendations
                           where bee_conversation_id = ${rec.beeConversationId} order by id`;
   const hit = rows.find((r) => sameNormalizedName(String(r.canonical_name), rec.canonicalName));
+  return hit ? Number(hit.id) : null;
+}
+
+async function findRecentDuplicate(rec: CaptureRec, windowMs: number): Promise<number | null> {
+  const rows = await db()`select id, canonical_name, creator from recommendations
+                          where source = ${rec.source}::text and created_at > now() - make_interval(secs => ${windowMs / 1000}::float8)
+                          order by id desc`;
+  const hit = rows.find(
+    (r) => sameNormalizedName(String(r.canonical_name), rec.canonicalName) &&
+      (!rec.creator || (r.creator !== null && sameNormalizedName(String(r.creator), rec.creator))),
+  );
   return hit ? Number(hit.id) : null;
 }

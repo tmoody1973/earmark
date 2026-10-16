@@ -104,4 +104,59 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("saveCaptureRec (real Neon)", ()
     const [row] = await db()`select image_url from recommendations where id = ${first.id}`;
     expect(row!.image_url).toBeNull();
   });
+
+  describe("song captures (M5-T4)", () => {
+    const song = (over: Partial<CaptureRec> = {}) =>
+      rec({ type: "song", canonicalName: "Zzsong Movement", creator: "Zzfloating Pts", appleMusicId: "1550583155", links: { apple_music: "https://music.apple.com/us/song/x/1550583155" },
+            source: "song", confidence: 1, photo: undefined, ...over });
+
+    it("inserts with source 'song' and the Apple Music id", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const saved = await saveCaptureRec(song({ beeConversationId: CONV + 1 }), { recentDuplicateMs: 600_000 });
+      expect(saved).toMatchObject({ upgraded: false });
+      expect(saved.duplicate).toBeUndefined();
+      const [row] = await db()`select source, type, apple_music_id, links from recommendations where id = ${saved.id}`;
+      expect(row).toMatchObject({ source: "song", type: "song", apple_music_id: "1550583155", links: { apple_music: "https://music.apple.com/us/song/x/1550583155" } });
+    });
+
+    it("a double press within 10 minutes yields one row, with or without a picked conversation", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const opts = { recentDuplicateMs: 600_000 };
+      const mk = () => song({ canonicalName: "Zzdouble Press", creator: "Zzdp Artist", beeConversationId: null, recommenderName: null, attributionSource: "none", evidence: [null, null] });
+      const first = await saveCaptureRec(mk(), opts);
+      const second = await saveCaptureRec({ ...mk(), canonicalName: "The zzdouble press" }, opts); // normalizes to the same title
+      expect(second).toEqual({ id: first.id, upgraded: false, duplicate: true });
+      const [{ n }] = (await db()`select count(*)::int as n from recommendations where canonical_name ilike '%zzdouble press' and source = 'song'`) as { n: number }[];
+      expect(n).toBe(1);
+      await db()`delete from recommendations where id = ${first.id}`;
+    });
+
+    it("does not treat a different artist, an old rec, or another source as a duplicate", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const opts = { recentDuplicateMs: 600_000 };
+      const base = () => song({ canonicalName: "Zzcover Tune", creator: "Zzone", beeConversationId: null, recommenderName: null, attributionSource: "none", evidence: [null, null] });
+      const a = await saveCaptureRec(base(), opts);
+      const b = await saveCaptureRec({ ...base(), creator: "Zztwo" }, opts);
+      expect(b.id).not.toBe(a.id);
+      await db()`update recommendations set created_at = now() - interval '11 minutes' where id = ${a.id}`;
+      const c = await saveCaptureRec(base(), opts);
+      expect(c.id).not.toBe(a.id);
+      const d = await saveCaptureRec({ ...base(), source: "photo" }, opts);
+      expect(d.id).not.toBe(c.id);
+      await db()`delete from recommendations where id = any(${[a.id, b.id, c.id, d.id]})`;
+    });
+
+    it("upgrades an existing rec from the same picked conversation (apple_music_id filled)", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const first = await saveCaptureRec(rec({ type: "song", canonicalName: "Zzupgrade Song", source: "ambient", appleMusicId: null, links: {}, photo: undefined, beeConversationId: CONV + 2 }));
+      const second = await saveCaptureRec(song({ canonicalName: "zzupgrade song", beeConversationId: CONV + 2, recommenderName: null, attributionSource: "none" }), { recentDuplicateMs: 600_000 });
+      expect(second).toEqual({ id: first.id, upgraded: true });
+      const rows = await db()`select source, apple_music_id from recommendations where bee_conversation_id = ${CONV + 2}`;
+      expect(rows).toEqual([{ source: "ambient", apple_music_id: "1550583155" }]);
+    });
+  });
 });
