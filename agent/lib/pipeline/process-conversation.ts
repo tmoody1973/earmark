@@ -1,11 +1,12 @@
 import { createBeeClient, toDate, type BeeClient } from "../bee/client";
 import {
-  conversationCountsQuery, isConversationProcessed, markConversationProcessed, releaseConversation,
+  conversationCountsQuery, isConversationProcessed, markConversationProcessed, releaseConversation, savedDeliberateKeys,
 } from "../store/conversations";
 import { db } from "../db";
 import { planIdeaClusters, type CompostDeps } from "../ideas/compost";
 import { ownerFirstName } from "../env";
 import { chooseRecommender } from "./attribution";
+import { planDeliberateItem, splitDeliberate, type DeliberateEarmark } from "./deliberate";
 import { extractIdea, extractRecommendation } from "./extract";
 import { buildSaveQueries, noneSaved, savedIds, type SaveItem, type SavedIds } from "./save-item";
 import { mapLimit } from "./map-limit";
@@ -116,6 +117,17 @@ function dedupe(planned: Planned[]): Planned[] {
   return out;
 }
 
+// Earmarks already saved from this conversation (a released claim being retried) are skipped before any model call.
+// A model failure here throws: unlike an ambient window, the person asked for this item, so the run is released and retried.
+async function planDeliberate(id: number, earmarks: DeliberateEarmark[], fallbackAt: Date, d: PipelineDeps): Promise<SaveItem[]> {
+  if (earmarks.length === 0) return [];
+  const saved = await savedDeliberateKeys(id);
+  const todo = earmarks.filter((e) => !saved.has(e.key));
+  return mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
+    e.body, { label: `conversation=${id}`, beeConversationId: id, beeJournalId: null, spokenAt: e.spokenAt ?? fallbackAt, deliberateKey: e.key }, d,
+  ));
+}
+
 // deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
 // ponytail: a conversation larger than one function budget never completes on serverless (no per-window progress is
 // saved); run it locally with scripts/backfill-once.ts.
@@ -133,10 +145,14 @@ export async function processConversation(
   if (!(await markConversationProcessed(id, { ideas: 0, recs: 0 }))) return skipped;
   try {
     const transcription = conversation.transcriptions.find((t) => !t.realtime) ?? conversation.transcriptions[0];
-    const utterances = (transcription?.utterances ?? []).map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at) }));
-    const windows = toWindows(utterances, { conversationId: id, conversationUuid: null });
+    const utterances = (transcription?.utterances ?? []).map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }));
+    // "Earmark that" said anywhere is a deliberate earmark: planned like a voice note, and removed from the transcript
+    // so ambient triage can never save the same thing again.
+    const { earmarks, rest } = splitDeliberate(utterances);
+    const windows = toWindows(rest, { conversationId: id, conversationUuid: null });
     const summary = conversation.summary ?? conversation.short_summary ?? null;
     const fallbackAt = toDate(conversation.start_time) ?? d.now();
+    const deliberate = await planDeliberate(id, earmarks, fallbackAt, d);
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
     const outcomes = await mapLimit(windows, WINDOW_CONCURRENCY, (w, i) => runWindow(w, i, id, summary, fallbackAt, d, deadline));
@@ -153,11 +169,11 @@ export async function processConversation(
       console.error(`[pipeline] systemic failure conversation=${id} reason=${systemic}`);
       throw new SystemicTriageError(systemic);
     }
-    const items = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])));
+    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : []))).map((p) => p.item)];
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
     // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion.
     const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
-    const saveItems = await planIdeaClusters(items.map((p) => p.item), d.compost, { span });
+    const saveItems = await planIdeaClusters(items, d.compost, { span });
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);

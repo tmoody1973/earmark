@@ -1,14 +1,17 @@
 # What to record on your Bee — a guide for Earmark
 
-This guide is for Tarik, written against how Earmark actually listens today (Oct 16, 2026). Earmark hears your Bee two ways: **ambient** (it reads your normal recorded conversations on its own) and **"Earmark that"** (a voice note you make on purpose). Ambient catches things you didn't plan to save; the voice note is the sure thing.
+This guide is for Tarik, written against how Earmark actually listens today (Oct 16, 2026). Earmark hears your Bee two ways: **ambient** (it reads your normal recorded conversations on its own) and **"Earmark that"** (you say it on purpose, in a voice note or right in the middle of a conversation). Ambient catches things you didn't plan to save; "Earmark that" is the sure thing.
 
 > **Consent first.** Tell people when your Bee is on — guests, co-hosts, friends at dinner. Earmark keeps only first names and a 25-word excerpt, but the people talking deserve to know.
 
 ---
 
-## 1. The sure thing: "Earmark that" voice notes
+## 1. The sure thing: "Earmark that"
 
-Start a **voice note** in Bee (the way you normally record a note — not a regular conversation). Open with the trigger, then say **who** and **what**.
+There are two ways to say it. Either way, open the sentence with the trigger, then say **who** and **what**.
+
+- **Voice note (the fast path, lands in seconds).** Set Bee's press-and-hold to **Voice Notes**, hold, and say it. The item shows up in your garden within seconds.
+- **Mid-conversation (lands once Bee closes the conversation).** Just say "Earmark that…" out loud while Bee is recording a normal conversation. You don't have to stop or start anything. Earmark picks it up a few minutes after Bee closes the conversation (it checks about every 10 minutes), and files it exactly like a voice note: kept for sure, not sent to review.
 
 **The pattern:** "Earmark that, **[first name]**'s **[the specific thing]**[, one detail]."
 
@@ -35,7 +38,8 @@ Start a **voice note** in Bee (the way you normally record a note — not a regu
 
 ### Why this wording works
 
-- **"Earmark that" must come first.** Filler before it is fine ("Um, okay, earmark that…", "Hey Bee, earmark that…"). Said at the end or in the middle, it's ignored on purpose.
+- **"Earmark that" must come first.** Filler before it is fine ("Um, okay, earmark that…", "Hey Bee, earmark that…"). Said in the middle of a sentence or at the end of one, it's ignored on purpose ("we should earmark that budget" is just talk). Bee sometimes mishears it as "Remark that"; Earmark treats that as the trigger too.
+- **Mid-conversation, keep it to one breath.** Earmark takes the sentence you opened with the trigger. If that sentence is short or has no ending, it also takes the next couple of things said. Say the whole item right after the trigger and you're fine.
 - **Say the first name.** Bee can't tell who's speaking — every voice is labelled "Unknown". The name in your note is how Earmark knows who to thank. Without a name, the tip is saved as "from someone, not sure who".
 - **Name the actual thing.** "Kawa Ramen", not "that place she mentioned". Earmark can only look up and credit what it hears.
 - **One thing per note.** Two tips in one note become one item.
@@ -45,7 +49,7 @@ Start a **voice note** in Bee (the way you normally record a note — not a regu
 
 | ❌ Said this | Why |
 |---|---|
-| "Ann's ramen spot on Brady Street — earmark that." | Trigger at the end is ignored. |
+| "Ann's ramen spot on Brady Street — earmark that." | The trigger has to come first in the sentence, so this one is ignored. |
 | "Earmark that." (nothing after) | Nothing to save. |
 | "Earmark that and also the book Marcus mentioned." | Two items; only one is saved. |
 | "Earmark that place she told me about." | No name, no specific thing — Earmark can't look it up or credit anyone. |
@@ -123,6 +127,8 @@ EARMARK A TIP        "Earmark that, [Name]'s [specific thing]."
 EARMARK AN IDEA      "Earmark that — an idea for [show/newsletter/product]: [the idea]."
 CATCH TIPS IN TALK   Let people say "you have to try…" — name the thing.
 PLANT A BLOOM        Same idea, 3 conversations, 3 different days.
-AVOID                Trigger at the end · no name · two items in one note
+FAST PATH            Bee press-and-hold set to Voice Notes → lands in seconds
+ANYWHERE             Say it mid-conversation → lands once Bee closes the conversation
+AVOID                Trigger not first in the sentence · no name · two items in one note
 CONSENT              Tell people the Bee is on.
 ```
