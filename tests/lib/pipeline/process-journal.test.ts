@@ -74,7 +74,7 @@ describe("processJournal", () => {
   // M2-T14: the conversation that was recording at the same time already saved this rec.
   it("a voice note whose rec a conversation already saved within ±60 s stores nothing; the claim points at that rec", async () => {
     vi.mocked(recsSaidBetween).mockResolvedValueOnce([
-      { id: 163, name: "Ardent (ramen spot on Brady Street)", type: "place", firstName: "Anne", saidAt: new Date(createdAt.getTime() - 4_000) },
+      { id: 163, name: "Ardent (ramen spot on Brady Street)", type: "place", firstName: "Anne", saidAt: new Date(createdAt.getTime() - 4_000), deliberate: false },
     ]);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const r = await processJournal({ id: "58", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
@@ -87,9 +87,18 @@ describe("processJournal", () => {
     log.mockRestore();
   });
 
+  it("I-2: an ambient conversation rec pairs by name only; a deliberate one may pair by recommender + type", async () => {
+    const other = { id: 170, name: "Ann's spot", type: "place", firstName: "Ann", saidAt: createdAt };
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([{ ...other, deliberate: false }]);
+    expect((await processJournal({ id: "60", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"))).created).toBe("rec");
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([{ ...other, deliberate: true }]);
+    expect((await processJournal({ id: "61", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"))).created).toBeNull();
+    expect(finishJournalAs).toHaveBeenCalledWith("61", 170);
+  });
+
   it("a conversation rec with another name and recommender in the window does not stop the voice note", async () => {
     vi.mocked(recsSaidBetween).mockResolvedValueOnce([
-      { id: 160, name: "A Little Dark Age", type: "song", firstName: "Dana", saidAt: createdAt },
+      { id: 160, name: "A Little Dark Age", type: "song", firstName: "Dana", saidAt: createdAt, deliberate: true },
     ]);
     const r = await processJournal({ id: "59", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
     expect(r.created).toBe("rec");

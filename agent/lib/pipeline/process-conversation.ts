@@ -11,7 +11,7 @@ import { planDeliberateItem, splitDeliberate, type DeliberateEarmark } from "./d
 import { extractIdea, extractRecommendation } from "./extract";
 import { buildSaveQueries, noneSaved, savedIds, type SaveItem, type SavedIds } from "./save-item";
 import { mapLimit } from "./map-limit";
-import { SAME_MOMENT_MS, sameMoment, sameName } from "./same-moment";
+import { SAME_MOMENT_MS, pairSameMoment, sameNormalizedName } from "./same-moment";
 import { windowRoute } from "./thresholds";
 import { SystemicTriageError, triageWindow } from "./triage";
 import { toWindows } from "./windows";
@@ -107,7 +107,7 @@ function dedupe(planned: Planned[], earmarked: readonly string[]): Planned[] {
   for (const p of planned) {
     if (p.item.kind === "rec") {
       const name = p.item.extraction.canonicalName;
-      if (earmarked.some((n) => sameName(n, name))) continue;
+      if (earmarked.some((n) => sameNormalizedName(n, name))) continue;
       const at = out.findIndex((q) => q.item.kind === "rec" && q.key === p.key);
       if (at === -1) out.push(p);
       else if (p.item.confidence > out[at]!.item.confidence) out[at] = p;
@@ -140,15 +140,31 @@ async function planDeliberate(
   return { items, earmarkedNames: names.flatMap((n) => (n ? [n] : [])) };
 }
 
-// One earmark per moment (M2-T14): a rec from this conversation (deliberate or ambient) that a voice note already saved
-// within ±60 s (same name, or same recommender + type) is the same occasion heard twice. Store nothing; log ids only.
+// One earmark per moment (M2-T14): a rec from this conversation that a voice note already saved within ±60 s is the
+// same occasion heard twice. Pairing is one-to-one (pairSameMoment): same name first; same recommender + type only
+// between a deliberate earmark and a voice note, never for ambient. Deliberate earmarks pair first, in spoken order.
+// Store nothing for a paired rec; log ids only.
 function notSavedByVoiceNote(id: number, items: SaveItem[], voiceNotes: readonly SavedRec[]): SaveItem[] {
-  return items.filter((it) => {
-    if (it.kind !== "rec") return true;
-    const twin = sameMoment({ name: it.extraction.canonicalName, type: it.recType, firstName: it.attribution.firstName, saidAt: it.spokenAt }, voiceNotes);
-    if (twin) console.log(`[pipeline] same moment: skipped conversation=${id} key=${it.deliberateKey ?? "ambient"} rec=${twin.id}`);
-    return !twin;
+  const recs = items.flatMap((it) => (it.kind === "rec" ? [it] : []))
+    .sort((a, b) => Number(b.source === "voice") - Number(a.source === "voice") || a.spokenAt.getTime() - b.spokenAt.getTime());
+  const twins = pairSameMoment(recs.map((it) => ({
+    name: it.extraction.canonicalName, type: it.recType, firstName: it.attribution.firstName, saidAt: it.spokenAt, deliberate: it.source === "voice",
+  })), voiceNotes);
+  const dropped = new Set<SaveItem>();
+  recs.forEach((it, i) => {
+    const twin = twins[i];
+    if (!twin) return;
+    dropped.add(it);
+    console.log(`[pipeline] same moment: skipped conversation=${id} key=${it.deliberateKey ?? "ambient"} rec=${twin.id}`);
   });
+  return items.filter((it) => !dropped.has(it));
+}
+
+// spoken_at when both have it; otherwise Bee's id (increasing in time); otherwise 0 so the stable sort keeps array order.
+// ponytail: not a total order when some utterances lack spoken_at and others don't; REST has always sent it so far.
+function spokenOrder(a: { spokenAt: Date | null; id: number | null }, b: { spokenAt: Date | null; id: number | null }): number {
+  if (a.spokenAt && b.spokenAt) return a.spokenAt.getTime() - b.spokenAt.getTime() || (a.id ?? 0) - (b.id ?? 0);
+  return a.id !== null && b.id !== null ? a.id - b.id : 0;
 }
 
 // deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
@@ -168,11 +184,11 @@ export async function processConversation(
   if (!(await markConversationProcessed(id, { ideas: 0, recs: 0 }))) return skipped;
   try {
     const transcription = conversation.transcriptions.find((t) => !t.realtime) ?? conversation.transcriptions[0];
-    // Bee's REST array is not in spoken order (11338188: 108 of 311 neighbours swapped): sort by spoken_at, then id,
-    // so a trigger's continuation and each ambient window are the utterances actually said next (stable sort).
+    // Bee's REST array is not in spoken order (11338188: 108 of 311 neighbours swapped): sort so a trigger's
+    // continuation and each ambient window are the utterances actually said next.
     const utterances = (transcription?.utterances ?? [])
       .map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }))
-      .sort((a, b) => (a.spokenAt?.getTime() ?? 0) - (b.spokenAt?.getTime() ?? 0) || (a.id ?? 0) - (b.id ?? 0));
+      .sort(spokenOrder);
     // "Earmark that" said anywhere is a deliberate earmark: planned like a voice note, and removed from the transcript
     // so ambient triage can never save the same thing again.
     const { earmarks, rest } = splitDeliberate(utterances);
@@ -182,9 +198,6 @@ export async function processConversation(
     // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion, and bounds
     // the voice notes Bee may have recorded during it (one earmark per moment, M2-T14).
     const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
-    const voiceNotes = await recsSaidBetween(
-      new Date(span.start.getTime() - SAME_MOMENT_MS), new Date(span.end.getTime() + SAME_MOMENT_MS), "journal",
-    );
     const { items: deliberate, earmarkedNames } = await planDeliberate(id, earmarks, fallbackAt, d);
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
@@ -202,6 +215,13 @@ export async function processConversation(
       console.error(`[pipeline] systemic failure conversation=${id} reason=${systemic}`);
       throw new SystemicTriageError(systemic);
     }
+    // Read as late as possible (all model calls done) so a voice note saved meanwhile is seen.
+    // ponytail: still a race: a stream-delivered voice note and this run can both check before either commits and both
+    // save. Upgrade path: a transaction-scoped advisory lock on the minute bucket(s) of the item's said_at, taken by
+    // both processJournal and processConversation around check + save.
+    const voiceNotes = await recsSaidBetween(
+      new Date(span.start.getTime() - SAME_MOMENT_MS), new Date(span.end.getTime() + SAME_MOMENT_MS), "journal",
+    );
     const ambient = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), [...earmarkedNames, ...voiceNotes.map((v) => v.name)]);
     const items = notSavedByVoiceNote(id, [...deliberate, ...ambient.map((p) => p.item)], voiceNotes);
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.

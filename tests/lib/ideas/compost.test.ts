@@ -78,7 +78,7 @@ describe("planIdeaClusters", () => {
     deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
     store.hasMentionFromSameOccasion.mockResolvedValue(true);
     expect(await planIdeaClusters([idea("Newsletter on AI")], deps)).toEqual([]);
-    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null });
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null, spokenAt: new Date("2026-10-15T14:00:00Z") });
   });
 
   it("a live mention checks its occasion by the stream uuid too (live + completed pass = one occasion)", async () => {
@@ -86,7 +86,7 @@ describe("planIdeaClusters", () => {
     deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
     store.hasMentionFromSameOccasion.mockResolvedValue(true);
     expect(await planIdeaClusters([idea("Live", { beeConversationId: null, beeConversationUuid: "uuid-1" })], deps)).toEqual([]);
-    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: null, beeConversationUuid: "uuid-1" });
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: null, beeConversationUuid: "uuid-1", spokenAt: new Date("2026-10-15T14:00:00Z") });
   });
 
   it("passes the completed conversation's time span to the occasion check (unmapped live mentions inside it match)", async () => {
@@ -95,7 +95,7 @@ describe("planIdeaClusters", () => {
     store.hasMentionFromSameOccasion.mockResolvedValue(true);
     const span = { start: new Date("2026-10-16T15:00:00Z"), end: new Date("2026-10-16T16:00:00Z") };
     expect(await planIdeaClusters([idea("Done")], deps, { span })).toEqual([]);
-    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null, beeConversationUuid: undefined, span });
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null, beeConversationUuid: undefined, span, spokenAt: new Date("2026-10-15T14:00:00Z") });
   });
 
   it("checks the same journal for a voice note", async () => {
@@ -103,7 +103,7 @@ describe("planIdeaClusters", () => {
     deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
     store.hasMentionFromSameOccasion.mockResolvedValue(true);
     expect(await planIdeaClusters([idea("Note", { beeConversationId: null, beeJournalId: "57", source: "voice" })], deps)).toEqual([]);
-    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: "57" });
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: "57", spokenAt: new Date("2026-10-15T14:00:00Z") });
   });
 
   it("two windows of one conversation that both say new_idea for the same idea: the second is offered the first and recorded once", async () => {

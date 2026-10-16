@@ -101,7 +101,10 @@ async function decide(
     if (chosen.clusterId === null) return { decision: { action: "skip" }, ok: true, clusterTitle: title }; // same idea as one created earlier in this run
     if (joined.has(chosen.clusterId)) return { decision: { action: "skip" }, ok: true, clusterTitle: title };
     stage = "occasion";
-    const occasion = { beeConversationId: item.beeConversationId, beeJournalId: item.beeJournalId, beeConversationUuid: item.beeConversationUuid, span };
+    const occasion = {
+      beeConversationId: item.beeConversationId, beeJournalId: item.beeJournalId, beeConversationUuid: item.beeConversationUuid, span,
+      spokenAt: item.spokenAt,
+    };
     if (await hasMentionFromSameOccasion(chosen.clusterId, occasion)) return { decision: { action: "skip" }, ok: true, clusterTitle: title };
     return { decision: { action: "join", clusterId: chosen.clusterId, embedding: e }, ok: true, clusterTitle: chosen.option.title };
   } catch (err) {

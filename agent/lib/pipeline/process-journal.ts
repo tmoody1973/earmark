@@ -33,7 +33,7 @@ export async function processJournal(
     if (planned.kind === "rec") {
       const at = j.createdAt.getTime();
       const near = await recsSaidBetween(new Date(at - SAME_MOMENT_MS), new Date(at + SAME_MOMENT_MS), "conversation");
-      const twin = sameMoment({ name: planned.extraction.canonicalName, type: planned.recType, firstName: planned.attribution.firstName, saidAt: j.createdAt }, near);
+      const twin = sameMoment({ name: planned.extraction.canonicalName, type: planned.recType, firstName: planned.attribution.firstName, saidAt: j.createdAt, deliberate: true }, near);
       if (twin) {
         await finishJournalAs(j.id, twin.id);
         console.log(`[pipeline] same moment: skipped journal=${j.id} rec=${twin.id}`);
