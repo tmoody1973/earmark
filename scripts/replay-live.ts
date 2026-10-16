@@ -2,10 +2,12 @@
 // with real Gateway calls, against the Neon TEST branch only. Then runs the completed-conversation pass for the same
 // conversation and shows it adds no second mention (one occasion).
 //
-//   DATABASE_URL=<the TEST_DATABASE_URL value> tsx --env-file=.env.local scripts/replay-live.ts <conversationId> [--seed] [--max N]
+//   DATABASE_URL=<the TEST_DATABASE_URL value> tsx --env-file=.env.local scripts/replay-live.ts <conversationId> [--seed] [--unmapped] [--max N]
 //
 // --seed  first saves the conversation twice through the completed pass under two fake conversation ids (two earlier
 //         "occasions"), so every idea it holds already has 2 mentions and the live replay is its 3rd: a bloom.
+// --unmapped never maps the replay uuid to the conversation id (a missed new-conversation event): the completed pass
+//         must still match the live mention by the conversation's time span (live mentions keep the stream spoken_at).
 // --max N feed only the first N utterances.
 // Bee is read only (GET /v1/conversations/:id). Output is ids, counts and timings only: never transcript text or titles.
 // It refuses to run unless DATABASE_URL equals TEST_DATABASE_URL.
@@ -24,14 +26,15 @@ function guard(): void {
 async function main(): Promise<void> {
   guard();
   const id = Number(process.argv[2]);
-  if (!Number.isInteger(id) || id <= 0) throw new Error("usage: replay-live.ts <conversationId> [--seed] [--max N]");
+  if (!Number.isInteger(id) || id <= 0) throw new Error("usage: replay-live.ts <conversationId> [--seed] [--unmapped] [--max N]");
   const seed = process.argv.includes("--seed");
+  const unmapped = process.argv.includes("--unmapped");
   const maxAt = process.argv.indexOf("--max");
   const max = maxAt > 0 ? Number(process.argv[maxAt + 1]) : Number.POSITIVE_INFINITY;
 
   // Imported after the guard so nothing can open a connection to another database first.
   const { db } = await import("../agent/lib/db");
-  const { createBeeClient } = await import("../agent/lib/bee/client");
+  const { createBeeClient, toDate } = await import("../agent/lib/bee/client");
   const { handleLiveUtterance } = await import("../agent/lib/pipeline/live");
   const { processConversation } = await import("../agent/lib/pipeline/process-conversation");
   const { rememberConversationUuid } = await import("../agent/lib/store/conversations");
@@ -66,14 +69,15 @@ async function main(): Promise<void> {
 
   // The new-conversation event would have mapped the stream uuid to the REST id (the live capturing lookup can't
   // find a COMPLETED conversation, so the replay plays that event).
-  await rememberConversationUuid(uuid, id);
+  if (!unmapped) await rememberConversationUuid(uuid, id);
+  console.log(`map row for the replay uuid: ${unmapped ? "none (never mapped)" : "present"}`);
 
   let windows = 0, claims = 0, ideas = 0;
   const blooms: number[] = [];
   const timings: number[] = [];
   for (const u of utterances) {
     const t0 = Date.now();
-    const r = await handleLiveUtterance({ conversationUuid: uuid, speaker: u.speaker, text: u.text, utteranceId: u.id ?? null });
+    const r = await handleLiveUtterance({ conversationUuid: uuid, speaker: u.speaker, text: u.text, utteranceId: u.id ?? null, spokenAt: toDate(u.spoken_at) });
     if (r.triaged) {
       claims++;
       windows += r.windows;
@@ -111,6 +115,10 @@ async function main(): Promise<void> {
   const perOccasion = await sql`select cluster_id, count(*)::int as n from idea_mentions
                                 where bee_conversation_id = ${id} or bee_conversation_uuid = ${uuid} group by 1 having count(*) > 1`;
   console.log(`clusters with >1 mention from this conversation: ${perOccasion.length}`);
+  const [exposed] = await sql`select count(*)::int as n from idea_mentions m
+                              where bee_conversation_id is null and bee_conversation_uuid is not null
+                                and not exists (select 1 from bee_conversation_map b where b.conversation_uuid = m.bee_conversation_uuid)`;
+  console.log(`uuid-only mentions never mapped (covered only by the span match): ${exposed!.n}`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

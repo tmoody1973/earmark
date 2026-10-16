@@ -8,7 +8,8 @@ export interface GardenEvent {
 }
 
 // Events strictly after `since`, oldest first, with the cluster as it is now (title, stage, count).
-export async function listGardenEventsSince(since: Date, limit = 50): Promise<GardenEvent[]> {
+export const GARDEN_EVENTS_LIMIT = 50;
+export async function listGardenEventsSince(since: Date, limit = GARDEN_EVENTS_LIMIT): Promise<GardenEvent[]> {
   const rows = await db()`
     select e.id, e.kind, e.cluster_id, e.created_at, c.title, c.stage, c.mention_count
     from garden_events e join idea_clusters c on c.id = e.cluster_id

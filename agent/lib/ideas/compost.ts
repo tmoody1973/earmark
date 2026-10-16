@@ -1,6 +1,6 @@
 import { clampExcerpt } from "../pipeline/excerpt";
 import type { ClusterPlan, SaveItem } from "../pipeline/save-item";
-import { getClusterTimeline, hasMentionFromSameOccasion, nearestClusters } from "../store/ideas";
+import { getClusterTimeline, hasMentionFromSameOccasion, nearestClusters, type OccasionSpan } from "../store/ideas";
 import { chooseCluster, clusterKey, type ClusterOption } from "./choose-cluster";
 import { embedText } from "./embed";
 import { NOTE_AGAIN, NOTE_FIRST, writeTimelineNote } from "./timeline";
@@ -47,8 +47,11 @@ type Decision = ClusterPlan | { action: "skip" };
 // same conversation or voice note (stored, or planned earlier in this run) is dropped: one mention per occasion.
 // Recs pass through untouched. A failed plan falls back to a new cluster, so no idea is lost; but if EVERY idea's
 // plan failed, it throws CompostUnavailableError so the claim is released and the whole item retried later.
+// opts.span: a completed conversation's start/end, so an unmapped live mention of it counts as the same occasion.
 // ponytail: sequential on purpose (each decision sees the previous ones); a conversation has a handful of ideas.
-export async function planIdeaClusters(items: readonly SaveItem[], deps: Partial<CompostDeps> = {}): Promise<SaveItem[]> {
+export async function planIdeaClusters(
+  items: readonly SaveItem[], deps: Partial<CompostDeps> = {}, opts: { span?: OccasionSpan } = {},
+): Promise<SaveItem[]> {
   const d: CompostDeps = { embedText, chooseCluster, writeTimelineNote, ...deps };
   const pending: Pending[] = [];
   const joined = new Set<number>();
@@ -61,7 +64,7 @@ export async function planIdeaClusters(items: readonly SaveItem[], deps: Partial
       continue;
     }
     planned++;
-    const { decision: chosen, ok, clusterTitle } = await decide(item, pending, joined, d);
+    const { decision: chosen, ok, clusterTitle } = await decide(item, pending, joined, d, opts.span);
     if (!ok) failed++;
     if (chosen.action === "skip") continue;
     const decision = { ...chosen, timelineNote: await timelineNote(item, chosen, ok ? clusterTitle : null, d) };
@@ -76,7 +79,7 @@ export async function planIdeaClusters(items: readonly SaveItem[], deps: Partial
 }
 
 async function decide(
-  item: IdeaItem, pending: readonly Pending[], joined: ReadonlySet<number>, d: CompostDeps,
+  item: IdeaItem, pending: readonly Pending[], joined: ReadonlySet<number>, d: CompostDeps, span?: OccasionSpan,
 ): Promise<{ decision: Decision; ok: boolean; clusterTitle: string }> {
   const { title } = item.extraction;
   const excerpt = clampExcerpt(item.extraction.excerpt);
@@ -98,7 +101,7 @@ async function decide(
     if (chosen.clusterId === null) return { decision: { action: "skip" }, ok: true, clusterTitle: title }; // same idea as one created earlier in this run
     if (joined.has(chosen.clusterId)) return { decision: { action: "skip" }, ok: true, clusterTitle: title };
     stage = "occasion";
-    const occasion = { beeConversationId: item.beeConversationId, beeJournalId: item.beeJournalId, beeConversationUuid: item.beeConversationUuid };
+    const occasion = { beeConversationId: item.beeConversationId, beeJournalId: item.beeJournalId, beeConversationUuid: item.beeConversationUuid, span };
     if (await hasMentionFromSameOccasion(chosen.clusterId, occasion)) return { decision: { action: "skip" }, ok: true, clusterTitle: title };
     return { decision: { action: "join", clusterId: chosen.clusterId, embedding: e }, ok: true, clusterTitle: chosen.option.title };
   } catch (err) {

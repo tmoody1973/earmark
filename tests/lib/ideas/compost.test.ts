@@ -89,6 +89,15 @@ describe("planIdeaClusters", () => {
     expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: null, beeJournalId: null, beeConversationUuid: "uuid-1" });
   });
 
+  it("passes the completed conversation's time span to the occasion check (unmapped live mentions inside it match)", async () => {
+    store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+    deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+    store.hasMentionFromSameOccasion.mockResolvedValue(true);
+    const span = { start: new Date("2026-10-16T15:00:00Z"), end: new Date("2026-10-16T16:00:00Z") };
+    expect(await planIdeaClusters([idea("Done")], deps, { span })).toEqual([]);
+    expect(store.hasMentionFromSameOccasion).toHaveBeenCalledWith(12, { beeConversationId: 501, beeJournalId: null, beeConversationUuid: undefined, span });
+  });
+
   it("checks the same journal for a voice note", async () => {
     store.nearestClusters.mockResolvedValue([dbCluster(12)]);
     deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });

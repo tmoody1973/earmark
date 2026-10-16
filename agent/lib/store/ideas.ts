@@ -55,17 +55,27 @@ export async function nearestClusters(embedding: readonly number[], k = 5): Prom
 // a third separate occasion. A conversation is one occasion whether a mention knew its numeric REST id (completed
 // pass), its stream uuid (live, before the uuid was mapped) or both: bee_conversation_map links the two forms.
 // A mention with no id at all never matches.
+// span (completed pass only): the conversation's start/end. A live mention whose uuid was never mapped (bee_conversation_id
+// null) and that was spoken inside [start − 60 s, end + 60 s] is treated as this conversation. This relies on Bee
+// capturing ONE conversation at a time (one wearable): two conversations never overlap in time.
+export interface OccasionSpan { start: Date; end: Date }
+const SPAN_SLACK = "60 seconds";
 export async function hasMentionFromSameOccasion(
-  clusterId: number, m: { beeConversationId: number | null; beeJournalId: string | null; beeConversationUuid?: string | null },
+  clusterId: number,
+  m: { beeConversationId: number | null; beeJournalId: string | null; beeConversationUuid?: string | null; span?: OccasionSpan },
 ): Promise<boolean> {
   const id = m.beeConversationId;
   const uuid = m.beeConversationUuid ?? null;
+  const start = m.span?.start ?? null;
+  const end = m.span?.end ?? null;
   const rows = await db()`
     select 1 from idea_mentions
     where cluster_id = ${clusterId}
       and (bee_conversation_id = ${id}::bigint or bee_journal_id = ${m.beeJournalId}::text or bee_conversation_uuid = ${uuid}::text
            or bee_conversation_uuid in (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${id}::bigint)
-           or bee_conversation_id in (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${uuid}::text))
+           or bee_conversation_id in (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${uuid}::text)
+           or (bee_conversation_id is null and bee_conversation_uuid is not null
+               and spoken_at between ${start}::timestamptz - ${SPAN_SLACK}::interval and ${end}::timestamptz + ${SPAN_SLACK}::interval))
     limit 1`;
   return rows.length > 0;
 }

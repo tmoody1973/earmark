@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const clerk = vi.hoisted(() => ({ auth: vi.fn() }));
 vi.mock("@clerk/nextjs/server", () => clerk);
 const store = vi.hoisted(() => ({
-  listGardenEventsSince: vi.fn(async (_since: Date) => [
+  GARDEN_EVENTS_LIMIT: 3,
+  listGardenEventsSince: vi.fn(async (_since: Date, _limit?: number) => [
     { id: 1, kind: "bloom", clusterId: 12, title: "AI newsletter", stage: "ready", mentionCount: 3, createdAt: "2026-10-17T15:00:06.000Z" },
   ]),
 }));
@@ -42,10 +43,21 @@ describe("GET /api/garden/blooms", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     const body = await res.json();
     expect(body.events[0]).toMatchObject({ id: 1, kind: "bloom", title: "AI newsletter", mentionCount: 3 });
-    expect(store.listGardenEventsSince).toHaveBeenCalledWith(new Date("2026-10-17T15:00:00.000Z"));
+    expect(store.listGardenEventsSince).toHaveBeenCalledWith(new Date("2026-10-17T15:00:00.000Z"), 3);
     // A save that started before this poll may commit after it: the next poll re-reads a short overlap (client dedupes by id).
     expect(new Date(body.now).getTime()).toBeLessThanOrEqual(before);
     expect(new Date(body.now).getTime()).toBeGreaterThan(before - 60_000);
+  });
+
+  it("a full page (limit hit) returns a now just before the last event, so the next poll continues there instead of skipping", async () => {
+    clerk.auth.mockResolvedValue({ userId: "user_owner" });
+    const ev = (id: number, at: string) => ({ id, kind: "mention", clusterId: 1, title: "t", stage: "compost", mentionCount: 1, createdAt: at });
+    store.listGardenEventsSince.mockResolvedValueOnce([
+      ev(1, "2026-10-17T15:00:01.000Z"), ev(2, "2026-10-17T15:00:02.000Z"), ev(3, "2026-10-17T15:00:03.000Z"),
+    ]);
+    const body = await (await get("?since=2026-10-17T15:00:00.000Z")).json();
+    // 1 ms before the last event: events sharing its timestamp (one save) are re-read; the ticker dedupes by id.
+    expect(body.now).toBe("2026-10-17T15:00:02.999Z");
   });
 
   it("accepts an offset ISO time", async () => {

@@ -219,6 +219,15 @@ describe("processConversation", () => {
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["House music segment", "accepted", "ambient", 42]));
   });
 
+  it("hands cluster planning the conversation's start/end span (to match an unmapped live mention of it)", async () => {
+    const b = bee("COMPLETED");
+    vi.mocked(b.getConversation).mockResolvedValueOnce({
+      conversation: { id: 42, start_time: 1760600000000, end_time: 1760603600000, state: "COMPLETED", summary: null, transcriptions: [{ realtime: false, utterances: lines(4) }] },
+    } as never);
+    await processConversation(42, { ...base, bee: b, triage: tri({ kind: "idea_by_user" }) });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![2]).toEqual({ span: { start: new Date(1760600000000), end: new Date(1760603600000) } });
+  });
+
   it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
     const compost = { embedText: vi.fn(async () => [1]) };
     await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }), compost });

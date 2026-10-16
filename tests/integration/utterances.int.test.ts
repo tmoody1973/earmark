@@ -15,6 +15,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("live utterance claims (done lea
     for (const t of texts) await bufferUtterance(uuid, "Unknown", t);
   };
   const texts = (rows: { text: string }[]) => rows.map((r) => r.text);
+  const expire = async (ids: number[]) => {
+    const { db } = await mods();
+    await db()`update utterance_buffer set claimed_at = now() - interval '16 minutes' where id = any(${ids}::bigint[])`;
+  };
 
   afterAll(async () => {
     const { db } = await mods();
@@ -23,43 +27,68 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("live utterance claims (done lea
     await db()`delete from processed_conversations where bee_conversation_id = ${9_300_000_000 + RUN}`;
   });
 
-  it("claims nothing until a full window (4) is buffered, then the 4; then every 2 new ones with 2 of context", async () => {
-    const { claimUtterances } = await mods();
+  it("claims nothing until 4 are open, then exactly those 4 (non-overlapping windows), storing the stream's spoken_at", async () => {
+    const { claimUtterances, bufferUtterance } = await mods();
     await buffer(UUID, "u1", "u2", "u3");
     expect(await claimUtterances(UUID)).toBeNull();
-    await buffer(UUID, "u4");
+    await bufferUtterance(UUID, "Unknown", "u4", new Date("2026-10-16T18:05:13.000Z"));
     const first = await claimUtterances(UUID);
     expect(texts(first!.rows)).toEqual(["u1", "u2", "u3", "u4"]);
     expect(first!.claimed).toEqual(first!.rows.map((r) => r.id));
-    await buffer(UUID, "u5");
-    expect(await claimUtterances(UUID)).toBeNull(); // 1 new < stride
-    await buffer(UUID, "u6");
-    const second = await claimUtterances(UUID);
-    expect(texts(second!.rows)).toEqual(["u3", "u4", "u5", "u6"]);
-    expect(second!.claimed).toHaveLength(2);
+    expect(first!.rows[3]!.spokenAt).toEqual(new Date("2026-10-16T18:05:13.000Z"));
+    expect(first!.rows[0]!.spokenAt).toBeNull();
+    await buffer(UUID, "u5", "u6", "u7");
+    expect(await claimUtterances(UUID)).toBeNull(); // 3 open < 4
+    await buffer(UUID, "u8");
+    expect(texts((await claimUtterances(UUID))!.rows)).toEqual(["u5", "u6", "u7", "u8"]);
   });
 
-  it("overlapping deliveries never claim the same utterances: of five concurrent callers exactly one wins", async () => {
+  it("overlapping deliveries never claim the same utterances: of five concurrent callers at most one wins, and a follow-up claim gets anything left", async () => {
     const { claimUtterances } = await mods();
-    await buffer(UUID, "u7", "u8");
+    await buffer(UUID, "u9", "u10", "u11", "u12");
     const results = await Promise.all(Array.from({ length: 5 }, () => claimUtterances(UUID)));
     const winners = results.filter((r) => r !== null);
-    expect(winners).toHaveLength(1);
-    expect(texts(winners[0]!.rows)).toEqual(["u5", "u6", "u7", "u8"]);
+    expect(winners.length).toBeLessThanOrEqual(1); // SKIP LOCKED: callers that each saw part of the rows all back off
+    if (winners.length === 0) {
+      const late = await claimUtterances(UUID);
+      expect(texts(late!.rows)).toEqual(["u9", "u10", "u11", "u12"]);
+    } else {
+      expect(texts(winners[0]!.rows)).toEqual(["u9", "u10", "u11", "u12"]);
+    }
+    await buffer(UUID, "u13", "u14", "u15", "u16");
+    expect(texts((await claimUtterances(UUID))!.rows)).toEqual(["u13", "u14", "u15", "u16"]);
   });
 
   it("an unfinished claim is re-taken only after its lease; a finished (done) one never", async () => {
     const { claimUtterances, db, finishUtterancesQuery } = await mods();
-    await buffer(UUID, "u9", "u10");
-    const c = await claimUtterances(UUID);
-    expect(c!.claimed).toHaveLength(2);
-    expect(await claimUtterances(UUID)).toBeNull(); // in progress
-    await db()`update utterance_buffer set claimed_at = now() - interval '16 minutes' where id = any(${c!.claimed}::bigint[])`;
-    const retaken = await claimUtterances(UUID);
+    const uuid = `it-live-lease-${RUN}`;
+    await buffer(uuid, "a", "b", "c", "d");
+    const c = await claimUtterances(uuid);
+    expect(c!.claimed).toHaveLength(4);
+    expect(await claimUtterances(uuid)).toBeNull(); // in progress
+    await expire(c!.claimed);
+    const retaken = await claimUtterances(uuid);
     expect(retaken!.claimed).toEqual(c!.claimed); // crashed run: retried once the lease ran out
     await db().transaction((txn) => [finishUtterancesQuery(txn, retaken!.claimed)]);
-    await db()`update utterance_buffer set claimed_at = now() - interval '16 minutes' where id = any(${c!.claimed}::bigint[])`;
-    expect(await claimUtterances(UUID)).toBeNull(); // done: never again
+    await expire(c!.claimed);
+    expect(await claimUtterances(uuid)).toBeNull(); // done: never again
+  });
+
+  it("a non-contiguous retake (a stale claim plus new utterances) gets every row from the first claimed to the last", async () => {
+    const { claimUtterances, db, finishUtterancesQuery } = await mods();
+    const uuid = `it-live-gap-${RUN}`;
+    await buffer(uuid, "g1", "g2", "g3", "g4");
+    const stale = await claimUtterances(uuid); // its run crashed
+    await buffer(uuid, "g5", "g6", "g7", "g8");
+    // g5..g8 claimed and finished by another delivery while g1..g4 still sat under the live lease
+    const mid = await claimUtterances(uuid);
+    expect(texts(mid!.rows)).toEqual(["g5", "g6", "g7", "g8"]);
+    await db().transaction((txn) => [finishUtterancesQuery(txn, mid!.claimed)]);
+    await expire(stale!.claimed);
+    await buffer(uuid, "g9", "g10", "g11", "g12");
+    const retake = await claimUtterances(uuid);
+    expect(retake!.claimed).toEqual([...stale!.claimed, ...retake!.claimed.slice(4)]);
+    expect(texts(retake!.rows)).toEqual(["g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10", "g11", "g12"]);
   });
 
   it("prune: drops a conversation's buffer once its completed pass is done, and anything older than 6 hours", async () => {

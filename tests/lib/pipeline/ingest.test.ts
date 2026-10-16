@@ -25,9 +25,11 @@ beforeEach(() => vi.clearAllMocks());
 describe("handleBeeEvent", () => {
   it("hands new utterances to the live path (buffer + windowed triage), passing deps through", async () => {
     await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi", speaker: "Unknown" }, conversation_uuid: "u1" }));
-    expect(handleLiveUtterance).toHaveBeenCalledWith({ conversationUuid: "u1", speaker: "Unknown", text: "hi", utteranceId: null }, {});
-    await handleBeeEvent(evt("new-utterance", { utterance: { id: 3766760407, text: "yo" }, conversation_uuid: "u2" }), { now });
-    expect(handleLiveUtterance).toHaveBeenCalledWith({ conversationUuid: "u2", speaker: "Unknown", text: "yo", utteranceId: 3766760407 }, { now });
+    expect(handleLiveUtterance).toHaveBeenCalledWith({ conversationUuid: "u1", speaker: "Unknown", text: "hi", utteranceId: null, spokenAt: null }, {});
+    await handleBeeEvent(evt("new-utterance", { utterance: { id: 3766760407, text: "yo", spoken_at: "2026-10-16T18:05:13.000Z" }, conversation_uuid: "u2" }), { now });
+    expect(handleLiveUtterance).toHaveBeenCalledWith(
+      { conversationUuid: "u2", speaker: "Unknown", text: "yo", utteranceId: 3766760407, spokenAt: new Date("2026-10-16T18:05:13.000Z") }, { now },
+    );
   });
 
   it("still prunes when the live path fails", async () => {
