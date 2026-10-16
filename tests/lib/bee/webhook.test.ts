@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleRelayRequest, secretMatches } from "../../../agent/lib/bee/webhook";
+import { handleRelayRequest, secretMatches, shapeOf } from "../../../agent/lib/bee/webhook";
 
 const SECRET = "s".repeat(64);
 const body = JSON.stringify({ event: "new-utterance", ts: "t", data: { utterance: { text: "hi", speaker: "Unknown" }, conversation_uuid: "u" } });
@@ -108,5 +108,31 @@ describe("handleRelayRequest", () => {
     expect(error).toHaveBeenCalledWith("[bee] new-utterance failed error=Error");
     expect(JSON.stringify(error.mock.calls)).not.toContain("transcript");
     error.mockRestore();
+  });
+});
+
+describe("shapeOf", () => {
+  it("describes keys and value types, never values", () => {
+    const shape = shapeOf({ a: "secret text", n: 1, nul: null, b: true, arr: [{ x: 1 }], empty: [], o: { id: 5, uuid: "u" } });
+    expect(shape).toBe('{a:string,n:number,nul:null,b:boolean,arr:[{x:number}],empty:[],o:{id:number,uuid:string}}');
+    expect(shape).not.toContain("secret");
+  });
+});
+
+describe("rejected payload logging", () => {
+  it("logs event name and shape (no values) for a rejected event, and nothing for accepted ones", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bad = JSON.stringify({ event: "update-conversation", ts: "t", data: { conversation_uuid: "SECRET-UUID", title: "private words" } });
+    const res = await handleRelayRequest(req(SECRET, bad), { secret: SECRET, waitUntil: vi.fn(), handle: vi.fn() });
+    expect(res.status).toBe(400);
+    const line = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(line).toContain("update-conversation");
+    expect(line).toContain("data:{conversation_uuid:string,title:string}");
+    expect(line).not.toContain("SECRET-UUID");
+    expect(line).not.toContain("private words");
+    warn.mockClear();
+    await handleRelayRequest(req(SECRET), { secret: SECRET, waitUntil: vi.fn(), handle: vi.fn(async () => {}) });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

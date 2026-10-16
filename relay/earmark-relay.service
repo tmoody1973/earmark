@@ -1,0 +1,27 @@
+# Installed at /etc/systemd/system/earmark-relay.service on the Hetzner VPS (alias `hetzner`). No secrets here:
+# EARMARK_RELAY_URL and EARMARK_WEBHOOK_SECRET live in /opt/earmark-relay/relay.env (not in git).
+# Deploy: copy relay/run.sh and relay/forward.ts to /opt/earmark-relay/app/relay/, then `systemctl restart earmark-relay`.
+[Unit]
+Description=Earmark relay: Bee stream to the Earmark ingress (outbound only)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=earmark-relay
+Group=earmark-relay
+WorkingDirectory=/opt/earmark-relay/app
+EnvironmentFile=/opt/earmark-relay/relay.env
+Environment=HOME=/opt/earmark-relay/home
+Environment=PATH=/opt/earmark-relay/node/bin:/opt/earmark-relay/cli/node_modules/.bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash /opt/earmark-relay/app/relay/run.sh
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/earmark-relay/home
+
+[Install]
+WantedBy=multi-user.target
