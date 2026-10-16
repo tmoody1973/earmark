@@ -52,6 +52,7 @@ Success: Tarik stops losing ideas and tips, and acts on a bloomed idea (a newsle
 - Standalone personal project by Tarik Moody — not Radio Milwaukee branded; no station logos.
 - Voice (from Tarik's brief, binding): warm, editorial, quiet; in the spirit of public radio and record stores. Not a dashboard, not a social feed.
 - Named in Tarik's brief (binding concept, form left to design work): ideas appear as plants that grow with each mention and bloom at the third; recommendations sit on a shelf of type-aware cards — square album covers, book spines, mini map cards for places, podcast tiles.
+- **Visual direction (Tarik, 2026-10-16, standing):** the category standard played straight — a calm personal-knowledge garden in the mymind tradition: warm off-white ground, near-black type, one orange accent, artwork-led rounded cards, search as a front door. No novelty theme. The craft bar is mymind, Apple Music / Podcasts, Readwise Reader and Things 3: polish lives in spacing, type, artwork and small interactions. Tagline (Tarik-approved): "Small moments. A bigger mind." This replaces the earlier "mymind structure only" note.
 
 ## Evidence on Hand
 
