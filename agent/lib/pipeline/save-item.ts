@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { toVectorLiteral } from "../ideas/embed";
 import type { Txn } from "../store/conversations";
 import type { AttributionSource, IdeaExtraction, RecExtraction, RecType, Source } from "../types";
 import { clampExcerpt } from "./excerpt";
@@ -20,7 +21,14 @@ export type SaveItem =
       // From chooseRecommender; firstName null means nobody qualified (never guessed).
       attribution: { firstName: string | null; source: AttributionSource };
     })
-  | (Common & { kind: "idea"; extraction: IdeaExtraction });
+  | (Common & { kind: "idea"; extraction: IdeaExtraction; cluster?: ClusterPlan });
+
+// Where an accepted idea mention goes, decided before the transaction by planIdeaClusters (embedding + Jev).
+// create: a new cluster (embedding null when embedding failed: no centroid, so never a nearest candidate).
+// join: one more mention on an existing cluster. Absent (needs_review, legacy callers): a new cluster, no embedding.
+export type ClusterPlan =
+  | { action: "create"; embedding: number[] | null }
+  | { action: "join"; clusterId: number; embedding: number[] };
 
 // Ids of what one transaction saved, for the lanes that hook on new items (M2 clustering, M3 rec lane).
 export interface SavedIds { recIds: number[]; ideaClusterIds: number[]; mentionIds: number[] }
@@ -44,15 +52,47 @@ export function savedIds(items: readonly SaveItem[], results: readonly Record<st
 export function buildSaveQueries(txn: Txn, item: SaveItem) {
   const review = item.route === "review";
   if (item.kind === "idea") {
+    const plan = item.cluster;
+    const excerpt = clampExcerpt(item.extraction.excerpt);
+    if (plan?.action === "join") {
+      const v = toVectorLiteral(plan.embedding);
+      // Stage via idea_stage_for (= stageFor) on the row's own count, so drafted/used/dismissed never move.
+      // Centroid = mean of the cluster's accepted mention embeddings plus this one (the CTE's insert is not visible to
+      // the subquery, so the new vector is added explicitly).
+      // ponytail: two concurrent joins on one cluster may each miss the other's vector in the mean (count stays exact);
+      // recompute centroids in a nightly job if live and backfill ever overlap on one idea.
+      return [
+        txn`with m as (
+              insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+              values (${plan.clusterId}::bigint, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
+                      ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${"accepted"}::text, ${item.source}::text)
+              returning id, cluster_id
+            ), c as (
+              update idea_clusters set
+                mention_count = mention_count + 1,
+                stage = idea_stage_for(stage, mention_count + 1),
+                centroid = (select avg(e) from (
+                              select embedding as e from idea_mentions
+                              where cluster_id = ${plan.clusterId}::bigint and review_status = 'accepted' and embedding is not null
+                              union all select ${v}::vector) s),
+                first_mentioned_at = least(first_mentioned_at, ${item.spokenAt}::timestamptz),
+                last_mentioned_at = greatest(last_mentioned_at, ${item.spokenAt}::timestamptz),
+                updated_at = now()
+              where id = ${plan.clusterId}::bigint
+            )
+            select id, cluster_id from m`,
+      ];
+    }
     const counted = review ? 0 : 1;
+    const v = plan?.embedding ? toVectorLiteral(plan.embedding) : null;
     return [
       txn`with c as (
-            insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at)
-            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz)
+            insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, centroid)
+            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector)
             returning id
           )
-          insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, spoken_at, confidence, review_status, source)
-          select c.id, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${clampExcerpt(item.extraction.excerpt)}::text,
+          insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+          select c.id, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
                  ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${review ? "needs_review" : "accepted"}::text, ${item.source}::text
           from c
           returning id, cluster_id`,
