@@ -4,6 +4,7 @@ const STICKY: readonly IdeaStage[] = ["drafted", "used", "dismissed"];
 
 // Mirrored in SQL by idea_stage_for() (db/migrations/003_compost.sql), which the save statement uses so the stage
 // follows the row's own count; an integration test keeps the two equal.
+// Changing stageFor requires a new migration that redefines idea_stage_for.
 export function stageFor(current: IdeaStage, mentionCount: number): IdeaStage {
   if (STICKY.includes(current)) return current;
   if (mentionCount >= 3) return "ready";

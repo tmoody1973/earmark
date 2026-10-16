@@ -52,10 +52,25 @@ describe("buildSaveQueries for ideas", () => {
     expect(texts[0]!.split(" ")).toHaveLength(25);
   });
 
-  it("a needs_review idea keeps M1 behaviour: own cluster, mention_count 0", () => {
-    const q = one(idea({ route: "review" }));
+  it("a needs_review idea counts (Tarik's rule): a create starts at mention_count 1, the mention stays needs_review", () => {
+    const q = one(idea({ route: "review", cluster: { action: "create", embedding: [1] } }));
     expect(q.sql).toContain("insert into idea_clusters");
-    expect(q.params).toContain(0);
+    expect(q.params).toContain(1);
+    expect(q.params).not.toContain(0);
     expect(q.params).toContain("needs_review");
+    expect(q.params.filter((p) => p === "[1]")).toHaveLength(2);
+  });
+
+  it("a needs_review idea joining a cluster increments its count and keeps review_status needs_review", () => {
+    const q = one(idea({ route: "review", cluster: { action: "join", clusterId: 12, embedding: [1] } }));
+    expect(q.sql).toMatch(/mention_count = mention_count \+ 1/);
+    expect(q.params).toContain("needs_review");
+    expect(q.params).not.toContain("accepted");
+  });
+
+  it("the centroid mean uses every non-dismissed mention (accepted and needs_review alike)", () => {
+    const q = one(idea({ cluster: { action: "join", clusterId: 12, embedding: [1] } }));
+    expect(q.sql).toMatch(/review_status <> 'dismissed'/);
+    expect(q.sql).not.toMatch(/review_status = 'accepted'/);
   });
 });

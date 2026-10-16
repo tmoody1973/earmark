@@ -25,9 +25,12 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
 }));
 
 // Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
-vi.mock("../../../agent/lib/ideas/compost", () => ({ planIdeaClusters: vi.fn(async (items: unknown[]) => items) }));
+vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/ideas/compost")>()),
+  planIdeaClusters: vi.fn(async (items: unknown[]) => items),
+}));
 
-import { planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
 import { isConversationProcessed, markConversationProcessed, releaseConversation } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
@@ -319,6 +322,14 @@ describe("processConversation", () => {
     await expect(
       processConversation(42, { ...base, extractRecommendation: twoRecs, bee: bee("COMPLETED", lines(6)), triage: tri({}) }),
     ).rejects.toThrow("db down");
+    expect(committed).toHaveLength(0);
+    expect(releaseConversation).toHaveBeenCalledWith(42);
+  });
+
+  it("a compost outage (every idea's plan failed) saves nothing, releases the claim and throws CompostUnavailableError", async () => {
+    vi.mocked(planIdeaClusters).mockRejectedValueOnce(new CompostUnavailableError(1));
+    const err = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CompostUnavailableError);
     expect(committed).toHaveLength(0);
     expect(releaseConversation).toHaveBeenCalledWith(42);
   });

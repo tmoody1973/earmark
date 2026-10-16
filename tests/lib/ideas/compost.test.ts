@@ -6,7 +6,7 @@ const store = vi.hoisted(() => ({
 }));
 vi.mock("../../../agent/lib/store/ideas", () => store);
 
-import { planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
 import type { SaveItem } from "../../../agent/lib/pipeline/save-item";
 import type { ClusterOption } from "../../../agent/lib/ideas/choose-cluster";
 
@@ -37,10 +37,21 @@ beforeEach(() => {
 });
 
 describe("planIdeaClusters", () => {
-  it("passes recs and needs_review ideas through untouched, without any model call", async () => {
-    const review = idea("Review me", { route: "review" });
-    expect(await planIdeaClusters([rec, review], deps)).toEqual([rec, review]);
+  it("passes recs through untouched, without any model call (and never throws when no idea needed a plan)", async () => {
+    expect(await planIdeaClusters([rec], deps)).toEqual([rec]);
     expect(deps.embedText).not.toHaveBeenCalled();
+  });
+
+  it("plans a needs_review idea exactly like an accepted one (Tarik: review-band ideas count)", async () => {
+    store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+    deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+    const [out] = await planIdeaClusters([idea("Review me", { route: "review" })], deps);
+    expect(out).toMatchObject({ route: "review", cluster: { action: "join", clusterId: 12, embedding: vec(0) } });
+  });
+
+  it("a needs_review idea with nothing near creates its own cluster with a centroid", async () => {
+    const [out] = await planIdeaClusters([idea("Review me", { route: "review" })], deps);
+    expect(out).toMatchObject({ route: "review", cluster: { action: "create", embedding: vec(0) } });
   });
 
   it("embeds title plus excerpt and creates a new cluster (with its centroid) when nothing is near", async () => {
@@ -103,26 +114,69 @@ describe("planIdeaClusters", () => {
     expect(out[0]).toMatchObject({ cluster: { action: "join", clusterId: 12 } });
   });
 
-  it("an embedding failure falls back to a new cluster without a centroid and logs ids + error name only", async () => {
+  it("an embedding failure (one of two ideas) falls back to a new cluster without a centroid and logs ids + error name only", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     class GatewayError extends Error { override name = "GatewayError"; }
     deps.embedText.mockRejectedValueOnce(new GatewayError("transcript words here"));
-    const [out] = await planIdeaClusters([idea("House music segment")], deps);
+    const [out, ok] = await planIdeaClusters([idea("House music segment"), idea("Other")], deps);
     expect(out).toMatchObject({ cluster: { action: "create", embedding: null } });
+    expect(ok).toMatchObject({ cluster: { action: "create", embedding: vec(0) } });
     const logged = spy.mock.calls.map((c) => c.join(" ")).join("\n");
     expect(logged).toContain("conversation=501");
+    expect(logged).toContain("stage=embed");
     expect(logged).toContain("GatewayError");
     expect(logged).not.toContain("transcript words");
     spy.mockRestore();
   });
 
-  it("a cluster-choice failure falls back to a new cluster that keeps its embedding", async () => {
+  it("a cluster-choice failure (one of two ideas) falls back to a new cluster that keeps its embedding", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     store.nearestClusters.mockResolvedValue([dbCluster(12)]);
     deps.chooseCluster.mockRejectedValueOnce(new Error("jev down"));
-    const [out] = await planIdeaClusters([idea("House music segment")], deps);
+    const [out] = await planIdeaClusters([idea("House music segment"), idea("Other")], deps);
     expect(out).toMatchObject({ cluster: { action: "create", embedding: vec(0) } });
-    expect(spy.mock.calls.map((c) => c.join(" ")).join("\n")).not.toContain("jev down");
+    const logged = spy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logged).toContain("stage=choose");
+    expect(logged).not.toContain("jev down");
+    spy.mockRestore();
+  });
+
+  it("an occasion-check failure (one of two ideas) falls back to a new cluster that keeps its embedding", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+    deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+    store.hasMentionFromSameOccasion.mockRejectedValueOnce(new Error("db blip"));
+    const out = await planIdeaClusters([idea("A"), idea("B")], deps);
+    expect(out[0]).toMatchObject({ cluster: { action: "create", embedding: vec(0) } });
+    expect(out[1]).toMatchObject({ cluster: { action: "join", clusterId: 12 } });
+    expect(spy.mock.calls.map((c) => c.join(" ")).join("\n")).toContain("stage=occasion");
+    spy.mockRestore();
+  });
+
+  it("a fallback create without an embedding is not offered to later ideas", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    deps.embedText.mockRejectedValueOnce(new Error("x"));
+    await planIdeaClusters([idea("A"), idea("B")], deps);
+    expect(deps.chooseCluster).toHaveBeenCalledTimes(1); // only B's decision
+    expect(deps.chooseCluster.mock.calls[0]![1]).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it("every idea failing (n = 1) is a compost outage: throws CompostUnavailableError so the claim is released and retried", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    deps.embedText.mockRejectedValueOnce(new Error("gateway down"));
+    const err = await planIdeaClusters([rec, idea("A")], deps).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CompostUnavailableError);
+    expect((err as Error).name).toBe("CompostUnavailableError");
+    spy.mockRestore();
+  });
+
+  it("every idea failing (n = 2, mixed embed and choose stages) throws CompostUnavailableError", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+    deps.embedText.mockRejectedValueOnce(new Error("embed down"));
+    deps.chooseCluster.mockRejectedValueOnce(new Error("jev down"));
+    await expect(planIdeaClusters([idea("A"), idea("B", { route: "review" })], deps)).rejects.toBeInstanceOf(CompostUnavailableError);
     spy.mockRestore();
   });
 });
