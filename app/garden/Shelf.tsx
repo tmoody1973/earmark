@@ -1,0 +1,22 @@
+import type { RecCardData } from "@/agent/lib/garden/queries";
+import { RecCard } from "./cards/RecCard";
+
+/** The shelf zone: two columns on a phone, widening to four on desktop. */
+export function Shelf({ cards }: { cards: RecCardData[] }) {
+  if (cards.length === 0) {
+    return (
+      <p className="empty">
+        Nothing on the shelf yet. Say “Earmark that, Ann’s ramen spot” to your Bee, and the tip lands here with her name on it.
+      </p>
+    );
+  }
+  return (
+    <ul className="shelf-grid">
+      {cards.map((c) => (
+        <li key={c.id}>
+          <RecCard card={c} />
+        </li>
+      ))}
+    </ul>
+  );
+}
