@@ -16,11 +16,35 @@ export function presentedSecret(request: Request): string | null {
 }
 
 // Structure only (keys + value types, arrays as [elementType]); never values, so it is safe to log.
-export function shapeOf(v: unknown): string {
+// Capped (depth 4, 20 keys per object, 300 chars), id-like keys redacted, and it can never throw.
+const MAX_DEPTH = 4, MAX_KEYS = 20, MAX_LEN = 300;
+const ID_KEY = /^\d+$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function walk(v: unknown, depth: number): string {
   if (v === null) return "null";
-  if (Array.isArray(v)) return v.length ? `[${shapeOf(v[0])}]` : "[]";
-  if (typeof v === "object") return `{${Object.entries(v).map(([k, x]) => `${k}:${shapeOf(x)}`).join(",")}}`;
+  if (Array.isArray(v)) return v.length ? (depth >= MAX_DEPTH ? "[…]" : `[${walk(v[0], depth + 1)}]`) : "[]";
+  if (typeof v === "object") {
+    if (depth >= MAX_DEPTH) return "{…}";
+    const entries = Object.entries(v);
+    const parts = entries.slice(0, MAX_KEYS).map(([k, x]) => `${ID_KEY.test(k) ? "<id>" : k}:${walk(x, depth + 1)}`);
+    if (entries.length > MAX_KEYS) parts.push("…");
+    return `{${parts.join(",")}}`;
+  }
   return typeof v;
+}
+
+export function shapeOf(v: unknown): string {
+  try {
+    const out = walk(v, 0);
+    return out.length > MAX_LEN ? `${out.slice(0, MAX_LEN)}…` : out;
+  } catch {
+    return "<unshapeable>";
+  }
+}
+
+/** Event names are logged only when well-formed; anything else (could be text) is reduced to its type. */
+export function eventLabel(v: unknown): string {
+  return typeof v === "string" && /^[a-z-]{1,40}$/.test(v) ? v : typeof v;
 }
 
 export async function handleRelayRequest(
@@ -38,7 +62,7 @@ export async function handleRelayRequest(
   }
   const parsed = BeeEventSchema.safeParse(body);
   if (!parsed.success) {
-    const name = typeof body === "object" && body !== null && "event" in body ? String(body.event) : "?";
+    const name = eventLabel(typeof body === "object" && body !== null && "event" in body ? body.event : undefined);
     console.warn(`[bee] unrecognized event: ${name} shape=${shapeOf(body)}`);
     return Response.json({ ok: false, error: "unrecognized event" }, { status: 400 });
   }

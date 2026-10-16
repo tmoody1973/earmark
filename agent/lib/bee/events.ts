@@ -49,16 +49,26 @@ export function isJournalComplete(state: string | null | undefined): boolean {
   return typeof state === "string" && COMPLETE_STATES.has(state.toLowerCase());
 }
 
-const asId = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : null);
+const asId = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) ? n : null;
+};
 const asUuid = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const obj = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
-/** The uuid and numeric id of a new conversation, from the documented nested shape or flat variants; null when either is absent. */
+/**
+ * The uuid and numeric id of a new conversation. Both must come from the SAME level (never mixed): `conversation.{uuid,id}`
+ * (documented), then `{conversation_uuid,conversation_id}`, then `{uuid,id}`. Null when no level has both.
+ */
 export function conversationRef(data: Record<string, unknown>): { uuid: string; id: number } | null {
   const c = obj(data.conversation);
-  const uuid = asUuid(c.uuid) ?? asUuid(data.conversation_uuid) ?? asUuid(data.uuid);
-  const id = asId(c.id) ?? asId(data.conversation_id) ?? asId(data.id);
-  return uuid && id !== null ? { uuid, id } : null;
+  const levels: Array<[unknown, unknown]> = [[c.uuid, c.id], [data.conversation_uuid, data.conversation_id], [data.uuid, data.id]];
+  for (const [u, i] of levels) {
+    const uuid = asUuid(u);
+    const id = asId(i);
+    if (uuid && id !== null) return { uuid, id };
+  }
+  return null;
 }
 
 export type BeeEvent = z.infer<typeof BeeEventSchema>;
