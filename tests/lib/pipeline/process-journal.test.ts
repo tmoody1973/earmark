@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fake Neon: transaction(fn) collects the statements fn builds and "commits" them all or none.
@@ -198,7 +199,7 @@ describe("processJournal", () => {
 
   it("rethrows the original error even when releasing the claim also fails", async () => {
     vi.mocked(releaseJournal).mockRejectedValueOnce(new Error("release boom"));
-    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw Object.assign(new Error("model down"), { name: "APICallError" }); }) as PipelineDeps["extractRecommendation"] };
+    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new APICallError({ message: "model down", url: "https://x", requestBodyValues: {}, statusCode: 503 }); }) as PipelineDeps["extractRecommendation"] };
     await expect(processJournal({ id: "61", text: "Earmark that, Ann's ramen spot", createdAt }, bad)).rejects.toThrow("model down");
   });
 

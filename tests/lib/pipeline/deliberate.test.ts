@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { splitDeliberate } from "../../../agent/lib/pipeline/deliberate";
+import { APICallError, NoObjectGeneratedError, RetryError, TypeValidationError } from "ai";
+import { isOutage, splitDeliberate } from "../../../agent/lib/pipeline/deliberate";
+import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
 import type { Utterance } from "../../../agent/lib/types";
 
 const u = (text: string, id?: number): Utterance => ({ text, speaker: "Unknown", spokenAt: new Date(Date.UTC(2026, 9, 16, 18, 23, id ?? 0)), id });
@@ -71,5 +73,31 @@ describe("splitDeliberate", () => {
     const { earmarks, rest } = splitDeliberate(lines);
     expect(earmarks).toEqual([]);
     expect(rest).toEqual(lines);
+  });
+});
+
+// Real SDK instances: their names are prefixed ("AI_APICallError"), so classification must use the SDK's own guards.
+describe("isOutage (real AI SDK errors)", () => {
+  const api = new APICallError({ message: "down", url: "https://x", requestBodyValues: {}, statusCode: 503 });
+  const noObject = new NoObjectGeneratedError({
+    message: "bad", response: { id: "i", timestamp: new Date(), modelId: "m" }, usage: {} as never, finishReason: "stop" as never,
+  });
+  it.each([
+    ["APICallError", api],
+    ["RetryError", new RetryError({ message: "gave up", reason: "maxRetriesExceeded", errors: [api] })],
+    ["SystemicTriageError", new SystemicTriageError("all_failed")],
+    ["fetch failed", new TypeError("fetch failed")],
+    ["AbortError", Object.assign(new Error("x"), { name: "AbortError" })],
+    ["TimeoutError", Object.assign(new Error("x"), { name: "TimeoutError" })],
+  ])("%s is an outage (retry later)", (_n, err) => expect(isOutage(err)).toBe(true));
+
+  it.each([
+    ["NoObjectGeneratedError", noObject],
+    ["TypeValidationError", new TypeValidationError({ value: 1, cause: new Error("schema") })],
+    ["plain Error", new Error("bad json")],
+  ])("%s is not an outage (falls back to a raw review rec)", (_n, err) => expect(isOutage(err)).toBe(false));
+
+  it("the real names are AI_-prefixed, which is why names are not matched", () => {
+    expect(api.name).toBe("AI_APICallError");
   });
 });

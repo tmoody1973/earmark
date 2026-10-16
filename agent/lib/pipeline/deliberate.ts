@@ -1,11 +1,11 @@
+import { APICallError, RetryError } from "ai";
 import { detectEarmarkTrigger } from "../bee/trigger";
 import { ownerFirstName } from "../env";
 import type { TriageResult, Utterance } from "../types";
 import { chooseRecommender } from "./attribution";
-import { wordCount } from "./excerpt";
+import { clampExcerpt, wordCount } from "./excerpt";
 import type { PipelineDeps } from "./process-conversation";
 import type { SaveItem } from "./save-item";
-import { clampExcerpt } from "./excerpt";
 import { TITLE_MAX_WORDS } from "./extract";
 import { SystemicTriageError } from "./triage";
 
@@ -78,9 +78,12 @@ export interface DeliberateContext {
 }
 
 // Errors that mean "the model service is down", not "this text defeated the extractor": retry later, don't degrade.
-const OUTAGE_NAME = /^(?:SystemicTriageError|CompostUnavailableError|APICallError|RetryError|.*Gateway.*|.*Timeout.*|AbortError|.*Network.*|FetchError)$/i;
+// The SDK's own guards, not names: SDK error names are prefixed ("AI_APICallError"). Our own classes and the platform's
+// (Abort/Timeout/Gateway, fetch failures) have plain names. NoObjectGeneratedError / TypeValidationError are NOT outages.
 export const isOutage = (err: unknown): boolean =>
-  err instanceof SystemicTriageError || (err instanceof Error && (OUTAGE_NAME.test(err.name) || (err instanceof TypeError && /fetch failed/i.test(err.message))));
+  err instanceof SystemicTriageError || APICallError.isInstance(err) || RetryError.isInstance(err) ||
+  (err instanceof Error && (/^(?:CompostUnavailableError|AbortError|FetchError)$|Gateway|Timeout/.test(err.name) ||
+    (err instanceof TypeError && /fetch failed/i.test(err.message))));
 
 // Voice notes and conversations both land here. An outage throws (the caller releases its claim and retries). Any other
 // failure on this one item (bad model output, schema error) keeps what the person said: a raw rec, the spoken words as
