@@ -158,11 +158,11 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
     changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),
-    // `q`, not `query`: that name is the query-string helper above.
-    neuralSearch: (q: string, opts: { since?: number; until?: number; limit?: number } = {}) =>
-      call("/v1/search/conversations/neural", NeuralSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }) }),
-    keywordSearch: (q: string, opts: KeywordSearchOptions = {}) =>
-      call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }) }),
+    // `q`, not `query`: that name is the query-string helper above. signal: a caller's own timeout (default 15 s).
+    neuralSearch: (q: string, opts: { since?: number; until?: number; limit?: number } = {}, signal?: AbortSignal) =>
+      call("/v1/search/conversations/neural", NeuralSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
+    keywordSearch: (q: string, opts: KeywordSearchOptions = {}, signal?: AbortSignal) =>
+      call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
     listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
       call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
   };

@@ -18,6 +18,7 @@ const fakes = () => ({
     neuralSearch: vi.fn(async () => ({ results: [{ id: 1, locations: [], short_summary: "Talked about station tools" }] })),
     keywordSearch: vi.fn(async () => ({ results: [{ id: "f1", type: "fact", summary: "Works in public radio" }] })),
   },
+  gateContext: vi.fn(async (i: { related: string[]; facts: string[] }) => ({ related: i.related, facts: i.facts, probabilities: { related: [], facts: [] } })),
   chooseDraftFormat: vi.fn(async () => ({ format: "product_brief" as const, probability: 0.9 })),
   writeOnePager: vi.fn(async () => `# CRM\n\n## Problem\n"${words(30)}"\n\n${words(320)}`),
 });
@@ -96,15 +97,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("one-pager drafting on the Neon 
     }
     await draftBlooms({ clusterIds: [id], deps: d as never });
     expect(d.writeOnePager).toHaveBeenCalledTimes(MAX_DRAFT_ATTEMPTS);
+    expect(JSON.stringify(err.mock.calls)).toContain(`[draft] cluster=${id} gave up after ${MAX_DRAFT_ATTEMPTS} attempts`);
+
+    // scripts/draft-one-pager.ts --reset: attempts back to 0, claim cleared, claimable again.
+    const { resetDraftAttempts, claimDraftableClusters } = await mods();
+    await resetDraftAttempts(id);
+    expect(await row(id)).toMatchObject({ draft_attempts: 0, draft_claimed_at: null });
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 1 }]);
     err.mockRestore();
   });
 
   it("a live claim blocks other runners; a stale one (crashed run, older than the lease) is re-taken", async () => {
     const id = await bloomedCluster(40);
     const { db, claimDraftableClusters } = await mods();
-    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([id]);
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 1 }]);
     expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([]);
     await db()`update idea_clusters set draft_claimed_at = now() - interval '16 minutes' where id = ${id}`;
-    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([id]);
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 2 }]);
   });
 });

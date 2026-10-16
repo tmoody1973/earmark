@@ -104,7 +104,8 @@ export const MAX_DRAFT_ATTEMPTS = 3;
 
 // Claim up to `limit` bloomed clusters without a draft (optionally only these ids). SKIP LOCKED + the lease: two runners
 // never get the same cluster; a claim from a run that crashed is re-taken once older than CLAIM_LEASE.
-export async function claimDraftableClusters(opts: { clusterIds?: number[]; limit: number }): Promise<number[]> {
+// attempts: this claim's attempt number (1-based), so the caller can tell when the last allowed attempt failed.
+export async function claimDraftableClusters(opts: { clusterIds?: number[]; limit: number }): Promise<Array<{ id: number; attempts: number }>> {
   const ids = opts.clusterIds ?? null;
   const rows = await db()`
     with open as (
@@ -118,8 +119,13 @@ export async function claimDraftableClusters(opts: { clusterIds?: number[]; limi
     )
     update idea_clusters c set draft_claimed_at = now(), draft_attempts = c.draft_attempts + 1
     from open where c.id = open.id
-    returning c.id`;
-  return rows.map((r) => Number(r.id));
+    returning c.id, c.draft_attempts`;
+  return rows.map((r) => ({ id: Number(r.id), attempts: Number(r.draft_attempts) }));
+}
+
+// Manual retry after MAX_DRAFT_ATTEMPTS (scripts/draft-one-pager.ts --reset): attempts back to 0, claim cleared.
+export async function resetDraftAttempts(clusterId: number): Promise<void> {
+  await db()`update idea_clusters set draft_attempts = 0, draft_claimed_at = null where id = ${clusterId} and draft_md is null`;
 }
 
 // Failed draft: give the claim back so a later run retries (attempts were counted at claim time).
