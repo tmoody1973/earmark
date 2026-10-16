@@ -33,6 +33,10 @@ Research notes with sources: `docs/research/{bee-api,eve,triage-models,integrati
 | N5 | Garden domain | `*.vercel.app` + Clerk development instance through M4; decide domain before demo recording. | M6 |
 | N6 | Echo playback vs separate Alexa+ entry | Earmark MCP server stays read-only + playlist add; demo shows queries only, playback is one shot. | M5 |
 
+## Proposed during planning (confirm at plan review)
+
+- **P1 — Incremental Bee sync via `GET /v1/changes?cursor=`** (docs: https://docs.bee.computer/docs/agentic-sync). Every 10 min a deterministic eve schedule fetches what changed since the stored cursor and routes conversation/journal ids to the existing (deduping) processors, todo ids to `handleTodoChange`, fact ids to `handleFactChange`. Used as code, not as an LLM "reason over changes" loop. Replaces the separate todo poll (M3) and fact poll (M5); keeps the nightly 48 h backfill as the safety net; the Mac relay stays the only seconds-latency path (live bloom). Response shape verified live (`meta.next_cursor`, five lists); non-empty item shape still to verify in M2.
+
 ## Facts from research that change the build (not in the PRD)
 
 - **Speakers are always `"Unknown"`** in the real API (bee-cli issue #19), not `speaker_1`. Attribution relies entirely on FR-04's chain: voice trigger → second-person cues → Bee summary → Slack question.

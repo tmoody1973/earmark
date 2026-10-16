@@ -137,3 +137,11 @@ Pagination convention (SRC, conversations/journals/facts/todos/photos): `?limit=
 16. TLS: two hosts, one with private CA (#5); public host documented only recently.
 17. Docs claim `bee version` while CLI help/`bee --version` unverified locally (CLI not installed here); install package is `@beeai/cli` while repo is `bee-cli`.
 18. Hackathon-specific: Android Developer Mode (#13 closed), conversation duplicates in `bee now` (#3), arm64 Linux binary missing (#1) matter if running the stream on a Hetzner/ARM box (Hetzner box is x86 per setup, fine).
+
+## 7. Search result shapes (verified live on Tarik's account, 2026-10-16 05:19 CDT)
+
+Source: `bee search --json` (CLI 0.8.0) against the real account; doc https://docs.bee.computer/docs/search.
+- Keyword (BM25, default; scope conversations + daily + facts; `filter`, `sortBy` apply): `{results:[{id: string, type: string, score: number, summary: string, snippet: string, title_snippet: string, created_at: number(ms), corrections: []}], next_cursor: string, search_mode: string, timezone: string}`. Fast.
+- Neural (`--neural`, conversations only; `since`/`until` apply, filter/sort do not): `{results:[{id: number, started_at: number(ms), stopped_at: number(ms), link: string, locations: string[], short_summary: string, detailed_summary: string}], total: number, timezone: string}`. ~2.9 s for limit 2.
+- Note the id type differs between modes (string vs number). `--cursor` not supported by search; page by `since`/`until`.
+- Implications: never block a user-visible moment (bloom) on neural search; use keyword search with `filter: "facts"` to fetch only relevant facts for a draft.
