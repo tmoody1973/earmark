@@ -4,7 +4,9 @@ import { handleRelayRequest, secretMatches } from "../../../agent/lib/bee/webhoo
 const SECRET = "s".repeat(64);
 const body = JSON.stringify({ event: "new-utterance", ts: "t", data: { utterance: { text: "hi", speaker: "Unknown" }, conversation_uuid: "u" } });
 const req = (key: string | null, payload: string = body) =>
-  new Request(`http://localhost:2000/api/bee/events${key === null ? "" : `?key=${key}`}`, { method: "POST", body: payload });
+  new Request("http://localhost:2000/api/bee/events", { method: "POST", body: payload, headers: key === null ? {} : { "x-earmark-key": key } });
+const bearer = (key: string) =>
+  new Request("http://localhost:2000/api/bee/events", { method: "POST", body, headers: { authorization: `Bearer ${key}` } });
 
 describe("secretMatches", () => {
   it("accepts the exact secret and rejects others", () => {
@@ -18,6 +20,20 @@ describe("secretMatches", () => {
 });
 
 describe("handleRelayRequest", () => {
+  it("accepts Authorization: Bearer <secret> and rejects a wrong bearer", async () => {
+    const ok = await handleRelayRequest(bearer(SECRET), { secret: SECRET, waitUntil: vi.fn(), handle: vi.fn(async () => {}) });
+    expect(ok.status).toBe(200);
+    const bad = await handleRelayRequest(bearer("nope"), { secret: SECRET, waitUntil: vi.fn(), handle: vi.fn() });
+    expect(bad.status).toBe(401);
+  });
+
+  it("no longer accepts the secret in the query string", async () => {
+    const handle = vi.fn(async () => {});
+    const r = new Request(`http://localhost:2000/api/bee/events?key=${SECRET}`, { method: "POST", body });
+    expect((await handleRelayRequest(r, { secret: SECRET, waitUntil: vi.fn(), handle })).status).toBe(401);
+    expect(handle).not.toHaveBeenCalled();
+  });
+
   it("returns 401 without the right key and does not process", async () => {
     const handle = vi.fn(async () => {});
     const res = await handleRelayRequest(req("wrong"), { secret: SECRET, waitUntil: vi.fn(), handle });
