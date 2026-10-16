@@ -57,6 +57,15 @@ export function conversationCountsQuery(txn: Txn, id: number, counts: { ideas: n
              where bee_conversation_id = ${id}`;
 }
 
+// Deliberate "Earmark that" keys already saved from this conversation (recs and idea mentions). A re-run after a
+// released claim skips these before any model call; the unique indexes in migration 008 are the backstop.
+export async function savedDeliberateKeys(id: number): Promise<Set<string>> {
+  const rows = await db()`select deliberate_key from recommendations where bee_conversation_id = ${id} and deliberate_key is not null
+                          union
+                          select deliberate_key from idea_mentions where bee_conversation_id = ${id} and deliberate_key is not null`;
+  return new Set(rows.map((r) => r.deliberate_key as string));
+}
+
 // Undo a claim when the run failed after claiming, so the backfill can retry. Guarded: a slow run that outlived its
 // lease must not delete a newer runner's finished (done) claim.
 export async function releaseConversation(id: number): Promise<void> {

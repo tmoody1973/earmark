@@ -23,6 +23,20 @@ describe("extractRecommendation", () => {
     expect(r.recommenderName).toBeNull();
   });
 
+  it("never credits the item's own artist as the recommender (possessive name before the item)", async () => {
+    const t = "Unknown: I should listen to Jemetta Rose's new albums as a tribute to Sun Ra Records";
+    const r = await extractRecommendation({ text: t, summary: null }, {
+      model: "m",
+      generateImpl: fake({ canonicalName: "Jemetta Rose's new albums", creator: "Jemetta Rose", recommenderName: "Jemetta", excerpt: "I should listen to Jemetta Rose's new albums" }),
+    });
+    expect(r.recommenderName).toBeNull();
+    const viaCreator = await extractRecommendation({ text: t, summary: null }, {
+      model: "m",
+      generateImpl: fake({ canonicalName: "New albums", creator: "Jemetta Rose", recommenderName: "Jemetta", excerpt: "I should listen to Jemetta Rose's new albums" }),
+    });
+    expect(viaCreator.recommenderName).toBeNull();
+  });
+
   it("accepts a name that only appears in Bee's summary", async () => {
     const r = await extractRecommendation({ text: "Unknown: you have to try Ardent", summary: "Marcus recommended Ardent." }, {
       model: "m",

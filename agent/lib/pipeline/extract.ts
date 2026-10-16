@@ -30,6 +30,7 @@ const REC_INSTRUCTIONS =
   "You extract one recommendation from a short conversation transcript. Speakers are all labelled 'Unknown'. " +
   "Never invent a person's name: recommenderName must be a name written in the transcript or the summary, otherwise null. " +
   "In a voice note, a possessive name before the item ('Ann's ramen spot') names the person who recommended it. " +
+  "A group or role ('the syntax guys', 'my team') is not a name: recommenderName is null. " +
   "The excerpt must be copied word for word from the transcript, without the 'Unknown:' labels, 25 words or fewer.";
 
 const IDEA_INSTRUCTIONS =
@@ -68,6 +69,14 @@ function verbatimExcerpt(candidate: string, source: string, hint = ""): string {
   return clampExcerpt(sourceSpan(candidate, plain)) || fallbackExcerpt(source, hint);
 }
 
+// "Jemetta Rose's new albums": a possessive name can be the item's own artist, who is not the recommender.
+// ponytail: also drops a place named after a person ("Chris's Pizza"); the item is still saved, just uncredited.
+function notTheItself(name: string | null, o: { canonicalName: string; creator: string | null }): string | null {
+  if (!name) return null;
+  const word = new RegExp(`(?<![\\p{L}\\p{M}])${name}(?![\\p{L}\\p{M}])`, "iu");
+  return word.test(o.canonicalName) || (o.creator !== null && word.test(o.creator)) ? null : name;
+}
+
 export async function extractRecommendation(input: { text: string; summary: string | null }, opts: Opts = {}): Promise<RecExtraction> {
   const generate = opts.generateImpl ?? generateText;
   const { output } = await generate({
@@ -79,7 +88,7 @@ export async function extractRecommendation(input: { text: string; summary: stri
   return {
     canonicalName: clampExcerpt(output.canonicalName, TITLE_MAX_WORDS),
     creator: output.creator?.trim() || null,
-    recommenderName: validNameFor(ownerFirstName(), output.recommenderName, input.text, input.summary),
+    recommenderName: notTheItself(validNameFor(ownerFirstName(), output.recommenderName, input.text, input.summary), output),
     excerpt: verbatimExcerpt(output.excerpt, input.text, output.canonicalName),
   };
 }

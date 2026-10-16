@@ -13,6 +13,9 @@ interface Common {
   // links the two). Stored on the mention so a live mention and the later completed pass are one occasion.
   beeConversationUuid?: string | null;
   beeJournalId: string | null;
+  // Deliberate "Earmark that" said inside a conversation: its triggered utterance's key (deliberate.ts). Unique per
+  // conversation in the database, so a re-run can never save it twice. Null for everything else.
+  deliberateKey?: string | null;
   spokenAt: Date;
   confidence: number;
   source: Source;
@@ -85,11 +88,11 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
       // recompute centroids in a nightly job if live and backfill ever overlap on one idea.
       return [
         txn`with m as (
-              insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+              insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
               values (${plan.clusterId}::bigint,
                       coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
                       coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
-                      ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
+                      ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${excerpt}::text, ${v}::vector,
                       ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${status}::text, ${item.source}::text)
               returning id, cluster_id
             ), c as (
@@ -123,11 +126,11 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
             values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector, ${entry}::jsonb)
             returning id
           ), m as (
-            insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
+            insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
             select c.id,
                    coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
                    coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
-                   ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
+                   ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${excerpt}::text, ${v}::vector,
                    ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${status}::text, ${item.source}::text
             from c
             returning id, cluster_id
@@ -145,9 +148,9 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
   if (!name) {
     return [
       txn`insert into recommendations (type, raw_text, canonical_name, creator, recommender_id, attribution_source, excerpt,
-                                       bee_conversation_id, bee_journal_id, said_at, source, status, confidence)
+                                       bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence)
           values (${item.recType}, ${excerpt}, ${ex.canonicalName}, ${ex.creator}, null, 'none', ${excerpt},
-                  ${item.beeConversationId}, ${item.beeJournalId}, ${item.spokenAt}, ${item.source}, ${status}, ${item.confidence})
+                  ${item.beeConversationId}, ${item.beeJournalId}, ${item.deliberateKey ?? null}, ${item.spokenAt}, ${item.source}, ${status}, ${item.confidence})
           returning id`,
     ];
   }
@@ -158,9 +161,9 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
           returning id
         )
         insert into recommendations (type, raw_text, canonical_name, creator, recommender_id, attribution_source, excerpt,
-                                     bee_conversation_id, bee_journal_id, said_at, source, status, confidence)
+                                     bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence)
         select ${item.recType}::text, ${excerpt}::text, ${ex.canonicalName}::text, ${ex.creator}::text, r.id, ${attribution.source}::text, ${excerpt}::text,
-               ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${item.spokenAt}::timestamptz, ${item.source}::text, ${status}::text, ${item.confidence}::real
+               ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${item.spokenAt}::timestamptz, ${item.source}::text, ${status}::text, ${item.confidence}::real
         from r
         returning id`,
   ];

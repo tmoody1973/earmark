@@ -7,7 +7,8 @@ export type IdeaStage = "compost" | "sprouting" | "ready" | "drafted" | "used" |
 export type RecStatus = "needs_review" | "new" | "queued" | "tried" | "thanked" | "dismissed" | "composted";
 export type Rating = "loved" | "fine" | "not_for_me";
 
-export interface Utterance { text: string; speaker: string; spokenAt: Date | null }
+// id: Bee's utterance id when REST sent one (identity of a deliberate "Earmark that" within its conversation).
+export interface Utterance { text: string; speaker: string; spokenAt: Date | null; id?: number | null }
 
 export interface TranscriptWindow {
   conversationId: number | null;     // Bee REST numeric id
