@@ -58,6 +58,24 @@ const TodoSchema = z.object({
 });
 const Cursor = z.string().nullable().optional().transform((c) => c ?? null);
 
+// GET /v1/changes (observed 2026-10-16): the cursor/window fields are TOP level (no `meta` wrapper) and the lists hold
+// bare numeric ids. A non-empty journals list has not been seen yet, so objects with an `id` are accepted too.
+const ChangeItemSchema = z.union([z.number(), z.string(), z.object({ id: z.union([z.number(), z.string()]) })]);
+const changeList = z.array(ChangeItemSchema).default([]);
+export const BeeChangesSchema = z.object({
+  next_cursor: z.string(),
+  since: z.number(),
+  until: z.number(),
+  updated: z.boolean(),
+  timezone: z.string(),
+  facts: changeList,
+  todos: changeList,
+  dailies: changeList,
+  conversations: changeList,
+  journals: changeList,
+});
+export type BeeChanges = z.infer<typeof BeeChangesSchema>;
+
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
 export type Conversation = z.infer<typeof ConversationSchema>;
 export type Journal = z.infer<typeof JournalSchema>;
@@ -98,6 +116,7 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     getJournal: (id: string) => call(`/v1/journals/${encodeURIComponent(id)}`, JournalSchema),
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
+    changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),
   };
 }
 
