@@ -37,6 +37,7 @@ CI: every PR and push to `main` runs typecheck, unit tests, lint, build and a gi
 - Stop: Ctrl-C in each terminal. If started in the background: `pkill -f relay/run.sh; lsof -ti :2000 | xargs kill`
 - Backfill now: `curl -X POST http://localhost:2000/eve/v1/dev/schedules/nightly-backfill`
 - Tests: `pnpm test`; sign-in and owner-gate checks with screenshots: `pnpm test:e2e` (needs the Clerk keys and `pnpm exec playwright install chromium`). Screenshots go to the git-ignored `test-results/screens/`. Never commit real-data screenshots: the three PNGs in `docs/design/screens/` are empty-state captures only.
+- Triage eval set (M2-T8): `pnpm eval:sample` writes real transcript windows to `evals/triage/data/unlabeled.jsonl`; `pnpm label` proposes a label per window and you confirm (Enter = accept, `s` skip, `q` quit, or `k= t= j=y|n n=` to override; saved after every answer, rerun to resume). This folder holds real speech: it is git-ignored, lives only on this Mac, and **delete `evals/triage/data` after Oct 23** (`rm -r evals/triage/data`).
 - Database tests: `pnpm test:int` runs against the Neon `test` branch (`TEST_DATABASE_URL` in `.env.local`), never production; `pnpm migrate:test` migrates that branch.
 
 ## Deploy
