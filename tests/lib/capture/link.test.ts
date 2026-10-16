@@ -54,6 +54,38 @@ describe("findConversationNear", () => {
   });
 });
 
+describe("findConversationNear candidate ordering", () => {
+  const conv = (id: number, start: number | null, end: number, spokenAt: number) => ({
+    id, summary: null, start_time: start, end_time: end,
+    primary_location: { latitude: 43.0418, longitude: -87.9097 },
+    transcriptions: [{ realtime: false, utterances: [{ text: `hello from ${id}`, speaker: "Unknown", spoken_at: spokenAt, start: null }] }],
+  });
+  const beeOf = (convs: ReturnType<typeof conv>[]) => ({
+    listConversations: vi.fn(async () => ({ conversations: convs, next_cursor: null })),
+    getConversation: vi.fn(async (id: number) => ({ conversation: convs.find((c) => c.id === id)! })),
+  });
+  const here = { lat: 43.042, lng: -87.91 };
+
+  it("prefers the conversation that contains the capture time over one that merely starts closer", async () => {
+    // 3 starts 1 min after the capture (inside the 10-minute margin); 4 contains the capture but started 30 min before
+    const bee = beeOf([conv(3, T + 60_000, T + 3600_000, T + 90_000), conv(4, T - 30 * 60_000, T + 3600_000, T - 60_000)]);
+    const linked = await findConversationNear(bee as never, new Date(T), here);
+    expect(linked?.conversationId).toBe(4);
+  });
+  it("tries the next candidate when the nearest has no speech near the capture time", async () => {
+    // 5 contains T but everything in it was said an hour away; 6 also contains T and has speech right at T
+    const bee = beeOf([conv(5, T - 10 * 60_000, T + 2 * 3600_000, T + 3600_000), conv(6, T - 20 * 60_000, T + 2 * 3600_000, T - 30_000)]);
+    const linked = await findConversationNear(bee as never, new Date(T), here);
+    expect(linked?.conversationId).toBe(6);
+    expect(bee.getConversation).toHaveBeenCalledTimes(2);
+  });
+  it("skips a conversation with no start time instead of treating it as the epoch", async () => {
+    const bee = beeOf([conv(7, null, T + 3600_000, T - 30_000)]);
+    expect(await findConversationNear(bee as never, new Date(T), here)).toBeNull();
+    expect(bee.getConversation).not.toHaveBeenCalled();
+  });
+});
+
 describe("pickWindowForCapture", () => {
   const w = (text: string): TranscriptWindow => ({
     conversationId: 2, conversationUuid: null, utterances: [], text, startedAt: null,
