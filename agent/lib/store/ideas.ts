@@ -52,14 +52,20 @@ export async function nearestClusters(embedding: readonly number[], k = 5): Prom
 }
 
 // One occasion (a conversation or a voice note) adds at most one mention to a cluster, so "the third mention" means
-// a third separate occasion. A mention with neither id never matches.
+// a third separate occasion. A conversation is one occasion whether a mention knew its numeric REST id (completed
+// pass), its stream uuid (live, before the uuid was mapped) or both: bee_conversation_map links the two forms.
+// A mention with no id at all never matches.
 export async function hasMentionFromSameOccasion(
-  clusterId: number, m: { beeConversationId: number | null; beeJournalId: string | null },
+  clusterId: number, m: { beeConversationId: number | null; beeJournalId: string | null; beeConversationUuid?: string | null },
 ): Promise<boolean> {
+  const id = m.beeConversationId;
+  const uuid = m.beeConversationUuid ?? null;
   const rows = await db()`
     select 1 from idea_mentions
     where cluster_id = ${clusterId}
-      and (bee_conversation_id = ${m.beeConversationId}::bigint or bee_journal_id = ${m.beeJournalId}::text)
+      and (bee_conversation_id = ${id}::bigint or bee_journal_id = ${m.beeJournalId}::text or bee_conversation_uuid = ${uuid}::text
+           or bee_conversation_uuid in (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${id}::bigint)
+           or bee_conversation_id in (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${uuid}::text))
     limit 1`;
   return rows.length > 0;
 }

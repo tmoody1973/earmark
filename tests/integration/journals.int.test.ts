@@ -36,7 +36,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     const { db } = await import("../../agent/lib/db");
     const j = { id: JID, text: `Earmark that, ${NAME}'s ramen spot`, createdAt };
     const first = await processJournal(j, fakeDeps("neither"));
-    expect(first).toMatchObject({ created: "rec", saved: { ideaClusterIds: [], mentionIds: [] } });
+    expect(first).toMatchObject({ created: "rec", saved: { ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(await processJournal(j, fakeDeps("neither"))).toMatchObject({ created: null });
     const recs = await db()`select id, recommender_id, attribution_source, source, confidence from recommendations where bee_journal_id = ${JID}`;
     expect(recs).toHaveLength(1);
@@ -66,7 +66,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(c).toMatchObject({ item_type: "idea" });
     expect(c!.item_id).not.toBeNull();
     const [m] = await db()`select id, cluster_id from idea_mentions where bee_journal_id = ${idea}`;
-    expect(saved.saved).toEqual({ recIds: [], ideaClusterIds: [Number(m!.cluster_id)], mentionIds: [Number(m!.id)] });
+    expect(saved.saved).toEqual({ recIds: [], ideaClusterIds: [Number(m!.cluster_id)], mentionIds: [Number(m!.id)], bloomedClusterIds: [] });
     const none = `${JID}-d`;
     expect(await processJournal({ id: none, text: "remind me to call mom", createdAt }, fakeDeps("neither"))).toMatchObject({ created: null });
     const [n] = await db()`select item_type from processed_journals where bee_journal_id = ${none}`;

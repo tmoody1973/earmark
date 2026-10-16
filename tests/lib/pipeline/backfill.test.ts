@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../agent/lib/pipeline/process-conversation", async (orig) => ({
   ...(await orig<typeof import("../../../agent/lib/pipeline/process-conversation")>()),
-  processConversation: vi.fn(async () => ({ skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } })),
+  processConversation: vi.fn(async () => ({ skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } })),
 }));
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
 vi.mock("../../../agent/lib/store/conversations", () => ({ pruneUtteranceBuffer: vi.fn(async () => {}) }));
@@ -111,7 +111,7 @@ describe("runBackfill", () => {
     let clock = NOW;
     vi.mocked(processConversation).mockImplementation(async () => {
       clock += 800; // each conversation takes 0.8 s of a 1 s budget
-      return { skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } };
+      return { skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } };
     });
     const r = await runBackfill({ budgetMs: 1000, deps: { bee: fakeBee(), now: () => new Date(clock) } });
     expect(vi.mocked(processConversation).mock.calls.map((c) => c[0])).toEqual([1]); // 3 would start at 0.8 s ≥ 0.7 s
@@ -120,7 +120,7 @@ describe("runBackfill", () => {
 
   it("passes each conversation a deadline of start + 90% of the budget and counts incomplete ones", async () => {
     vi.mocked(processConversation).mockImplementation(async (id) => ({
-      skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: id === 1, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] },
+      skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: id === 1, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] },
     }));
     const r = await runBackfill({ budgetMs: 1000, deps: { bee: fakeBee(), now: () => new Date(NOW) } });
     for (const call of vi.mocked(processConversation).mock.calls) expect(call[1]).toMatchObject({ deadline: NOW + 900 });
@@ -132,18 +132,18 @@ describe("runBackfill", () => {
     const order: string[] = [];
     vi.mocked(processConversation).mockImplementation(async (id) => {
       order.push(`c${id}`);
-      return { skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } };
+      return { skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } };
     });
     vi.mocked(processJournal).mockImplementation(async (j) => {
       order.push(`j${j.id}`);
-      return { created: null, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } };
+      return { created: null, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } };
     });
     await runBackfill({ deps: deps(fakeBee()) });
     expect(order).toEqual(["ja", "c1", "c3"]);
   });
 
   it("does not count conversations that were already processed", async () => {
-    vi.mocked(processConversation).mockResolvedValue({ skipped: true, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } });
+    vi.mocked(processConversation).mockResolvedValue({ skipped: true, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     const r = await runBackfill({ deps: deps(fakeBee()) });
     expect(r.conversations).toBe(0);
   });

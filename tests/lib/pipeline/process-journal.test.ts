@@ -33,7 +33,7 @@ import { createBeeClient, type BeeClient } from "../../../agent/lib/bee/client";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 
 const createdAt = new Date("2026-10-16T16:00:00Z");
-const NONE = { recIds: [], ideaClusterIds: [], mentionIds: [] };
+const NONE = { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] };
 const triage = (kind: string, p = 0.4) =>
   vi.fn(async () => ({ kind, kindProbability: p, recType: "place", recTypeProbability: 0.7, jokingProbability: 0, broadcastProbability: 0.01, model: "m", providerMetadata: {} })) as unknown as PipelineDeps["triage"];
 const extractRecommendation = vi.fn(async () => ({ canonicalName: "Ardent", creator: null, recommenderName: "Ann", excerpt: "Ann's ramen spot" })) as PipelineDeps["extractRecommendation"];
@@ -75,7 +75,7 @@ describe("processJournal", () => {
 
   it("captures a voice rec at full confidence even when Jev is unsure, credited to the named person", async () => {
     const d = deps("neither", 0.3);
-    expect(await processJournal({ id: "56", text: "Earmark that, Ann's ramen spot", createdAt }, d)).toEqual({ created: "rec", saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
+    expect(await processJournal({ id: "56", text: "Earmark that, Ann's ramen spot", createdAt }, d)).toEqual({ created: "rec", saved: { recIds: [1], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(d.triage).toHaveBeenCalledWith("Unknown: Ann's ramen spot");
     const [rec] = recs();
     expect(rec!.params).toEqual(expect.arrayContaining(["place", "Ardent", "voice_trigger", "voice", "56", 1, createdAt]));
@@ -94,7 +94,7 @@ describe("processJournal", () => {
   });
 
   it("captures a voice idea when Jev says idea, accepted at confidence 1", async () => {
-    expect(await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9))).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1] } });
+    expect(await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9))).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
     expect(ideas()).toHaveLength(1);
     expect(committed.some((q) => /update processed_journals set item_type = 'idea'/.test(q.sql))).toBe(true);
     expect(ideas()[0]!.sql).toMatch(/insert into idea_mentions/);
@@ -114,7 +114,7 @@ describe("processJournal", () => {
     expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", source: "voice", beeJournalId: "57" })]);
     expect(ideas()).toHaveLength(0);
     expect(committed.find((q) => /update idea_clusters/.test(q.sql))!.params).toEqual(expect.arrayContaining([12, "voice", "57"]));
-    expect(r).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1] } });
+    expect(r).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
   });
 
   it("a voice idea the planner drops (this note already counted) saves nothing new but still finishes the claim", async () => {
