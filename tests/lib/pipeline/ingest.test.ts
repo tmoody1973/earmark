@@ -9,6 +9,7 @@ vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
   processConversation: vi.fn(async () => ({ skipped: false, ideas: 0, recs: 1, reviews: 0 })),
 }));
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
+vi.mock("../../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
 
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
 import { handleLiveUtterance } from "../../../agent/lib/pipeline/live";
@@ -16,6 +17,7 @@ import { processConversation } from "../../../agent/lib/pipeline/process-convers
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
+import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
 
 const evt = (event: string, data: unknown) => parseBeeEnvelope({ event, ts: "t", data });
 const now = () => new Date("2026-10-16T16:00:00Z");
@@ -101,5 +103,37 @@ describe("handleBeeEvent", () => {
     expect(logged).toContain("journal-updated");
     expect(logged).not.toContain("ramen");
     err.mockRestore();
+  });
+
+  // M2-T7: a bloom is drafted right after its save transaction committed, still inside the request's after()/waitUntil.
+  describe("drafting a one-pager after a bloom", () => {
+    const saved = (bloomedClusterIds: number[]) => ({ recIds: [], ideaClusterIds: [12], mentionIds: [1], bloomedClusterIds });
+    const quiet = () => vi.spyOn(console, "log").mockImplementation(() => {});
+
+    it("live: drafts the clusters the save just bloomed, after the save returned", async () => {
+      quiet();
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([12]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      expect(draftBlooms).toHaveBeenCalledWith({ clusterIds: [12] });
+      expect(vi.mocked(handleLiveUtterance).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(draftBlooms).mock.invocationCallOrder[0]!);
+    });
+
+    it("conversation and voice note saves that bloomed draft too", async () => {
+      quiet();
+      vi.mocked(processConversation).mockResolvedValueOnce({ skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: saved([7]) });
+      await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12 }));
+      expect(draftBlooms).toHaveBeenLastCalledWith({ clusterIds: [7] });
+      vi.mocked(processJournal).mockResolvedValueOnce({ created: "idea", saved: saved([8]) });
+      await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "x" } }));
+      expect(draftBlooms).toHaveBeenLastCalledWith({ clusterIds: [8] });
+    });
+
+    it("no bloom, no draft call", async () => {
+      quiet();
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12 }));
+      expect(draftBlooms).not.toHaveBeenCalled();
+    });
   });
 });

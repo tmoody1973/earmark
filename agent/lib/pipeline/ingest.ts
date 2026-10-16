@@ -1,5 +1,6 @@
 import { toDate } from "../bee/client";
 import { isJournalComplete, type BeeEvent } from "../bee/events";
+import { draftBlooms } from "../ideas/one-pager";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
 import { handleLiveUtterance } from "./live";
 import { processConversation, type PipelineDeps } from "./process-conversation";
@@ -15,6 +16,14 @@ async function maybePrune(now: Date): Promise<void> {
   await pruneUtteranceBuffer();
 }
 
+// M2-T7: a save that bloomed a cluster is drafted right here, after its transaction committed, still inside the
+// request's after()/waitUntil (never in front of the HTTP response, never inside the claim transaction). draftBlooms
+// claims each cluster first, so this kick and the bee-changes schedule tail never draft the same one twice; it logs
+// and gives back the claim on failure, and the schedule tail retries.
+async function draftIfBloomed(saved: { bloomedClusterIds: number[] } | undefined): Promise<void> {
+  if (saved?.bloomedClusterIds.length) await draftBlooms({ clusterIds: saved.bloomedClusterIds });
+}
+
 async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<void> {
   switch (evt.event) {
     case "new-utterance": {
@@ -27,6 +36,7 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
           }, deps,
         );
         if (r.triaged) console.log(`[live] uuid=${conversation_uuid} windows=${r.windows} ideas=${r.ideas} blooms=${r.saved?.bloomedClusterIds.join(",") ?? "-"}`);
+        await draftIfBloomed(r.saved);
       } finally {
         await maybePrune((deps.now ?? (() => new Date()))());
       }
@@ -37,7 +47,7 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
     case "update-conversation-summary": {
       const r = await processConversation(evt.data.conversation_id, deps);
       console.log(`[bee] conversation ${evt.data.conversation_id}`, r);
-      return;
+      return draftIfBloomed(r.saved);
     }
     case "journal-created":
     case "journal-updated": {
@@ -45,7 +55,7 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
       if (!j.text?.trim() || !isJournalComplete(j.state)) return; // journal-text is partial and ignored
       const r = await processJournal({ id: j.id, text: j.text, createdAt: (deps.now ?? (() => new Date()))() }, deps);
       console.log(`[bee] journal ${j.id}`, r);
-      return;
+      return draftIfBloomed(r.saved);
     }
     default:
       console.log(`[bee] ignored ${evt.event}`);
