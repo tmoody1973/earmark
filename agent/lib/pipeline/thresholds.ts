@@ -4,6 +4,9 @@ import type { Route, TriageResult } from "../types";
 export const ACCEPT_ABOVE = 0.85;
 export const DROP_BELOW = 0.5;
 
+// A capture (photo/song) links to a transcript window only when the model is at least this sure it is the one.
+export const WINDOW_PICK_MIN = 0.5;
+
 // Triage drops a window when jokingProbability is above this.
 export const JOKING_MAX = 0.5;
 
