@@ -8,13 +8,17 @@ import { stdin as input, stdout as output } from "node:process";
 import { generateText, Output } from "ai";
 import { getEnv } from "../agent/lib/env";
 import { KIND_CRITERIA, REC_TYPE_CRITERIA } from "../agent/lib/pipeline/criteria";
-import { LabelSchema, parseOverride, type Label } from "../agent/lib/evals/labels";
+import { ProposalSchema, normalizeProposal, parseJsonl, parseOverride, type Label } from "../agent/lib/evals/labels";
 
 const IN = process.argv[2] ?? "evals/triage/data/unlabeled.jsonl";
 const OUT = process.argv[3] ?? "evals/triage/data/labeled.jsonl";
 type Row = { id: string; window: string };
-const readJsonl = async <T>(p: string): Promise<T[]> =>
-  existsSync(p) ? (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as T) : [];
+const readJsonl = async <T>(p: string): Promise<T[]> => {
+  if (!existsSync(p)) return [];
+  const { rows, skipped } = parseJsonl<T>(await readFile(p, "utf8"));
+  if (skipped) console.log(`skipped ${skipped} partial line in ${p}`);
+  return rows;
+};
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -23,7 +27,7 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 async function propose(window: string): Promise<Label> {
   const { output: label } = await generateText({
     model: getEnv().WRITE_MODEL,
-    output: Output.object({ schema: LabelSchema }),
+    output: Output.object({ schema: ProposalSchema }),
     prompt: [
       "Label this short window of a transcript recorded by the user's wearable. Speakers are all 'Unknown'; the user is one of them.",
       `kind options:\n${JSON.stringify(KIND_CRITERIA, null, 2)}`,
@@ -33,7 +37,7 @@ async function propose(window: string): Promise<Label> {
       `Window:\n${window}`,
     ].join("\n\n"),
   });
-  return label;
+  return normalizeProposal(label);
 }
 
 const labeledBefore = await readJsonl<Row>(OUT);

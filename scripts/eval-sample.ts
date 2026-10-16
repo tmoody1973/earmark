@@ -62,3 +62,4 @@ const tally = (list: Candidate[]) => Object.entries(list.reduce<Record<string, n
 console.log(`scanned ${scanned} conversations`);
 console.log(`wrote ${positives.length} likely-positive ${JSON.stringify(tally(positives))} and ${negatives.length} likely-negative ${JSON.stringify(tally(negatives))} windows`);
 if (positives.length < TARGET_POSITIVE * (2 / 3)) console.log(`WARNING: only ${positives.length} likely positives (target >= 20).`);
+if (negatives.length < 10) console.log(`WARNING: only ${negatives.length} likely negatives (target >= 10).`);

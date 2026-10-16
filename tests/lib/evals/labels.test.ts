@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { parseOverride, type Label } from "../../../agent/lib/evals/labels";
+import { normalizeProposal, parseJsonl, parseOverride, type Label } from "../../../agent/lib/evals/labels";
+
+describe("cross-field rule", () => {
+  const p: Label = { kind: "rec_to_user", rec_type: "album", joking: false, notes: "" };
+  const neither: Label = { ...p, kind: "neither", rec_type: "none" };
+  it("rejects a rec kind with no rec type and a non-rec kind with a rec type, with a hint", () => {
+    expect(() => parseOverride("k=rec_by_user t=none", p)).toThrow(/need a t=/);
+    expect(() => parseOverride("k=neither t=song", p)).toThrow(/t=none/);
+    expect(() => parseOverride("k=idea_by_user t=book", p)).toThrow();
+  });
+  it("rejects switching from a non-rec kind to a rec kind without t=", () => {
+    expect(() => parseOverride("k=rec_to_user", neither)).toThrow();
+    expect(parseOverride("k=rec_to_user t=book", neither)).toMatchObject({ rec_type: "book" });
+  });
+  it("normalizes a broken model proposal instead of showing it", () => {
+    expect(normalizeProposal({ ...p, kind: "neither", rec_type: "song" }).rec_type).toBe("none");
+    expect(normalizeProposal({ ...p, rec_type: "none" }).rec_type).toBe("other");
+  });
+});
+
+describe("parseJsonl", () => {
+  it("reads whole lines", () => {
+    expect(parseJsonl('{"a":1}\n{"a":2}\n')).toEqual({ rows: [{ a: 1 }, { a: 2 }], skipped: 0 });
+  });
+  it("drops an unparseable trailing line and counts it", () => {
+    expect(parseJsonl('{"a":1}\n{"a":2')).toEqual({ rows: [{ a: 1 }], skipped: 1 });
+  });
+  it("still throws on a corrupt line in the middle", () => {
+    expect(() => parseJsonl('{"a":1}\nnope\n{"a":2}\n')).toThrow();
+  });
+});
 
 const proposal: Label = { kind: "rec_to_user", rec_type: "album", joking: false, notes: "Ann suggests an album" };
 
