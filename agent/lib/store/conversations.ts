@@ -15,9 +15,14 @@ export async function bufferUtterance(uuid: string, speaker: string, text: strin
   await db()`insert into utterance_buffer (conversation_uuid, speaker, text) values (${uuid}, ${speaker}, ${text})`;
 }
 
-// Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise).
+// Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise):
+// after 6 hours, or as soon as their conversation's completed pass is done (it re-reads the transcript from Bee).
 export async function pruneUtteranceBuffer(): Promise<void> {
-  await db()`delete from utterance_buffer where received_at < now() - interval '6 hours'`;
+  await db()`delete from utterance_buffer b
+             where b.received_at < now() - interval '6 hours'
+                or exists (select 1 from bee_conversation_map m
+                           join processed_conversations p on p.bee_conversation_id = m.bee_conversation_id
+                           where m.conversation_uuid = b.conversation_uuid and p.done)`;
 }
 
 export async function rememberConversationUuid(uuid: string, id: number): Promise<void> {

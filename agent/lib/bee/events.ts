@@ -14,8 +14,10 @@ const Journal = z.object({
 
 export const BeeEventSchema = z.discriminatedUnion("event", [
   env("connected", z.unknown()),
+  // Live shape (observed 2026-10-16): the utterance carries its REST utterance id and spoken_at, and no speaker.
+  // The id is how an unmapped conversation_uuid is matched to its numeric conversation (see pipeline/live.ts).
   env("new-utterance", z.object({
-    utterance: z.object({ text: z.string(), speaker: z.string().default("Unknown") }),
+    utterance: z.object({ id: z.number().optional(), text: z.string(), speaker: z.string().default("Unknown") }),
     conversation_uuid: z.string(),
   })),
   env("new-conversation", z.object({

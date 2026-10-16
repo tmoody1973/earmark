@@ -9,7 +9,7 @@ import { chooseRecommender } from "./attribution";
 import { extractIdea, extractRecommendation } from "./extract";
 import { buildSaveQueries, noneSaved, savedIds, type SaveItem, type SavedIds } from "./save-item";
 import { mapLimit } from "./map-limit";
-import { BROADCAST_MAX, JOKING_MAX, routeByConfidence } from "./thresholds";
+import { windowRoute } from "./thresholds";
 import { SystemicTriageError, triageWindow } from "./triage";
 import { toWindows } from "./windows";
 import type { TranscriptWindow, TriageResult } from "../types";
@@ -73,11 +73,8 @@ function systemicReason(outcomes: WindowOutcome[]): SystemicTriageError["reason"
 async function planWindow(
   t: TriageResult, w: TranscriptWindow, index: number, summary: string | null, fallbackAt: Date, d: PipelineDeps,
 ): Promise<Planned | null> {
-  if (t.kind === "neither") return null;
-  if (!(t.broadcastProbability <= BROADCAST_MAX)) return null; // ads, station IDs, scripted audio (and a missing answer: fail closed)
-  if (t.jokingProbability > JOKING_MAX || t.kind === "rec_by_user") return null;
-  const route = routeByConfidence(t.kindProbability);
-  if (route === "drop") return null;
+  const route = windowRoute(t); // ads/station IDs, jokes, the user's own recs and low confidence are dropped here
+  if (!route) return null;
   const common = {
     route, beeConversationId: w.conversationId, beeJournalId: null, spokenAt: w.startedAt ?? fallbackAt,
     confidence: t.kindProbability, source: "ambient",

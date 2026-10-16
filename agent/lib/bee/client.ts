@@ -21,6 +21,7 @@ export function toDate(v: number | string | null | undefined): Date | null {
 }
 
 const UtteranceSchema = z.object({
+  id: z.number().optional(), // the same id the live stream sends with each new-utterance
   text: z.string(),
   speaker: z.string().default("Unknown"),
   spoken_at: Timestamp.nullable().optional(),

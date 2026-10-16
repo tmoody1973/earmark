@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../agent/lib/store/conversations", () => ({
-  bufferUtterance: vi.fn(async () => {}),
   rememberConversationUuid: vi.fn(async () => {}),
   pruneUtteranceBuffer: vi.fn(async () => {}),
 }));
+vi.mock("../../../agent/lib/pipeline/live", () => ({ handleLiveUtterance: vi.fn(async () => ({ triaged: false, windows: 0, ideas: 0 })) }));
 vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
   processConversation: vi.fn(async () => ({ skipped: false, ideas: 0, recs: 1, reviews: 0 })),
 }));
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
 
-import { bufferUtterance, pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
+import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
+import { handleLiveUtterance } from "../../../agent/lib/pipeline/live";
 import { processConversation } from "../../../agent/lib/pipeline/process-conversation";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
@@ -22,9 +23,20 @@ const now = () => new Date("2026-10-16T16:00:00Z");
 beforeEach(() => vi.clearAllMocks());
 
 describe("handleBeeEvent", () => {
-  it("buffers new utterances", async () => {
+  it("hands new utterances to the live path (buffer + windowed triage), passing deps through", async () => {
     await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi", speaker: "Unknown" }, conversation_uuid: "u1" }));
-    expect(bufferUtterance).toHaveBeenCalledWith("u1", "Unknown", "hi");
+    expect(handleLiveUtterance).toHaveBeenCalledWith({ conversationUuid: "u1", speaker: "Unknown", text: "hi", utteranceId: null }, {});
+    await handleBeeEvent(evt("new-utterance", { utterance: { id: 3766760407, text: "yo" }, conversation_uuid: "u2" }), { now });
+    expect(handleLiveUtterance).toHaveBeenCalledWith({ conversationUuid: "u2", speaker: "Unknown", text: "yo", utteranceId: 3766760407 }, { now });
+  });
+
+  it("still prunes when the live path fails", async () => {
+    vi.mocked(handleLiveUtterance).mockRejectedValueOnce(new Error("gateway"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }), { now: () => new Date(Date.UTC(2029, 0, 1)) }); // before the 2030 prune test's clock
+    expect(pruneUtteranceBuffer).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(err.mock.calls)).toContain("new-utterance");
+    err.mockRestore();
   });
 
   it("prunes old buffered utterances at most once per hour per process", async () => {
@@ -37,7 +49,7 @@ describe("handleBeeEvent", () => {
     expect(pruneUtteranceBuffer).toHaveBeenCalledTimes(1);
     await handleBeeEvent(utter, { now: at(61) });
     expect(pruneUtteranceBuffer).toHaveBeenCalledTimes(2);
-    expect(bufferUtterance).toHaveBeenCalledTimes(4); // buffering never waits on the prune guard
+    expect(handleLiveUtterance).toHaveBeenCalledTimes(4); // buffering never waits on the prune guard
   });
 
   it("maps conversation uuid to id", async () => {

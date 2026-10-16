@@ -1,5 +1,6 @@
 import { isJournalComplete, type BeeEvent } from "../bee/events";
-import { bufferUtterance, pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
+import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
+import { handleLiveUtterance } from "./live";
 import { processConversation, type PipelineDeps } from "./process-conversation";
 import { processJournal } from "./process-journal";
 
@@ -15,9 +16,18 @@ async function maybePrune(now: Date): Promise<void> {
 
 async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<void> {
   switch (evt.event) {
-    case "new-utterance":
-      await bufferUtterance(evt.data.conversation_uuid, evt.data.utterance.speaker, evt.data.utterance.text);
-      return maybePrune((deps.now ?? (() => new Date()))());
+    case "new-utterance": {
+      const { utterance, conversation_uuid } = evt.data;
+      try {
+        const r = await handleLiveUtterance(
+          { conversationUuid: conversation_uuid, speaker: utterance.speaker, text: utterance.text, utteranceId: utterance.id ?? null }, deps,
+        );
+        if (r.triaged) console.log(`[live] uuid=${conversation_uuid} windows=${r.windows} ideas=${r.ideas} blooms=${r.saved?.bloomedClusterIds.join(",") ?? "-"}`);
+      } finally {
+        await maybePrune((deps.now ?? (() => new Date()))());
+      }
+      return;
+    }
     case "new-conversation":
       return rememberConversationUuid(evt.data.conversation.uuid, evt.data.conversation.id);
     case "update-conversation-summary": {
