@@ -5,6 +5,8 @@ import { chooseRecommender } from "./attribution";
 import { wordCount } from "./excerpt";
 import type { PipelineDeps } from "./process-conversation";
 import type { SaveItem } from "./save-item";
+import { clampExcerpt } from "./excerpt";
+import { TITLE_MAX_WORDS } from "./extract";
 import { SystemicTriageError } from "./triage";
 
 // A deliberate "Earmark that" said inside a conversation: the triggered utterance plus, when it does not end the
@@ -75,7 +77,30 @@ export interface DeliberateContext {
   deliberateKey?: string | null;
 }
 
+// Errors that mean "the model service is down", not "this text defeated the extractor": retry later, don't degrade.
+const OUTAGE_NAME = /^(?:SystemicTriageError|CompostUnavailableError|APICallError|RetryError|.*Gateway.*|.*Timeout.*|AbortError|.*Network.*|FetchError)$/i;
+export const isOutage = (err: unknown): boolean =>
+  err instanceof SystemicTriageError || (err instanceof Error && (OUTAGE_NAME.test(err.name) || (err instanceof TypeError && /fetch failed/i.test(err.message))));
+
+// Voice notes and conversations both land here. An outage throws (the caller releases its claim and retries). Any other
+// failure on this one item (bad model output, schema error) keeps what the person said: a raw rec, the spoken words as
+// title and excerpt, nobody credited, in needs_review so it is seen rather than lost. Logs carry ids + err.name only.
 export async function planDeliberateItem(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<SaveItem> {
+  try {
+    return await planDeliberateModel(body, ctx, d);
+  } catch (err) {
+    if (isOutage(err)) throw err;
+    console.error(`[pipeline] earmark fell back to raw ${ctx.label} key=${ctx.deliberateKey ?? "-"} error=${err instanceof Error ? err.name : "unknown"}`);
+    return {
+      kind: "rec", route: "review", beeConversationId: ctx.beeConversationId, beeJournalId: ctx.beeJournalId, deliberateKey: ctx.deliberateKey ?? null,
+      spokenAt: ctx.spokenAt, confidence: 1, source: "voice", recType: "other",
+      extraction: { canonicalName: clampExcerpt(body, TITLE_MAX_WORDS), creator: null, recommenderName: null, excerpt: clampExcerpt(body) },
+      attribution: { firstName: null, source: "none" },
+    };
+  }
+}
+
+async function planDeliberateModel(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<SaveItem> {
   const t = await triageDeliberate(ctx.label, body, d);
   const common = {
     route: "accept", beeConversationId: ctx.beeConversationId, beeJournalId: ctx.beeJournalId, deliberateKey: ctx.deliberateKey ?? null,

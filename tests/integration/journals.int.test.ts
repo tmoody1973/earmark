@@ -115,7 +115,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     const { processJournal } = await import("../../agent/lib/pipeline/process-journal");
     const { isJournalProcessed } = await import("../../agent/lib/store/conversations");
     const id = `${JID}-e`;
-    const boom = { ...(fakeDeps("neither") as object), extractRecommendation: async () => { throw new Error("model down"); } } as never;
+    const boom = { ...(fakeDeps("neither") as object), extractRecommendation: async () => { throw Object.assign(new Error("model down"), { name: "APICallError" }); } } as never;
     await expect(processJournal({ id, text: "Earmark that, ramen", createdAt }, boom)).rejects.toThrow("model down");
     expect(await isJournalProcessed(id)).toBe(false);
   });

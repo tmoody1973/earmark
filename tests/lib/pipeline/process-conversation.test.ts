@@ -22,7 +22,7 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   isConversationProcessed: vi.fn(async () => false),
   markConversationProcessed: vi.fn(async () => true),
   releaseConversation: vi.fn(async () => undefined),
-  savedDeliberateKeys: vi.fn(async () => new Set<string>()),
+  savedDeliberateKeys: vi.fn(async () => new Map<string, string | null>()),
 }));
 
 // Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
@@ -422,11 +422,38 @@ describe("processConversation", () => {
     });
 
     it("an earmark already saved from this conversation is skipped before any model call", async () => {
-      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Set(["u1"]));
+      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Map([["u1", "Ardent"]]));
       const triage = tri({});
       const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage });
       expect(triage).not.toHaveBeenCalled();
       expect(r).toMatchObject({ skipped: false, recs: 0 });
+    });
+
+    it("a plain extraction error falls back to a raw needs_review rec; the rest of the conversation still saves", async () => {
+      const extractRecommendation = vi.fn(async ({ text }: { text: string }) => {
+        if (text.includes("Brady")) throw new Error("bad json");
+        return { canonicalName: "Other place", creator: null, recommenderName: null, excerpt: "so about that place" };
+      }) as PipelineDeps["extractRecommendation"];
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 2, incomplete: false });
+      const raw = recs().find((q) => q.params.includes("u1"))!;
+      expect(raw.params).toEqual(expect.arrayContaining(["needs_review", "other", "Ann says to try Ardent on Brady Street", "voice"]));
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    it.each(["APICallError", "GatewayInternalServerError", "RetryError", "TimeoutError"])("an outage error (%s) on an earmark releases the claim", async (name) => {
+      const extractRecommendation = vi.fn(async () => { throw Object.assign(new Error("down"), { name }); }) as PipelineDeps["extractRecommendation"];
+      await expect(processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) })).rejects.toThrow();
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("on a retry, an earmark saved earlier still keeps ambient from re-saving its name", async () => {
+      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Map([["u1", "Ardent"]]));
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 0 });
+      expect(recs()).toHaveLength(0);
     });
 
     it("a triage outage on a deliberate earmark releases the claim and throws (the person asked for it)", async () => {
