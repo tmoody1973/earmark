@@ -104,3 +104,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** medium (without a link, a live mention and the later completed pass of the same conversation would count as two occasions and could fake a bloom).
 - **Workaround:** the stream's `utterance.id` equals the REST utterance id in the still-capturing conversation's realtime transcription (3 of 3 ids matched on conversation 11333494), so an unmapped uuid is resolved by finding that id in the newest non-completed conversations and the pair is remembered. Schema keeps `speaker` defaulting to "Unknown" and `id` optional.
 - **Suggestion:** document the real payload, and include the numeric `conversation_id` on `new-utterance` (or a `uuid` on the REST conversation).
+
+## F-15 · Tooling: the worktree guard and the auto-mode classifier slowed a real-account check
+- **Task:** M2-T12 ("Earmark that" anywhere).
+- **Expected vs actual:** the worktree guard refused several plain commands (a heredoc-edit followed by `&&`, an inline `python3` chain), and the permission classifier denied deleting one prod row that my own verification run had created. Each cost a retry or a stop. Separately, `node` on PATH is v26 while the project needs Node 24, so every command needs the long fnm path.
+- **Severity:** low (minutes), except the denied delete, which leaves a known duplicate (rec 153) for a human to remove.
+- **Workaround:** one command per call, the Edit tool instead of scripted edits, and reporting the leftover row instead of forcing the delete.
+- **Suggestion:** put Node 24 first on PATH for this project, and when a real-account run might leave cleanup work, get the delete pre-approved with the run.

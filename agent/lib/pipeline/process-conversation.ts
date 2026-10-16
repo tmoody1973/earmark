@@ -97,11 +97,13 @@ async function planWindow(
 
 // Overlapping windows can find the same thing twice: one rec per name (the most confident sighting), and of two ideas
 // from adjacent windows keep the surer one.
+// A rec already earmarked on purpose in this conversation (same name) is not saved again from the talk that follows it.
 // ponytail: adjacency heuristic; M2's clustering is the real merge.
-function dedupe(planned: Planned[]): Planned[] {
+function dedupe(planned: Planned[], earmarked: ReadonlySet<string>): Planned[] {
   const out: Planned[] = [];
   for (const p of planned) {
     if (p.item.kind === "rec") {
+      if (earmarked.has(p.key)) continue;
       const at = out.findIndex((q) => q.item.kind === "rec" && q.key === p.key);
       if (at === -1) out.push(p);
       else if (p.item.confidence > out[at]!.item.confidence) out[at] = p;
@@ -169,7 +171,8 @@ export async function processConversation(
       console.error(`[pipeline] systemic failure conversation=${id} reason=${systemic}`);
       throw new SystemicTriageError(systemic);
     }
-    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : []))).map((p) => p.item)];
+    const earmarked = new Set(deliberate.flatMap((it) => (it.kind === "rec" ? [it.extraction.canonicalName.toLowerCase()] : [])));
+    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), earmarked).map((p) => p.item)];
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
     // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion.
     const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
