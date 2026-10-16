@@ -1,4 +1,4 @@
-import { createBeeClient, toDate, type BeeClient } from "../bee/client";
+import { createBeeClient, toDate, type BeeClient, type Conversation } from "../bee/client";
 import {
   conversationCountsQuery, isConversationProcessed, markConversationProcessed, recsSaidBetween, releaseConversation,
   savedDeliberateKeys, type SavedRec,
@@ -15,7 +15,7 @@ import { SAME_MOMENT_MS, pairSameMoment, sameNormalizedName } from "./same-momen
 import { windowRoute } from "./thresholds";
 import { SystemicTriageError, triageWindow } from "./triage";
 import { toWindows } from "./windows";
-import type { TranscriptWindow, TriageResult } from "../types";
+import type { TranscriptWindow, TriageResult, Utterance } from "../types";
 
 export interface PipelineDeps {
   bee: BeeClient;
@@ -162,9 +162,19 @@ function notSavedByVoiceNote(id: number, items: SaveItem[], voiceNotes: readonly
 
 // spoken_at when both have it; otherwise Bee's id (increasing in time); otherwise 0 so the stable sort keeps array order.
 // ponytail: not a total order when some utterances lack spoken_at and others don't; REST has always sent it so far.
-function spokenOrder(a: { spokenAt: Date | null; id: number | null }, b: { spokenAt: Date | null; id: number | null }): number {
+function spokenOrder(a: Utterance, b: Utterance): number {
   if (a.spokenAt && b.spokenAt) return a.spokenAt.getTime() - b.spokenAt.getTime() || (a.id ?? 0) - (b.id ?? 0);
-  return a.id !== null && b.id !== null ? a.id - b.id : 0;
+  return a.id != null && b.id != null ? a.id - b.id : 0;
+}
+
+// Bee's REST array is not in spoken order (11338188: 108 of 311 neighbours swapped): sort so a trigger's
+// continuation and each ambient window are the utterances actually said next. The evals sample through this same
+// helper so their windows equal production windows.
+export function utterancesOf(conversation: Conversation): Utterance[] {
+  const transcription = conversation.transcriptions.find((t) => !t.realtime) ?? conversation.transcriptions[0];
+  return (transcription?.utterances ?? [])
+    .map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }))
+    .sort(spokenOrder);
 }
 
 // deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
@@ -183,12 +193,7 @@ export async function processConversation(
   // Claim before any work so concurrent runs cannot both save. Anything that fails after this releases the claim.
   if (!(await markConversationProcessed(id, { ideas: 0, recs: 0 }))) return skipped;
   try {
-    const transcription = conversation.transcriptions.find((t) => !t.realtime) ?? conversation.transcriptions[0];
-    // Bee's REST array is not in spoken order (11338188: 108 of 311 neighbours swapped): sort so a trigger's
-    // continuation and each ambient window are the utterances actually said next.
-    const utterances = (transcription?.utterances ?? [])
-      .map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }))
-      .sort(spokenOrder);
+    const utterances = utterancesOf(conversation);
     // "Earmark that" said anywhere is a deliberate earmark: planned like a voice note, and removed from the transcript
     // so ambient triage can never save the same thing again.
     const { earmarks, rest } = splitDeliberate(utterances);
