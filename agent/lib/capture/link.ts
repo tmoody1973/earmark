@@ -27,21 +27,25 @@ export async function findConversationNear(
   where: LatLng | null,
 ): Promise<LinkedConversation | null> {
   const t = at.getTime();
-  const candidates: { id: number; start: number }[] = [];
+  const candidates: { id: number; start: number; end: number }[] = [];
   let cursor: string | undefined;
-  // ponytail: scans at most 3 pages (60 conversations); assumes newest-first ordering (unverified in Bee docs)
+  // ponytail: scans at most 3 pages (60 conversations). Bee lists conversations newest first (checked on 16 real
+  // conversations), so the early exit below stops once a page's oldest conversation is a day before the capture.
   for (let page = 0; page < 3; page++) {
     const res = await bee.listConversations({ limit: 20, cursor });
     for (const c of res.conversations) {
-      const start = toDate(c.start_time)?.getTime() ?? 0;
+      const start = toDate(c.start_time)?.getTime();
+      if (start === undefined) continue; // no start time: cannot be placed in time, never treat it as the epoch
       const end = toDate(c.end_time)?.getTime() ?? Date.now();
-      if (t >= start - LINK_WINDOW_MS && t <= end + LINK_WINDOW_MS) candidates.push({ id: c.id, start });
+      if (t >= start - LINK_WINDOW_MS && t <= end + LINK_WINDOW_MS) candidates.push({ id: c.id, start, end });
     }
     const oldest = toDate(res.conversations.at(-1)?.start_time)?.getTime() ?? 0;
     if (!res.next_cursor || oldest < t - 24 * 3600_000) break;
     cursor = res.next_cursor;
   }
-  candidates.sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t));
+  // Conversations whose [start, end] contains the capture time first, then the nearest interval; ties by start.
+  const away = (c: { start: number; end: number }) => (t < c.start ? c.start - t : t > c.end ? t - c.end : 0);
+  candidates.sort((a, b) => away(a) - away(b) || Math.abs(a.start - t) - Math.abs(b.start - t));
 
   for (const cand of candidates) {
     const { conversation } = await bee.getConversation(cand.id);
@@ -52,6 +56,7 @@ export async function findConversationNear(
       .filter((w) => !w.startedAt || gap(w) <= LINK_WINDOW_MS)
       .sort((a, b) => gap(a) - gap(b))
       .slice(0, MAX_WINDOWS);
+    if (windows.length === 0) continue; // nothing said near the capture time: try the next candidate
     return { conversationId: conversation.id, summary: conversation.summary ?? null, windows };
   }
   return null;
