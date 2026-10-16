@@ -111,3 +111,17 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** low (minutes), except the denied delete, which leaves a known duplicate (rec 153) for a human to remove.
 - **Workaround:** one command per call, the Edit tool instead of scripted edits, and reporting the leftover row instead of forcing the delete.
 - **Suggestion:** put Node 24 first on PATH for this project, and when a real-account run might leave cleanup work, get the delete pre-approved with the run.
+
+## F-16 · Vercel: a CLI-created project has no framework preset, so `withEve` deploys only the agent
+- **Task:** first production deploy (M2-T2).
+- **Expected vs actual:** expected `vercel deploy --prod` to build the Next.js app plus the eve service, as `withEve` promises. Actual: the project's framework was `null`, so only `services/eve/*` was built; `/`, `/sign-in` and every Next.js route returned 404 while `/eve/v1/health` returned 200. Nothing in the deploy output warned about it.
+- **Severity:** high (looks like a healthy deploy).
+- **Workaround:** `vercel.json` with `{"framework":"nextjs"}`. (Patching the project through the API was refused by the permission classifier, and a committed file is the more reviewable fix anyway.)
+- **Suggestion:** `eve link` / `eve deploy` should set the Next.js preset when `next.config` uses `withEve`, or fail the build when the Next app is missing from the output.
+
+## F-17 · eve: Vercel cron jobs share one unguessable path; the dev trigger route does not exist in production
+- **Task:** confirming schedules as Vercel crons (M2-T2).
+- **Expected vs actual:** expected one cron entry per schedule. Actual: both schedules point at one `/eve/v1/cron/<random>` path (the schedule is picked by the `x-vercel-cron-schedule` header), so `vercel crons list` shows two rows with identical paths and `vercel crons run <path>` cannot choose a schedule. The path is the secret, which is good for protection (no `CRON_SECRET` needed) but hard to test by hand.
+- **Severity:** low.
+- **Workaround:** read the run's `[bee-changes] done` log line with `vercel logs`.
+- **Suggestion:** document that `maxDuration: "max"` is 800 s on Pro with Fluid Compute, and print schedule names in `vercel crons list`.
