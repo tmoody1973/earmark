@@ -76,3 +76,17 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** high (more than half the garden was noise).
 - **Workaround:** a fourth Jev question, "is this advertising or broadcast media?", asked in the same call; ambient windows above 0.5 are dropped before extraction. Voice notes skip the check. After the re-run, 32 recommendations became 18; one station-ID item ("88.9") still got through.
 - **Suggestion:** Bee flags utterances that come from a speaker or device rather than a person in the room, or exposes speaker diarization so media audio becomes its own speaker.
+
+## F-11 · pgvector: no vector-times-scalar operator for a running-mean centroid
+- **Task:** M2-T4 (idea compost: a mention joining a cluster updates its centroid).
+- **Expected vs actual:** expected `centroid * n` / `/ (n + 1)` to keep a running mean in one UPDATE. pgvector has `+`, `-` and element-wise `*` between vectors, but no scalar multiply or divide.
+- **Severity:** low.
+- **Workaround:** the save statement sets the centroid to `avg()` over the cluster's accepted mention embeddings plus the new one (an exact mean, self-healing). Ceiling: two concurrent joins on one cluster can each miss the other's vector (the count stays exact).
+- **Suggestion:** pgvector scalar operators (`vector * real`), or a documented running-mean recipe.
+
+## F-12 · tsx: a one-off `.ts` outside the repo runs as CommonJS, so top-level await fails
+- **Task:** M2-T4 (read-only check of the real garden from a scratch script).
+- **Expected vs actual:** a scratch `.ts` file with top-level `await` failed with "Top-level await is currently not supported with the cjs output format": outside the repo there is no `"type": "module"` package.json. Renaming to `.mts` fixed it; the worktree guard also refuses `mv … && node …` compound commands, so each step had to run separately.
+- **Severity:** low.
+- **Workaround:** name scratch scripts `.mts`, or put them under `scripts/`.
+- **Suggestion:** tsx could hint at `.mts` in that error.
