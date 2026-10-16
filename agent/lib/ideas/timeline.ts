@@ -7,6 +7,11 @@ export const TIMELINE_TZ = "America/Chicago";
 export const NOTE_FIRST = "first heard";
 export const NOTE_AGAIN = "mentioned again";
 
+// The model is told not to write a date; if it does anyway ("October 5 - ", "Oct 5, ", "Oct 5th: "), drop it.
+const LEADING_DATE = /^(?:[A-Z][a-z]+\.? \d{1,2}(?:st|nd|rd|th)?\s*[:,\-–]\s*)+/;
+// Quoted inside the prompt: their own double quotes become single quotes so the quoting stays intact.
+const unquote = (s: string) => s.replaceAll('"', "'");
+
 export interface TimelineEntry { date: string; line: string }
 
 export function formatTimelineDate(d: Date, timeZone = TIMELINE_TZ): string {
@@ -32,15 +37,16 @@ export async function writeTimelineNote(
     output: Output.object({ schema: z.object({ note: z.string().min(1) }) }),
     abortSignal: AbortSignal.timeout(20_000),
     prompt: [
-      `You keep a one-line timeline of how a spoken idea grew. The idea: "${input.clusterTitle}".`,
+      `You keep a one-line timeline of how a spoken idea grew. The idea: "${unquote(input.clusterTitle)}".`,
       input.priorLines.length ? `Earlier timeline lines:\n${input.priorLines.map((l) => `- ${l}`).join("\n")}` : "There are no earlier lines.",
-      `New mention (verbatim excerpt): "${clampExcerpt(input.excerpt)}"`,
+      `New mention (verbatim excerpt): "${unquote(clampExcerpt(input.excerpt))}"`,
       "Write what this mention adds compared with the earlier lines, in at most 12 words.",
-      "No date, no quotation marks, lower-case start, past tense (e.g. 'added a radio segment angle', 'named three possible guests').",
+      "No date, no quotation marks, past tense. Start with a lower-case verb, but keep names and proper nouns capitalised " +
+        "(e.g. 'added a radio segment angle', 'named three possible guests', 'suggested Maria host the segment').",
       "If it adds nothing new, write 'restated the idea'.",
     ].join("\n\n"),
   });
-  const note = clampExcerpt(output.note.replace(/^[A-Z][a-z]{2} \d{1,2}:\s*/, "").trim(), 12);
+  const note = clampExcerpt(output.note.replace(LEADING_DATE, "").trim(), 12);
   if (!note) throw new Error("empty timeline note");
   return note;
 }

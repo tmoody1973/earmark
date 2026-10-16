@@ -101,6 +101,12 @@ describe("processJournal", () => {
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["voice", "57", 1, "accepted"]));
   });
 
+  it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
+    const compost = { embedText: vi.fn(async () => [1]) };
+    await processJournal({ id: "58", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, { ...deps("idea_by_user", 0.9), compost });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![1]).toBe(compost);
+  });
+
   it("routes a voice idea through cluster planning and saves a join on the chosen cluster", async () => {
     vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
       items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1] } } : it)));

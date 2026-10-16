@@ -11,6 +11,12 @@ const fakeDeps = (kind: string, name: string | null = NAME) => ({
   extractIdea: async () => ({ title: "T12 idea", excerpt: "newsletter idea" }),
   bee: {},
   now: () => createdAt,
+  // No Gateway: a unit-vector embedding, "nothing near, make a new idea", a stub note. Always a create, so it never joins a stored cluster.
+  compost: {
+    embedText: async () => Array.from({ length: 1536 }, (_, j) => (j === 1500 ? 1 : 0)),
+    chooseCluster: async () => ({ key: null }),
+    writeTimelineNote: async () => "stub",
+  },
 }) as never;
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", () => {
@@ -18,7 +24,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     const { db } = await import("../../agent/lib/db");
     const sql = db();
     await sql`delete from recommendations where bee_journal_id like ${JID + "%"}`;
-    await sql`delete from idea_clusters where id in (select cluster_id from idea_mentions where bee_journal_id like ${JID + "%"})`;
+    // Only clusters whose every mention is this test's (the fakes always create, so each is ours alone).
+    await sql`delete from idea_clusters where id in (select cluster_id from idea_mentions where bee_journal_id like ${JID + "%"})
+              and not exists (select 1 from idea_mentions m where m.cluster_id = idea_clusters.id and m.bee_journal_id not like ${JID + "%"})`;
     await sql`delete from recommenders where first_name_key = ${NAME.toLowerCase()}`;
     await sql`delete from processed_journals where bee_journal_id like ${JID + "%"}`;
   });
@@ -63,7 +71,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(await processJournal({ id: none, text: "remind me to call mom", createdAt }, fakeDeps("neither"))).toMatchObject({ created: null });
     const [n] = await db()`select item_type from processed_journals where bee_journal_id = ${none}`;
     expect(n).toMatchObject({ item_type: "none" });
-  }, 30_000); // embed + Jev + timeline note are real Gateway calls (compost is not stubbed here)
+  });
 
   it("finished claims are done: a saved voice item and a non-trigger note", async () => {
     const { db } = await import("../../agent/lib/db");

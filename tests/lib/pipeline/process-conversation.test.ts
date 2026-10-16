@@ -219,6 +219,12 @@ describe("processConversation", () => {
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["House music segment", "accepted", "ambient", 42]));
   });
 
+  it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
+    const compost = { embedText: vi.fn(async () => [1]) };
+    await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }), compost });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![1]).toBe(compost);
+  });
+
   it("plans clusters for the items after all windows, then saves a join as a mention on the chosen cluster", async () => {
     vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
       items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1, 0] } } : it)));
