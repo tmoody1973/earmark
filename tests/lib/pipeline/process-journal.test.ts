@@ -18,6 +18,8 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   ...(await orig<typeof import("../../../agent/lib/store/conversations")>()),
   markJournalProcessed: vi.fn(async () => true),
   releaseJournal: vi.fn(async () => undefined),
+  recsSaidBetween: vi.fn(async () => []),
+  finishJournalAs: vi.fn(async () => undefined),
 }));
 
 vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
@@ -26,7 +28,7 @@ vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
 }));
 
 import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
-import { markJournalProcessed, releaseJournal } from "../../../agent/lib/store/conversations";
+import { finishJournalAs, markJournalProcessed, recsSaidBetween, releaseJournal } from "../../../agent/lib/store/conversations";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import type { PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
@@ -67,6 +69,31 @@ describe("processJournal", () => {
     const r = await processJournal({ id: "57", text: "Earmark that, Ann's ramen spot", createdAt }, { ...deps("neither"), triage: t });
     expect(r.created).toBe("rec");
     expect(recs()).toHaveLength(1);
+  });
+
+  // M2-T14: the conversation that was recording at the same time already saved this rec.
+  it("a voice note whose rec a conversation already saved within ±60 s stores nothing; the claim points at that rec", async () => {
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([
+      { id: 163, name: "Ardent (ramen spot on Brady Street)", type: "place", firstName: "Anne", saidAt: new Date(createdAt.getTime() - 4_000) },
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const r = await processJournal({ id: "58", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
+    expect(r).toEqual({ created: null, saved: NONE });
+    expect(recsSaidBetween).toHaveBeenCalledWith(new Date(createdAt.getTime() - 60_000), new Date(createdAt.getTime() + 60_000), "conversation");
+    expect(finishJournalAs).toHaveBeenCalledWith("58", 163);
+    expect(committed).toHaveLength(0);
+    expect(releaseJournal).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("[pipeline] same moment: skipped journal=58 rec=163");
+    log.mockRestore();
+  });
+
+  it("a conversation rec with another name and recommender in the window does not stop the voice note", async () => {
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([
+      { id: 160, name: "A Little Dark Age", type: "song", firstName: "Dana", saidAt: createdAt },
+    ]);
+    const r = await processJournal({ id: "59", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
+    expect(r.created).toBe("rec");
+    expect(finishJournalAs).not.toHaveBeenCalled();
   });
 
   it("ignores empty or whitespace text without claiming", async () => {

@@ -77,6 +77,46 @@ describe("splitDeliberate", () => {
 });
 
 // Real SDK instances: their names are prefixed ("AI_APICallError"), so classification must use the SDK's own guards.
+// M2-T14: Bee's diarization split the trigger word itself across two utterances (two speakers, same second) in real
+// conversation 11338188: "Earm" | "ark that." | "Anne's Ramen Spot, Kawa Ramen…". The matcher saw neither half, so the
+// item went through ambient triage and was saved a second time (rec 163).
+describe("splitDeliberate: a trigger split across two utterances", () => {
+  it("the real 11338188 shape: fragment + rest of the trigger + body, then the next earmark", () => {
+    const { earmarks, rest } = splitDeliberate([
+      u("Done.", 1), u("Earm", 2), u("ark that.", 3), u("Anne's Ramen Spot, Kawa Ramen", 4), u("Earmark that.", 5), u("Marcus says, listen to Acts of Faith.", 6),
+    ]);
+    expect(earmarks.map((e) => [e.key, e.body])).toEqual([
+      ["u2", "Anne's Ramen Spot, Kawa Ramen"],
+      ["u5", "Marcus says, listen to Acts of Faith."],
+    ]);
+    expect(earmarks[0]!.spokenAt).toEqual(u("", 2).spokenAt);
+    expect(rest.map((x) => x.id)).toEqual([1]);
+  });
+
+  it.each([
+    [["Earm", "ark that."], true],
+    [["Ear", "mark that"], true],
+    [["Earmark", "that."], true],
+    [["Okay, earm", "ark that"], true],
+    [["Re", "mark that."], true],
+    [["Earm", "arked that."], false], // "earmarked that" is never a trigger
+    [["we earm", "arked that budget"], false],
+    [["so I told him about the ear", "mark that"], false], // only a short fragment (≤ 3 words) can carry half a trigger
+    [["Done.", "Earmark that."], true], // the second utterance triggers on its own; the first stays in the transcript
+  ])("%j -> trigger %s", (parts, want) => {
+    const lines = [...parts.map((p, i) => u(p, i + 1)), u("Kawa Ramen on Brady Street", 9)];
+    const { earmarks } = splitDeliberate(lines);
+    expect(earmarks.length > 0).toBe(want);
+    if (want) expect(earmarks[0]!.body).toBe("Kawa Ramen on Brady Street");
+  });
+
+  it("an utterance that triggers on its own keeps its own key (never the filler before it)", () => {
+    const { earmarks, rest } = splitDeliberate([u("Done.", 1), u("Earmark that.", 2), u("Kawa Ramen on Brady Street", 3)]);
+    expect(earmarks.map((e) => e.key)).toEqual(["u2"]);
+    expect(rest.map((x) => x.id)).toEqual([1]);
+  });
+});
+
 describe("isOutage (real AI SDK errors)", () => {
   const api = new APICallError({ message: "down", url: "https://x", requestBodyValues: {}, statusCode: 503 });
   const noObject = new NoObjectGeneratedError({

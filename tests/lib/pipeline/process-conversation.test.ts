@@ -24,6 +24,7 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   markConversationProcessed: vi.fn(async () => true),
   releaseConversation: vi.fn(async () => undefined),
   savedDeliberateKeys: vi.fn(async () => new Map<string, string | null>()),
+  recsSaidBetween: vi.fn(async () => []),
 }));
 
 // Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
@@ -33,7 +34,7 @@ vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
 }));
 
 import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
-import { isConversationProcessed, markConversationProcessed, releaseConversation, savedDeliberateKeys } from "../../../agent/lib/store/conversations";
+import { isConversationProcessed, markConversationProcessed, recsSaidBetween, releaseConversation, savedDeliberateKeys } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
 import type { BeeClient } from "../../../agent/lib/bee/client";
@@ -405,6 +406,47 @@ describe("processConversation", () => {
       expect(r).toMatchObject({ recs: 1 });
       expect(recs()).toHaveLength(1);
       expect(recs()[0]!.params).toEqual(expect.arrayContaining(["voice", "new", "u1"]));
+    });
+
+    // M2-T14: Bee heard the same words as a voice note during this conversation.
+    const voiceNote = (over: Partial<{ name: string; type: string; firstName: string | null; saidAt: Date }> = {}) =>
+      ({ id: 156, name: "Ardent", type: "place", firstName: "Ann", saidAt: new Date(1760600000000 + 4_000), ...over });
+
+    it("asks for the voice notes said during the conversation (its span ± 60 s)", async () => {
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(recsSaidBetween).toHaveBeenCalledWith(new Date(1760600000000 - 60_000), new Date(now().getTime() + 60_000), "journal");
+    });
+
+    it("a deliberate earmark a voice note already saved within 60 s is not stored; the log carries ids only", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote()]);
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 0 });
+      expect(recs()).toHaveLength(0);
+      expect(log).toHaveBeenCalledWith("[pipeline] same moment: skipped conversation=42 key=u1 rec=156");
+      log.mockRestore();
+    });
+
+    it("the same name more than 60 s away is a different moment and is stored", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ saidAt: new Date(1760600000000 + 61_002) })]);
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("an ambient rec named like a voice note from the conversation's span is not stored (normalized name)", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Ardent (sandwich shop)", firstName: null, saidAt: new Date(1760600000000 + 600_000) })]);
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 0 });
+      expect(recs()).toHaveLength(0);
+    });
+
+    // Real REST transcripts are not in spoken order (11338188: 108 of 311 neighbours out of order), so "the utterance
+    // after the trigger" must mean the next one spoken, not the next one in the array.
+    it("reads the transcript in spoken order (Bee's array order is not chronological)", async () => {
+      const utterances = [spoken("Earmark that.", 1), spoken("somebody else talking far later", 90_000), spoken("Ann says try Ardent on Brady", 2)];
+      const triage = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage });
+      expect(vi.mocked(triage).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent on Brady somebody else talking far later");
     });
 
     it("the earmarked lines never reach ambient triage", async () => {
