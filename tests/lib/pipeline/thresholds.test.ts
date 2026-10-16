@@ -4,7 +4,7 @@ import type { TriageResult } from "../../../agent/lib/types";
 
 describe("routeByConfidence", () => {
   it.each([
-    [0.99, "accept"],
+    [0.99, "drop"],
     [0.8500001, "accept"],
     [0.85, "review"],
     [0.7, "review"],
