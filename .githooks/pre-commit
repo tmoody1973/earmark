@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Blocks commits that contain secrets. Bypass only with Tarik's OK: SKIP_GITLEAKS=1 git commit ...
+set -euo pipefail
+[ "${SKIP_GITLEAKS:-0}" = "1" ] && exit 0
+exec gitleaks git --pre-commit --staged --redact --no-banner

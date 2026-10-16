@@ -1,0 +1,8 @@
+title = "Earmark gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder values only (e.g. replace-me-with-64-hex-chars trips generic-api-key)"
+paths = ['''^\.env\.example$''']
