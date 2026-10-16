@@ -140,6 +140,7 @@ Pagination convention (SRC, conversations/journals/facts/todos/photos): `?limit=
 16. TLS: two hosts, one with private CA (#5); public host documented only recently.
 17. Docs claim `bee version` while CLI help/`bee --version` unverified locally (CLI not installed here); install package is `@beeai/cli` while repo is `bee-cli`.
 18. Hackathon-specific: Android Developer Mode (#13 closed), conversation duplicates in `bee now` (#3), arm64 Linux binary missing (#1) matter if running the stream on a Hetzner/ARM box (Hetzner box is x86 per setup, fine).
+19. (Observed 2026-10-16, conversation 11338188, M2-T14.) `GET /v1/conversations/:id` returns utterances NOT in spoken order (108 of 311 neighbouring pairs out of order); sort by `spoken_at` (ids are also increasing in time). Diarization can split one word across two utterances with different speakers in the same second ("Earm" | "ark that."). A voice note said while the wearer is in a conversation is captured twice: as a journal AND inside the conversation transcript (same words, a few seconds apart). The stream's `journal-*` payload has no `created_at`; REST `GET /v1/journals/:id` has it.
 
 ## 7. Search result shapes (verified live on Tarik's account, 2026-10-16 05:19 CDT)
 

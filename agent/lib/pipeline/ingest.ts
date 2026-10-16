@@ -1,4 +1,5 @@
-import { toDate } from "../bee/client";
+import { createBeeClient, toDate } from "../bee/client";
+import { parseEarmarkTrigger } from "../bee/trigger";
 import { isJournalComplete, type BeeEvent } from "../bee/events";
 import { draftBlooms } from "../ideas/one-pager";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
@@ -22,6 +23,19 @@ async function maybePrune(now: Date): Promise<void> {
 // and gives back the claim on failure, and the schedule tail retries.
 async function draftIfBloomed(saved: { bloomedClusterIds: number[] } | undefined): Promise<void> {
   if (saved?.bloomedClusterIds.length) await draftBlooms({ clusterIds: saved.bloomedClusterIds });
+}
+
+// The stream sends no created_at, yet a voice note's recording time is its rec's said_at and what the ±60 s
+// one-earmark-per-moment check compares (M2-T14). For an earmark note only (rare), ask REST; on any failure use now.
+async function journalCreatedAt(id: string, text: string, deps: Partial<PipelineDeps>): Promise<Date> {
+  const now = (deps.now ?? (() => new Date()))();
+  if (!parseEarmarkTrigger(text).matched) return now;
+  try {
+    return toDate((await (deps.bee ?? createBeeClient()).getJournal(id)).created_at) ?? now;
+  } catch (err) {
+    console.error(`[bee] journal ${id} created_at lookup failed error=${err instanceof Error ? err.name : "unknown"}`);
+    return now;
+  }
 }
 
 async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<void> {
@@ -53,7 +67,7 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
     case "journal-updated": {
       const j = evt.data.journal;
       if (!j.text?.trim() || !isJournalComplete(j.state)) return; // journal-text is partial and ignored
-      const r = await processJournal({ id: j.id, text: j.text, createdAt: (deps.now ?? (() => new Date()))() }, deps);
+      const r = await processJournal({ id: j.id, text: j.text, createdAt: await journalCreatedAt(j.id, j.text, deps) }, deps);
       console.log(`[bee] journal ${j.id}`, r);
       return draftIfBloomed(r.saved);
     }

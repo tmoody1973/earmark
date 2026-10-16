@@ -1,6 +1,7 @@
 import { createBeeClient, toDate, type BeeClient } from "../bee/client";
 import {
-  conversationCountsQuery, isConversationProcessed, markConversationProcessed, releaseConversation, savedDeliberateKeys,
+  conversationCountsQuery, isConversationProcessed, markConversationProcessed, recsSaidBetween, releaseConversation,
+  savedDeliberateKeys, type SavedRec,
 } from "../store/conversations";
 import { db } from "../db";
 import { planIdeaClusters, type CompostDeps } from "../ideas/compost";
@@ -10,6 +11,7 @@ import { planDeliberateItem, splitDeliberate, type DeliberateEarmark } from "./d
 import { extractIdea, extractRecommendation } from "./extract";
 import { buildSaveQueries, noneSaved, savedIds, type SaveItem, type SavedIds } from "./save-item";
 import { mapLimit } from "./map-limit";
+import { SAME_MOMENT_MS, sameMoment, sameName } from "./same-moment";
 import { windowRoute } from "./thresholds";
 import { SystemicTriageError, triageWindow } from "./triage";
 import { toWindows } from "./windows";
@@ -97,13 +99,15 @@ async function planWindow(
 
 // Overlapping windows can find the same thing twice: one rec per name (the most confident sighting), and of two ideas
 // from adjacent windows keep the surer one.
-// A rec already earmarked on purpose in this conversation (same name) is not saved again from the talk that follows it.
+// A rec already earmarked on purpose (in this conversation, or by a voice note during it) is not saved again from
+// ambient talk: same name after normalizing ("Kawa Ramen" ~ "Kawa Ramen (ramen spot on Brady Street)").
 // ponytail: adjacency heuristic; M2's clustering is the real merge.
-function dedupe(planned: Planned[], earmarked: ReadonlySet<string>): Planned[] {
+function dedupe(planned: Planned[], earmarked: readonly string[]): Planned[] {
   const out: Planned[] = [];
   for (const p of planned) {
     if (p.item.kind === "rec") {
-      if (earmarked.has(p.key)) continue;
+      const name = p.item.extraction.canonicalName;
+      if (earmarked.some((n) => sameName(n, name))) continue;
       const at = out.findIndex((q) => q.item.kind === "rec" && q.key === p.key);
       if (at === -1) out.push(p);
       else if (p.item.confidence > out[at]!.item.confidence) out[at] = p;
@@ -121,19 +125,30 @@ function dedupe(planned: Planned[], earmarked: ReadonlySet<string>): Planned[] {
 
 // Earmarks already saved from this conversation (a released claim being retried) are skipped before any model call.
 // A model outage throws (run released, retried); any other failure on one earmark saves it as a raw needs_review rec (see planDeliberateItem).
-// items: what to save now. earmarkedNames: lower-cased rec names of ALL earmarks of this conversation, including ones
-// saved on an earlier attempt, so ambient never re-saves them.
+// items: what to save now. earmarkedNames: rec names of ALL earmarks of this conversation, including ones saved on an
+// earlier attempt, so ambient never re-saves them.
 async function planDeliberate(
   id: number, earmarks: DeliberateEarmark[], fallbackAt: Date, d: PipelineDeps,
-): Promise<{ items: SaveItem[]; earmarkedNames: Set<string> }> {
-  if (earmarks.length === 0) return { items: [], earmarkedNames: new Set() };
+): Promise<{ items: SaveItem[]; earmarkedNames: string[] }> {
+  if (earmarks.length === 0) return { items: [], earmarkedNames: [] };
   const saved = await savedDeliberateKeys(id);
   const todo = earmarks.filter((e) => !saved.has(e.key));
   const items = await mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
     e.body, { label: `conversation=${id}`, beeConversationId: id, beeJournalId: null, spokenAt: e.spokenAt ?? fallbackAt, deliberateKey: e.key }, d,
   ));
   const names = [...saved.values(), ...items.map((it) => (it.kind === "rec" ? it.extraction.canonicalName : null))];
-  return { items, earmarkedNames: new Set(names.flatMap((n) => (n ? [n.toLowerCase()] : []))) };
+  return { items, earmarkedNames: names.flatMap((n) => (n ? [n] : [])) };
+}
+
+// One earmark per moment (M2-T14): a rec from this conversation (deliberate or ambient) that a voice note already saved
+// within ±60 s (same name, or same recommender + type) is the same occasion heard twice. Store nothing; log ids only.
+function notSavedByVoiceNote(id: number, items: SaveItem[], voiceNotes: readonly SavedRec[]): SaveItem[] {
+  return items.filter((it) => {
+    if (it.kind !== "rec") return true;
+    const twin = sameMoment({ name: it.extraction.canonicalName, type: it.recType, firstName: it.attribution.firstName, saidAt: it.spokenAt }, voiceNotes);
+    if (twin) console.log(`[pipeline] same moment: skipped conversation=${id} key=${it.deliberateKey ?? "ambient"} rec=${twin.id}`);
+    return !twin;
+  });
 }
 
 // deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
@@ -153,13 +168,23 @@ export async function processConversation(
   if (!(await markConversationProcessed(id, { ideas: 0, recs: 0 }))) return skipped;
   try {
     const transcription = conversation.transcriptions.find((t) => !t.realtime) ?? conversation.transcriptions[0];
-    const utterances = (transcription?.utterances ?? []).map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }));
+    // Bee's REST array is not in spoken order (11338188: 108 of 311 neighbours swapped): sort by spoken_at, then id,
+    // so a trigger's continuation and each ambient window are the utterances actually said next (stable sort).
+    const utterances = (transcription?.utterances ?? [])
+      .map((u) => ({ text: u.text, speaker: u.speaker, spokenAt: toDate(u.spoken_at), id: u.id ?? null }))
+      .sort((a, b) => (a.spokenAt?.getTime() ?? 0) - (b.spokenAt?.getTime() ?? 0) || (a.id ?? 0) - (b.id ?? 0));
     // "Earmark that" said anywhere is a deliberate earmark: planned like a voice note, and removed from the transcript
     // so ambient triage can never save the same thing again.
     const { earmarks, rest } = splitDeliberate(utterances);
     const windows = toWindows(rest, { conversationId: id, conversationUuid: null });
     const summary = conversation.summary ?? conversation.short_summary ?? null;
     const fallbackAt = toDate(conversation.start_time) ?? d.now();
+    // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion, and bounds
+    // the voice notes Bee may have recorded during it (one earmark per moment, M2-T14).
+    const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
+    const voiceNotes = await recsSaidBetween(
+      new Date(span.start.getTime() - SAME_MOMENT_MS), new Date(span.end.getTime() + SAME_MOMENT_MS), "journal",
+    );
     const { items: deliberate, earmarkedNames } = await planDeliberate(id, earmarks, fallbackAt, d);
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
@@ -177,10 +202,9 @@ export async function processConversation(
       console.error(`[pipeline] systemic failure conversation=${id} reason=${systemic}`);
       throw new SystemicTriageError(systemic);
     }
-    const items = [...deliberate, ...dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), earmarkedNames).map((p) => p.item)];
+    const ambient = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), [...earmarkedNames, ...voiceNotes.map((v) => v.name)]);
+    const items = notSavedByVoiceNote(id, [...deliberate, ...ambient.map((p) => p.item)], voiceNotes);
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
-    // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion.
-    const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
     const saveItems = await planIdeaClusters(items, d.compost, { span });
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.

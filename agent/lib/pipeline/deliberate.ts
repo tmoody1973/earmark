@@ -24,23 +24,42 @@ const STANDALONE_WORDS = 6;
 
 const endsSentence = (t: string) => /[.!?…]["'”’)]*\s*$/.test(t.trim());
 
+// Bee's diarization can cut the trigger word itself in two (real conversation 11338188: "Earm" | "ark that.", two
+// speakers, same second). A short fragment is joined to the next utterance (with and without a space) when that next
+// utterance does not trigger on its own. span = how many utterances the trigger used.
+const MAX_FRAGMENT_WORDS = 3;
+type Trigger = { t: ReturnType<typeof detectEarmarkTrigger>; text: string; span: 1 | 2 };
+function triggerAt(texts: readonly string[], p: number): Trigger {
+  const a = texts[p]!.trim();
+  const t = detectEarmarkTrigger(a);
+  const b = texts[p + 1]?.trim();
+  if (t.matched || !b || wordCount(a) > MAX_FRAGMENT_WORDS || detectEarmarkTrigger(b).matched) return { t, text: a, span: 1 };
+  for (const joined of [a + b, `${a} ${b}`]) {
+    const j = detectEarmarkTrigger(joined);
+    if (j.matched) return { t: j, text: joined, span: 2 };
+  }
+  return { t, text: a, span: 1 };
+}
+
 // Pulls the deliberate earmarks out of a transcript. rest is the transcript without them (and without their
 // continuation), so ambient triage can never save the same thing a second time.
 export function splitDeliberate(utterances: readonly Utterance[]): { earmarks: DeliberateEarmark[]; rest: Utterance[] } {
   const present = utterances.flatMap((x, index) => (x.text.trim() ? [{ x, index }] : []));
-  const trigger = present.map(({ x }) => detectEarmarkTrigger(x.text));
+  const texts = present.map(({ x }) => x.text);
+  const trigger = present.map((_, p) => triggerAt(texts, p));
   const taken = new Set<number>(); // original indexes removed from the transcript
   const earmarks: DeliberateEarmark[] = [];
   for (let p = 0; p < present.length; p++) {
-    const t = trigger[p]!;
-    if (!t.matched) continue;
+    const { t, text, span } = trigger[p]!;
+    if (!t.matched || taken.has(present[p]!.index)) continue;
     const { x, index } = present[p]!;
     taken.add(index);
+    if (span === 2) taken.add(present[p + 1]!.index);
     const parts = t.body ? [t.body] : [];
-    const alone = endsSentence(x.text) && wordCount(x.text) >= STANDALONE_WORDS && t.body;
-    for (let n = 1; !alone && n <= CONTINUATION; n++) {
+    const alone = endsSentence(text) && wordCount(text) >= STANDALONE_WORDS && t.body;
+    for (let n = span; !alone && n < span + CONTINUATION; n++) {
       const next = present[p + n];
-      if (!next || trigger[p + n]!.matched) break;
+      if (!next || trigger[p + n]!.t.matched) break;
       parts.push(next.x.text.trim().replace(/\s+/g, " "));
       taken.add(next.index);
     }

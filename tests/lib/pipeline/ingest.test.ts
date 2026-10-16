@@ -18,6 +18,7 @@ import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
+import type { BeeClient } from "../../../agent/lib/bee/client";
 
 const evt = (event: string, data: unknown) => parseBeeEnvelope({ event, ts: "t", data });
 const now = () => new Date("2026-10-16T16:00:00Z");
@@ -68,13 +69,41 @@ describe("handleBeeEvent", () => {
     expect(processConversation).toHaveBeenCalledWith(13, { now });
   });
 
-  it.each(["processed", "READY", "completed"])("processes a finished journal (state %s)", async (state) => {
-    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state, text: "Earmark that, Ann's ramen spot" } }), { now });
-    expect(processJournal).toHaveBeenCalledWith({ id: "55", text: "Earmark that, Ann's ramen spot", createdAt: now() }, { now });
+  // The stream sends no created_at: an earmark note's real recording time comes from REST (M2-T14 same-moment check).
+  const recorded = new Date("2026-10-16T15:58:40Z");
+  const beeAt = (at: Date | Error) => ({
+    getJournal: vi.fn(async () => {
+      if (at instanceof Error) throw at;
+      return { id: "55", text: "x", state: "READY", created_at: at.getTime() };
+    }),
+  }) as unknown as BeeClient;
+
+  it.each(["processed", "READY", "completed"])("processes a finished journal (state %s) at its REST created_at", async (state) => {
+    const bee = beeAt(recorded);
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state, text: "Earmark that, Ann's ramen spot" } }), { now, bee });
+    expect(bee.getJournal).toHaveBeenCalledWith("55");
+    expect(processJournal).toHaveBeenCalledWith({ id: "55", text: "Earmark that, Ann's ramen spot", createdAt: recorded }, { now, bee });
+  });
+
+  it("falls back to now when the created_at lookup fails (logs the error name only)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bee = beeAt(new RangeError("secret words"));
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "READY", text: "Earmark that, Ann's ramen spot" } }), { now, bee });
+    expect(processJournal).toHaveBeenCalledWith(expect.objectContaining({ createdAt: now() }), { now, bee });
+    expect(JSON.stringify(err.mock.calls)).toContain("RangeError");
+    expect(JSON.stringify(err.mock.calls)).not.toContain("secret");
+    err.mockRestore();
+  });
+
+  it("a note that is not an earmark needs no lookup", async () => {
+    const bee = beeAt(recorded);
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 57, state: "READY", text: "remind me to call mom" } }), { now, bee });
+    expect(bee.getJournal).not.toHaveBeenCalled();
+    expect(processJournal).toHaveBeenCalledWith(expect.objectContaining({ createdAt: now() }), { now, bee });
   });
 
   it("processes a finished journal delivered as journal-created", async () => {
-    await handleBeeEvent(evt("journal-created", { journal: { id: 56, state: "processed", text: "Earmark that, x" } }), { now });
+    await handleBeeEvent(evt("journal-created", { journal: { id: 56, state: "processed", text: "Earmark that, x" } }), { now, bee: beeAt(recorded) });
     expect(processJournal).toHaveBeenCalledTimes(1);
   });
 
@@ -97,7 +126,7 @@ describe("handleBeeEvent", () => {
     vi.mocked(processJournal).mockRejectedValueOnce(new Error("boom: Earmark that, Ann's ramen spot"));
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(
-      handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "Earmark that, Ann's ramen spot" } })),
+      handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "Earmark that, Ann's ramen spot" } }), { bee: beeAt(recorded) }),
     ).resolves.toBeUndefined();
     const logged = JSON.stringify(err.mock.calls);
     expect(logged).toContain("journal-updated");
