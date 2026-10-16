@@ -22,6 +22,7 @@ export default async function Garden() {
   // Defence in depth: proxy.ts already refuses non-owners, but the data read must not depend on the matcher alone.
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
+  const renderedAt = new Date().toISOString(); // before the read: the ticker picks up anything saved after it
   const items = await listGardenItems(50);
   const ideas = items.filter((i): i is Idea => i.kind === "idea");
   const recs = items.filter((i): i is Rec => i.kind === "rec");
@@ -31,7 +32,7 @@ export default async function Garden() {
         <h1>Earmark</h1>
         <p>What you keep saying, and what people told you to try.</p>
       </header>
-      <BloomTicker />
+      <BloomTicker since={renderedAt} />
 
       <section aria-labelledby="ideas-h">
         <h2 id="ideas-h">Ideas</h2>

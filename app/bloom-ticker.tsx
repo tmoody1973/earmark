@@ -16,17 +16,17 @@ export function latestBloom(events: readonly Ev[], seen: Set<number>): string | 
   return bloom ? `${bloom.title} bloomed — mentioned ${bloom.mentionCount} times.` : null;
 }
 
-export function BloomTicker() {
+// since: the server's render time (the server page passes it), so a bloom saved between render and hydration counts.
+export function BloomTicker({ since: renderedAt }: { since: string }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
-  const since = useRef<string | null>(null);
+  const since = useRef(renderedAt);
   const seen = useRef(new Set<number>());
 
   useEffect(() => {
-    since.current ??= new Date().toISOString();
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/garden/blooms?since=${encodeURIComponent(since.current!)}`, { cache: "no-store" });
+        const res = await fetch(`/api/garden/blooms?since=${encodeURIComponent(since.current)}`, { cache: "no-store" });
         if (!res.ok) return;
         const body = (await res.json()) as { events: Ev[]; now: string };
         since.current = body.now;
