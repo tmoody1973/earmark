@@ -39,7 +39,9 @@ export async function findConversationNear(
       const end = toDate(c.end_time)?.getTime() ?? Date.now();
       if (t >= start - LINK_WINDOW_MS && t <= end + LINK_WINDOW_MS) candidates.push({ id: c.id, start, end });
     }
-    const oldest = toDate(res.conversations.at(-1)?.start_time)?.getTime() ?? 0;
+    // Oldest DATED conversation on the page: an undated one must not read as the epoch and end the scan early.
+    const starts = res.conversations.flatMap((c) => toDate(c.start_time)?.getTime() ?? []);
+    const oldest = starts.length ? Math.min(...starts) : Number.POSITIVE_INFINITY;
     if (!res.next_cursor || oldest < t - 24 * 3600_000) break;
     cursor = res.next_cursor;
   }

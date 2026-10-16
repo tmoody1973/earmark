@@ -102,6 +102,50 @@ describe("handlePhotoCapture", () => {
     gif.set("image", new File([new Uint8Array([1])], "a.gif", { type: "image/gif" }));
     expect((await handlePhotoCapture(req(gif), deps() as never)).status).toBe(415);
   });
+  it("ties the rec to the conversation only when the picker picked a window; the photos row keeps the link", async () => {
+    const d = deps({ pickWindow: vi.fn(async () => null) });
+    const res = await handlePhotoCapture(req(photoForm()), d as never);
+    expect(res.status).toBe(201);
+    const saved = d.save.mock.calls[0][0];
+    expect(saved.beeConversationId).toBeNull();
+    expect(saved.recommenderName).toBeNull();
+    expect(saved.photo.conversationId).toBe(7);
+    expect(d.attribute).not.toHaveBeenCalled();
+  });
+  it("validates the thumb: type and size", async () => {
+    const bad = photoForm();
+    bad.set("thumb", new File([new Uint8Array([1])], "t.gif", { type: "image/gif" }));
+    expect((await handlePhotoCapture(req(bad), deps() as never)).status).toBe(400);
+    const big = photoForm();
+    big.set("thumb", new File([new Uint8Array(512 * 1024 + 1)], "t.jpg", { type: "image/jpeg" }));
+    const d = deps();
+    expect((await handlePhotoCapture(req(big), d as never)).status).toBe(413);
+    expect(d.classify).not.toHaveBeenCalled();
+  });
+  it("keeps the thumbnail and still answers 201 when scheduling the rec lane throws after a good save", async () => {
+    const d = deps({ afterCreated: vi.fn((_id: number) => { throw new Error("no request scope"); }) });
+    const res = await handlePhotoCapture(req(photoForm()), d as never);
+    expect(res.status).toBe(201);
+    expect(d.deleteThumb).not.toHaveBeenCalled();
+  });
+  it("answers 415 to a body that is not multipart", async () => {
+    const r = new Request("https://earmark.test/api/capture/photo", {
+      method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: "{}",
+    });
+    expect((await handlePhotoCapture(r, deps() as never)).status).toBe(415);
+  });
+  it("fails closed (401) when no capture token is configured", async () => {
+    const saved = process.env.EARMARK_CAPTURE_TOKEN;
+    delete process.env.EARMARK_CAPTURE_TOKEN;
+    vi.resetModules(); // getEnv caches; load a fresh copy that sees no token
+    try {
+      const fresh = await import("../../../agent/lib/capture/photos");
+      expect((await fresh.handlePhotoCapture(req(photoForm(), ""), deps() as never)).status).toBe(401);
+      expect((await fresh.handlePhotoCapture(req(photoForm(), "anything"), deps() as never)).status).toBe(401);
+    } finally {
+      process.env.EARMARK_CAPTURE_TOKEN = saved;
+    }
+  });
   it("deletes the uploaded thumbnail when the save fails, and answers 500 without detail", async () => {
     const d = deps({ save: vi.fn(async (_rec: unknown) => { throw new Error("db down with secret text"); }) });
     const res = await handlePhotoCapture(req(photoForm()), d as never);
