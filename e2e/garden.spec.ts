@@ -28,7 +28,7 @@ test("the owner sees the garden", async ({ page }, info) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Earmark" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ideas" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Heard from friends" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Shelf" })).toBeVisible();
 
   // phone-first: nothing may push the page wider than the viewport
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -36,6 +36,35 @@ test("the owner sees the garden", async ({ page }, info) => {
 
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   await page.screenshot({ path: `${SHOTS}/m1-garden-${info.project.name}.png`, fullPage: true });
+});
+
+// Design screenshots for the shelf (M4-T2). SHOT_LABEL names the data set ("real", or "sample" when the dev server
+// runs against the test branch seeded by scripts/seed-sample-shelf.ts). docs/design/screens/ is git-ignored.
+test("the shelf renders a type-aware card for every tip", async ({ page }, info) => {
+  const label = process.env.SHOT_LABEL ?? "real";
+  const dir = "docs/design/screens";
+  await signInAs(page, OWNER_EMAIL);
+  await page.goto("/shelf");
+  const cards = page.getByTestId("rec-card");
+  await expect(cards.first()).toBeVisible();
+  for (const card of await cards.all()) {
+    await expect(card).toHaveAttribute("data-variant", /^(cover|artist|spine|map|tile|poster|note)$/);
+  }
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  // every image has loaded or been swapped for its no-image state: none may be broken
+  await page.evaluate(async () => {
+    for (const img of Array.from(document.images)) { img.loading = "eager"; await img.decode().catch(() => {}); }
+  });
+  const broken = await page.evaluate(() => Array.from(document.images).filter((i) => i.complete && i.naturalWidth === 0).length);
+  expect(broken).toBe(0);
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  const width = info.project.name === "phone" ? 390 : 1440;
+  await page.screenshot({ path: `${dir}/m4-shelf-${label}-${width}.png`, fullPage: true });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Shelf" })).toBeVisible();
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await page.screenshot({ path: `${dir}/m4-garden-${label}-${width}.png`, fullPage: true });
 });
 
 test("a signed-in non-owner is refused and sees no data", async ({ page }, info) => {

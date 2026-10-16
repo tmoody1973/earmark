@@ -1,40 +1,86 @@
 @import "tailwindcss";
 
-/* M1 scaffold — replaced by the M4 Impeccable build. No DESIGN.md exists yet, so these are
-   deliberately plain: system fonts, one restrained accent, WCAG 2.2 AA contrast
-   (ink on paper ~15:1, muted ~7:1, accent ~7:1), visible keyboard focus, no horizontal scroll at 375px. */
+/* Garden world (M4, approved direction): warm off-white ground, near-black ink, one orange accent that means only
+   "new since last time" and "bloomed". Contrast on --surface: ink 16.8:1, ink-2 6.9:1, ink-3 5.7:1 (all ≥ AA). */
 :root {
-  --paper: #faf7f2;
-  --ink: #1f1b16;
-  --muted: #5a5248;
-  --accent: #8a3b12;
-  --rule: #ddd5c8;
+  --ground: #f5f1ea;
+  --surface: #fdfbf7;
+  --art-ground: #efe9df;
+  --ink: #1d1a16;
+  --ink-2: #5f574d;
+  --ink-3: #6b6359;
+  --hairline: #e5ddd0;
+  --accent: #d4561c; /* graphics only (3.6:1 on ground); never body text */
+  --sage-ground: #e3ecdf;
+  --sage-ink: #2f5a3a;
+  --selection: #e6dccb;
+
+  --serif: var(--font-literata), "Iowan Old Style", Georgia, serif;
+  --sans: var(--font-figtree), system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --radius-card: 14px;
+  --radius-art: 8px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* legacy names still used by the sign-in and sign-out pages */
+  --paper: var(--ground);
+  --muted: var(--ink-2);
+  --rule: var(--hairline);
 }
+
+html { background: var(--ground); }
 
 body {
   margin: 0;
-  background: var(--paper);
+  background: var(--ground);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
   font-size: 1.0625rem;
-  line-height: 1.6;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.garden { max-width: 38rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; overflow-wrap: anywhere; }
+::selection { background: var(--selection); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 4px; }
+a { color: var(--ink); text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+
+.garden { max-width: 76rem; margin: 0 auto; padding: 2rem 1rem 4rem; overflow-wrap: anywhere; }
 .garden-center { display: flex; justify-content: center; padding-top: 3rem; }
-.garden h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; }
-.garden h2 { font-size: 1.25rem; margin: 2.5rem 0 0.5rem; color: var(--accent); }
-.garden header p, .garden .meta, .garden blockquote { color: var(--muted); }
-.garden .empty { color: var(--muted); max-width: 32rem; }
-.garden ul { list-style: none; padding: 0; margin: 0; }
-.garden li { padding: 0.75rem 0; border-bottom: 1px solid var(--rule); }
-.garden .meta { display: block; font-size: 0.9375rem; }
-.garden blockquote { margin: 0.25rem 0 0; font-style: italic; }
 
-a { color: var(--accent); }
-a:focus-visible, button:focus-visible, input:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+.garden h1 { font-family: var(--serif); font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; }
+.garden .garden-head h1 {
+  font-family: var(--serif);
+  font-size: 2.125rem;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.garden-head p { margin: 0.25rem 0 0; color: var(--ink-2); font-size: 1rem; }
+
+.zone { margin-top: 2.75rem; }
+.zone-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; }
+.zone-head h2 { font-family: var(--serif); font-size: 1.375rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+.zone-head a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.25rem;
+  color: var(--ink-2); font-size: 0.9375rem; text-decoration: none;
+}
+.zone-head a:hover { color: var(--ink); text-decoration: underline; }
+
+.garden .empty { color: var(--ink-2); max-width: 34rem; }
+.garden .ideas { list-style: none; padding: 0; margin: 0; max-width: 40rem; }
+.garden .ideas li { padding: 0.75rem 0; border-bottom: 1px solid var(--hairline); }
+.garden .ideas strong { font-family: var(--serif); font-weight: 600; }
+.garden .meta { display: block; font-size: 0.9375rem; color: var(--ink-2); }
+.bloom-ticker:empty { display: none; }
+
+.garden .signout {
+  font: inherit; padding: 0.5rem 1rem; min-height: 2.75rem; color: var(--surface); background: var(--ink);
+  border: 0; border-radius: 999px; cursor: pointer;
 }
 
-.garden .signout { font: inherit; padding: 0.5rem 1rem; min-height: 2.75rem; color: var(--paper); background: var(--accent); border: 0; border-radius: 0.25rem; cursor: pointer; }
+@media (min-width: 48rem) {
+  .garden { padding: 3rem 2rem 5rem; }
+  .garden .garden-head h1 { font-size: 2.75rem; }
+}

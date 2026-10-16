@@ -1,11 +1,15 @@
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { isOwner } from "@/agent/lib/owner";
-import { listGardenItems, type GardenItem } from "@/agent/lib/store/garden";
+import { getGardenView } from "@/agent/lib/garden/queries";
 import { BloomTicker } from "./bloom-ticker";
+import { Shelf } from "./garden/Shelf";
 
-// M1 scaffold — replaced by the M4 Impeccable build.
 export const dynamic = "force-dynamic";
+
+// The garden shows the newest few of each zone; the tab pages hold the rest.
+const SHELF_ON_HOME = 6;
 
 const STAGE: Record<string, string> = {
   compost: "compost",
@@ -15,38 +19,34 @@ const STAGE: Record<string, string> = {
   used: "used",
 };
 
-type Idea = Extract<GardenItem, { kind: "idea" }>;
-type Rec = Extract<GardenItem, { kind: "rec" }>;
-
 export default async function Garden() {
   // Defence in depth: proxy.ts already refuses non-owners, but the data read must not depend on the matcher alone.
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
   const renderedAt = new Date().toISOString(); // before the read: the ticker picks up anything saved after it
-  const items = await listGardenItems(50);
-  const ideas = items.filter((i): i is Idea => i.kind === "idea");
-  const recs = items.filter((i): i is Rec => i.kind === "rec");
+  const { plants, shelf } = await getGardenView();
   return (
-    <main className="garden">
-      <header>
+    <main className="garden" id="garden">
+      <header className="garden-head">
         <h1>Earmark</h1>
-        <p>What you keep saying, and what people told you to try.</p>
+        <p>Small moments. A bigger mind.</p>
       </header>
       <BloomTicker since={renderedAt} />
 
-      <section aria-labelledby="ideas-h">
-        <h2 id="ideas-h">Ideas</h2>
-        {ideas.length === 0 ? (
+      {/* Zone 1 — ideas. Plain list until the plant cards land (M4-T3). */}
+      <section className="zone" aria-labelledby="ideas-h">
+        <div className="zone-head"><h2 id="ideas-h">Ideas</h2></div>
+        {plants.length === 0 ? (
           <p className="empty">
             Nothing has taken root yet. Once Earmark is listening, the things you keep saying will gather here.
           </p>
         ) : (
-          <ul>
-            {ideas.map((i) => (
-              <li key={`idea-${i.id}`}>
-                <strong>{i.title}</strong>
+          <ul className="ideas">
+            {plants.map((p) => (
+              <li key={p.id}>
+                <strong>{p.title}</strong>
                 <span className="meta">
-                  {STAGE[i.stage] ?? i.stage} · {i.mentions} {i.mentions === 1 ? "mention" : "mentions"}
+                  {STAGE[p.stage] ?? p.stage} · {p.mentionCount} {p.mentionCount === 1 ? "mention" : "mentions"}
                 </span>
               </li>
             ))}
@@ -54,26 +54,13 @@ export default async function Garden() {
         )}
       </section>
 
-      <section aria-labelledby="recs-h">
-        <h2 id="recs-h">Heard from friends</h2>
-        {recs.length === 0 ? (
-          <p className="empty">
-            The shelf is empty for now. When someone tells you about something worth trying, it will land here with their name on it.
-          </p>
-        ) : (
-          <ul>
-            {recs.map((r) => (
-              <li key={`rec-${r.id}`}>
-                <strong>{r.name}</strong>
-                <span className="meta">
-                  {r.type.replace("_", "/")} · {r.recommender ? `from ${r.recommender}` : "from someone, not sure who"}
-                  {r.status === "needs_review" && " · waiting for your say-so"}
-                </span>
-                <blockquote>{r.excerpt}</blockquote>
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* Zone 2 — the shelf of tips. */}
+      <section className="zone" aria-labelledby="shelf-h">
+        <div className="zone-head">
+          <h2 id="shelf-h">Shelf</h2>
+          {shelf.length > SHELF_ON_HOME && <Link href="/shelf">See all</Link>}
+        </div>
+        <Shelf cards={shelf.slice(0, SHELF_ON_HOME)} />
       </section>
     </main>
   );

@@ -7,11 +7,13 @@ vi.mock("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   }),
 }));
-vi.mock("../../agent/lib/store/garden", () => ({ listGardenItems: vi.fn(async () => []) }));
+vi.mock("../../agent/lib/garden/queries", () => ({
+  getGardenView: vi.fn(async () => ({ plants: [], shelf: [], serverTime: new Date().toISOString() })),
+}));
 
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
-import { listGardenItems } from "../../agent/lib/store/garden";
+import { getGardenView } from "../../agent/lib/garden/queries";
 import Garden from "../../app/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
@@ -28,7 +30,7 @@ describe("garden page owner guard", () => {
       signedInAs(userId);
       await expect(Garden()).rejects.toThrow("NEXT_NOT_FOUND");
       expect(notFound).toHaveBeenCalled();
-      expect(listGardenItems).not.toHaveBeenCalled();
+      expect(getGardenView).not.toHaveBeenCalled();
     },
   );
 
@@ -36,7 +38,7 @@ describe("garden page owner guard", () => {
     delete process.env.EARMARK_OWNER_CLERK_ID;
     signedInAs("user_owner");
     await expect(Garden()).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(listGardenItems).not.toHaveBeenCalled();
+    expect(getGardenView).not.toHaveBeenCalled();
   });
 
   it("starts the live ticker from the server's render time, so nothing between render and first poll is missed", async () => {
@@ -62,7 +64,7 @@ describe("garden page owner guard", () => {
   it("reads the garden for the owner", async () => {
     signedInAs("user_owner");
     await Garden();
-    expect(listGardenItems).toHaveBeenCalledWith(50);
+    expect(getGardenView).toHaveBeenCalledOnce();
     expect(notFound).not.toHaveBeenCalled();
   });
 });
