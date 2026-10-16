@@ -1,5 +1,6 @@
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import { RecCard } from "./cards/RecCard";
+import { Findable } from "./live";
 
 /** The shelf zone: two columns on a phone, widening to four on desktop. */
 export function Shelf({ cards }: { cards: RecCardData[] }) {
@@ -13,9 +14,9 @@ export function Shelf({ cards }: { cards: RecCardData[] }) {
   return (
     <ul className="shelf-grid">
       {cards.map((c) => (
-        <li key={c.id}>
+        <Findable key={c.id} fields={[c.name, c.recommender?.firstName]}>
           <RecCard card={c} />
-        </li>
+        </Findable>
       ))}
     </ul>
   );

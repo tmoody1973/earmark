@@ -37,6 +37,7 @@ CI: every PR and push to `main` runs typecheck, unit tests, lint, build and a gi
 - Stop: Ctrl-C in each terminal. If started in the background: `pkill -f relay/run.sh; lsof -ti :2000 | xargs kill`
 - Backfill now: `curl -X POST http://localhost:2000/eve/v1/dev/schedules/nightly-backfill`
 - Tests: `pnpm test`; sign-in and owner-gate checks with screenshots: `pnpm test:e2e` (needs the Clerk keys and `pnpm exec playwright install chromium`). Screenshots go to the git-ignored `test-results/screens/`. Never commit real-data screenshots: the three PNGs in `docs/design/screens/` are empty-state captures only.
+- Live-bloom e2e (`e2e/bloom.spec.ts`) writes to the Neon `test` branch, so the dev server must read that branch too: start it with `DATABASE_URL` set to the `TEST_DATABASE_URL` value (Next does not override a variable already in the environment), on its own port, then `E2E_PORT=<port> pnpm test:e2e e2e/bloom.spec.ts`. `E2E_PORT` (default 3100) keeps Playwright from reusing another checkout's dev server.
 - Database tests: `pnpm test:int` runs against the Neon `test` branch (`TEST_DATABASE_URL` in `.env.local`), never production; `pnpm migrate:test` migrates that branch.
 
 ## Deploy

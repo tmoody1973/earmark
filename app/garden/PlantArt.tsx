@@ -138,13 +138,19 @@ export interface PlantArtProps {
   size: "sm" | "lg";
   /** Cards say the stage in text, so their plant is decoration; the idea page's plant is labelled. */
   decorative?: boolean;
+  /** Live bloom (M4-T4): the level the plant was drawn at. Both drawings share the grid, so the old one fades
+   *  while the new one draws over it in place (bloom-motion.ts). Null or absent: the plain drawing. */
+  bloomFrom?: PlantLevel | null;
+  svgRef?: React.Ref<SVGSVGElement>;
 }
 
-export function PlantArt({ plant, size, decorative = false }: PlantArtProps) {
+export function PlantArt({ plant, size, decorative = false, bloomFrom = null, svgRef }: PlantArtProps) {
   const classes = ["plant", `plant--${size}`, !plant.confirmed && "plant--unconfirmed", plant.stage === "dismissed" && "plant--dismissed"];
   const label = `${stageLabel(plant.stage)} plant${plant.confirmed ? "" : ", unconfirmed"}`;
   return (
     <svg
+      ref={svgRef}
+      data-bloom-from={bloomFrom ?? undefined}
       className={classes.filter(Boolean).join(" ")}
       viewBox="0 0 80 100"
       preserveAspectRatio="xMidYMax slice"
@@ -155,7 +161,14 @@ export function PlantArt({ plant, size, decorative = false }: PlantArtProps) {
       focusable="false"
     >
       <path className="ground" d={GROUND} />
-      {DRAWINGS[plant.level]}
+      {bloomFrom ? (
+        <>
+          <g className="plant-was">{DRAWINGS[bloomFrom]}</g>
+          <g className="plant-now">{DRAWINGS[plant.level]}</g>
+        </>
+      ) : (
+        DRAWINGS[plant.level]
+      )}
     </svg>
   );
 }

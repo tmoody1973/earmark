@@ -7,7 +7,9 @@ try {
   // CI or a fresh clone: the environment must already provide the Clerk variables.
 }
 
-const PORT = 3100;
+// E2E_PORT: a second checkout (another worktree's dev server may already hold 3100, and reuseExistingServer would
+// silently test that one instead).
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "e2e",

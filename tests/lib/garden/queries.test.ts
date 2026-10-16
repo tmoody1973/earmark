@@ -109,6 +109,19 @@ describe("garden queries", () => {
     expect(plant.latestLine).toBe("Oct 1: first heard");
   });
 
+  it("builds the New row from tips caught and blooms recorded after the visit baseline", async () => {
+    const since = "2026-10-15T12:00:00.000Z";
+    h.mock.queue.push(
+      [],
+      [{ ...recRow, created_at: "2026-10-15T16:00:00Z" }, { ...recRow, id: 8, created_at: "2026-10-15T09:00:00Z" }],
+      [{ cluster_id: 4, created_at: "2026-10-15T14:00:00Z", title: "Station crates", mention_count: 3 }],
+    );
+    const view = await getGardenView(since);
+    expect(view.newChips.map((c) => c.key)).toEqual(["rec-7", "idea-4"]);
+    expect(h.mock.calls[2].text).toContain("e.kind = 'bloom'");
+    expect(h.mock.calls[2].values).toContain(since);
+  });
+
   it("reads the dismissed mention times with the plants", async () => {
     h.mock.queue.push([], []);
     await getGardenView();

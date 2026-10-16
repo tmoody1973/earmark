@@ -38,6 +38,7 @@ export function RecCard({ card }: { card: RecCardData }) {
   const classes = ["rec-card", note && "rec-card--note", unconfirmed && "rec-card--unconfirmed", card.link && "rec-card--linked"];
   return (
     <article
+      id={`rec-${card.id}`}
       className={classes.filter(Boolean).join(" ")}
       data-testid="rec-card"
       data-variant={card.variant}

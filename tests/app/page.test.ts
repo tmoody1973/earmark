@@ -7,16 +7,33 @@ vi.mock("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   }),
 }));
+vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("../../agent/lib/garden/queries", () => ({
-  getGardenView: vi.fn(async () => ({ plants: [], shelf: [], serverTime: new Date().toISOString() })),
+  getGardenView: vi.fn(async () => ({ plants: [], shelf: [], serverTime: new Date().toISOString(), newChips: [] })),
+  getGardenVisit: vi.fn(async () => null),
+  saveGardenVisit: vi.fn(async () => {}),
 }));
 
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
-import { getGardenView } from "../../agent/lib/garden/queries";
+import { after } from "next/server";
+import { getGardenView, getGardenVisit, saveGardenVisit } from "../../agent/lib/garden/queries";
 import Garden from "../../app/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
+
+// Finds a component by name in the returned element tree (server components are not rendered here).
+function find(n: unknown, name: string): { props: Record<string, unknown> } | null {
+  if (!n || typeof n !== "object") return null;
+  const el = n as { type?: { name?: string }; props?: { children?: unknown } & Record<string, unknown> };
+  if (el.type?.name === name) return el as { props: Record<string, unknown> };
+  const kids = el.props?.children;
+  for (const k of Array.isArray(kids) ? kids : [kids]) {
+    const hit = find(k, name);
+    if (hit) return hit;
+  }
+  return null;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,6 +48,7 @@ describe("garden page owner guard", () => {
       await expect(Garden()).rejects.toThrow("NEXT_NOT_FOUND");
       expect(notFound).toHaveBeenCalled();
       expect(getGardenView).not.toHaveBeenCalled();
+      expect(getGardenVisit).not.toHaveBeenCalled();
     },
   );
 
@@ -41,24 +59,23 @@ describe("garden page owner guard", () => {
     expect(getGardenView).not.toHaveBeenCalled();
   });
 
-  it("starts the live ticker from the server's render time, so nothing between render and first poll is missed", async () => {
+  it("starts the live layer from the server's render time, so nothing between render and first poll is missed", async () => {
     signedInAs("user_owner");
-    const before = Date.now();
+    const serverTime = "2026-10-20T18:00:00.000Z";
+    vi.mocked(getGardenView).mockResolvedValueOnce({ plants: [], shelf: [], serverTime, newChips: [] });
     const tree = await Garden();
-    const find = (n: unknown): { props: { since?: string } } | null => {
-      if (!n || typeof n !== "object") return null;
-      const el = n as { type?: { name?: string }; props?: { children?: unknown; since?: string } };
-      if (el.type?.name === "BloomTicker") return el as { props: { since?: string } };
-      const kids = el.props?.children;
-      for (const k of Array.isArray(kids) ? kids : [kids]) {
-        const hit = find(k);
-        if (hit) return hit;
-      }
-      return null;
-    };
-    const since = find(tree)?.props.since;
-    expect(typeof since).toBe("string");
-    expect(new Date(since!).getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(find(tree, "GardenLive")?.props.initialSince).toBe(serverTime);
+  });
+
+  it("compares against the last visit, then records this one only after the render", async () => {
+    signedInAs("user_owner");
+    vi.mocked(getGardenVisit).mockResolvedValueOnce({ seenBefore: null, lastVisit: "2026-10-01T00:00:00.000Z" });
+    await Garden();
+    expect(getGardenView).toHaveBeenCalledWith("2026-10-01T00:00:00.000Z");
+    expect(saveGardenVisit).not.toHaveBeenCalled();
+    const job = vi.mocked(after).mock.calls[0]![0] as () => Promise<void>;
+    await job();
+    expect(saveGardenVisit).toHaveBeenCalledWith(expect.objectContaining({ seenBefore: "2026-10-01T00:00:00.000Z" }));
   });
 
   it("reads the garden for the owner", async () => {

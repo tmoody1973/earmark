@@ -1,0 +1,102 @@
+import { z } from "zod";
+import type { IdeaStage } from "../types";
+import { plantLevel, type PlantLevel } from "./plant";
+import { bloomChip, type NewChip } from "./visit";
+
+// The garden's live layer (M4-T4): what the page does with each poll of GET /api/garden/blooms (M2-T6).
+// Pure, so the client component only wires timers and the DOM to it.
+
+export const BLOOM_POLL_MS = 5_000;
+export const MAX_BACKOFF_MS = 60_000;
+
+const FeedEventSchema = z.object({
+  id: z.number().int(),
+  kind: z.enum(["mention", "bloom"]),
+  clusterId: z.number().int(),
+  title: z.string(),
+  stage: z.enum(["compost", "sprouting", "ready", "drafted", "used", "dismissed"]),
+  mentionCount: z.number().int(),
+  createdAt: z.string(),
+});
+const BloomsResponseSchema = z.object({ events: z.array(FeedEventSchema), now: z.string() });
+
+export type FeedEvent = z.infer<typeof FeedEventSchema>;
+export type BloomsResponse = z.infer<typeof BloomsResponseSchema>;
+
+/** Client-side guard for `{ events, now }`; a drifted shape is an error, not an empty garden. */
+export function parseBloomsResponse(json: unknown): BloomsResponse {
+  const r = BloomsResponseSchema.safeParse(json);
+  if (!r.success) throw new Error(`Unexpected blooms response: ${r.error.message}`);
+  return r.data;
+}
+
+/** 5 s while healthy; doubling after each failed poll, capped at a minute. */
+export function pollDelay(failures: number): number {
+  return Math.min(BLOOM_POLL_MS * 2 ** failures, MAX_BACKOFF_MS);
+}
+
+/** A plant's live state. `bloomFrom` is set while it should play the bloom, from the level it was drawn at. */
+export interface PlantPatch { stage: IdeaStage; level: PlantLevel; mentionCount: number; bloomFrom: PlantLevel | null }
+
+export interface LiveState {
+  seen: ReadonlySet<number>;
+  patches: Readonly<Record<number, PlantPatch>>;
+  /** Bloom chips that arrived while the page was open, newest first. */
+  chips: readonly NewChip[];
+  announcement: string;
+}
+
+export const emptyLive = (): LiveState => ({ seen: new Set(), patches: {}, chips: [], announcement: "" });
+
+const UNOPENED: ReadonlySet<PlantLevel> = new Set(["seed", "sprout"]);
+
+/**
+ * Folds one poll into the live state. `onPage` maps each plant drawn on the page to the level the server drew it at.
+ * `refresh` asks for a server re-render: a mention changes the newest timeline line, and an idea that is not on the
+ * page must be brought in. A visible bloom does not refresh: the bed would re-sort and move the plant mid-bloom.
+ */
+export function reduceFeed(
+  state: LiveState,
+  events: readonly FeedEvent[],
+  onPage: ReadonlyMap<number, PlantLevel>,
+): { state: LiveState; refresh: boolean } {
+  const fresh = events.filter((e) => !state.seen.has(e.id));
+  if (fresh.length === 0) return { state, refresh: false };
+  const bloomed = new Set(fresh.filter((e) => e.kind === "bloom").map((e) => e.clusterId));
+  const patches = { ...state.patches };
+  let chips = [...state.chips];
+  const lines: string[] = [];
+  let refresh = false;
+
+  for (const e of fresh) {
+    const level = plantLevel(e.stage);
+    const prev = patches[e.clusterId];
+    // The level on screen before this poll: the bloom's own mention event (same save, same poll) must not count.
+    const drawnAt = state.patches[e.clusterId]?.level ?? onPage.get(e.clusterId);
+    if (level) {
+      const bloomFrom = e.kind === "bloom" && drawnAt && UNOPENED.has(drawnAt) ? drawnAt : (prev?.bloomFrom ?? null);
+      patches[e.clusterId] = { stage: e.stage, level, mentionCount: e.mentionCount, bloomFrom };
+    }
+    if (e.kind === "bloom") {
+      chips = [bloomChip({ clusterId: e.clusterId, title: e.title, mentionCount: e.mentionCount, at: e.createdAt }),
+        ...chips.filter((c) => c.key !== `idea-${e.clusterId}`)];
+      lines.push(`${e.title} bloomed — mentioned ${e.mentionCount} times.`);
+      if (!onPage.has(e.clusterId)) refresh = true;
+    } else if (!bloomed.has(e.clusterId)) {
+      refresh = true;
+    }
+  }
+  const seen = new Set(state.seen);
+  for (const e of fresh) seen.add(e.id);
+  return {
+    state: { seen, patches, chips, announcement: lines.length ? lines.join(" ") : state.announcement },
+    refresh,
+  };
+}
+
+/** The bloom has played: keep the new state, drop the marker so a later re-render never replays it. */
+export function settleBloom(state: LiveState, clusterId: number): LiveState {
+  const p = state.patches[clusterId];
+  if (!p?.bloomFrom) return state;
+  return { ...state, patches: { ...state.patches, [clusterId]: { ...p, bloomFrom: null } } };
+}
