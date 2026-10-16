@@ -125,3 +125,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** low.
 - **Workaround:** read the run's `[bee-changes] done` log line with `vercel logs`.
 - **Suggestion:** document that `maxDuration: "max"` is 800 s on Pro with Fluid Compute, and print schedule names in `vercel crons list`.
+
+## F-18 · Bee: neural search matches the topic word, not the idea
+- **Task:** M2-T7 (one-pager on bloom), live check on the test branch with Tarik's real Bee account (read-only search).
+- **Expected vs actual:** expected `POST /v1/search/conversations/neural` with the idea's title ("CRM for public radio stations", limit 5) to return Tarik's conversations about that idea, or nothing. Actual: it returned a conversation about a CRM for real-estate agents, and Sonnet (told to use only the material) dutifully listed it as a scope question in the draft. Whole call ~3 s, as documented.
+- **Severity:** low (the draft stays honest, but one bullet is noise).
+- **Workaround:** none yet; the prompt already says to paraphrase related notes and never invent. Option if it recurs: drop related notes whose summary shares no word with the idea's excerpts, or have Jev judge each note's relevance (one boolean per note) before the write.
+- **Suggestion:** expose a relevance score on neural results (keyword results have `score`) so callers can apply a cutoff.
