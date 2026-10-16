@@ -97,3 +97,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** medium (a parser written from the brief would have rejected every real response, so the cursor would never advance).
 - **Workaround:** probed the real endpoint first, recorded the shape in `docs/research/bee-api.md` and a redacted fixture; the schema test parses the fixture. Non-empty journals/todos/facts lists are still unseen, so ids are accepted as bare or `{id}`.
 - **Suggestion:** document the `/v1/changes` response schema and bootstrap window.
+
+## F-14 · Bee: the live `new-utterance` payload differs from the documented one
+- **Task:** M2-T6 (live bloom).
+- **Expected vs actual:** the realtime docs show `{"utterance":{"text","speaker"},"conversation_uuid"}` "with no timestamp, no utterance id". A 25-second read-only `bee stream --json` (2026-10-16, structure only) showed `utterance: {id, sample_id, start, end, text, spoken_at}` and NO `speaker`. The REST conversation has no `uuid` field, so the only documented link from a stream uuid to the REST id is the `new-conversation` event, which is lost if the relay was down when the conversation started.
+- **Severity:** medium (without a link, a live mention and the later completed pass of the same conversation would count as two occasions and could fake a bloom).
+- **Workaround:** the stream's `utterance.id` equals the REST utterance id in the still-capturing conversation's realtime transcription (3 of 3 ids matched on conversation 11333494), so an unmapped uuid is resolved by finding that id in the newest non-completed conversations and the pair is remembered. Schema keeps `speaker` defaulting to "Unknown" and `id` optional.
+- **Suggestion:** document the real payload, and include the numeric `conversation_id` on `new-utterance` (or a `uuid` on the REST conversation).

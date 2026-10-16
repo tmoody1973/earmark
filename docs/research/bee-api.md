@@ -81,6 +81,7 @@ Pagination convention (SRC, conversations/journals/facts/todos/photos): `?limit=
 - `--types` also gates the webhook. `connected` is not in SUPPORTED_EVENT_TYPES but is sent when types is empty/all.
 - Raw payloads (what `--json` prints and what `{{raw}}` holds). THERE IS NO `event` FIELD in raw payloads. [https://docs.bee.computer/docs/realtime]
   - new-utterance: `{"utterance":{"text":"Hello there","speaker":"speaker_1"},"conversation_uuid":"uuid-string"}` (no timestamp, no utterance id; `conversation_uuid` is a UUID while REST uses numeric conversation ids).
+    **Observed live 2026-10-16 (CLI `--json`, structure only):** `{"type":"new-utterance","conversation_uuid":"<uuid>","utterance":{"id":3766760407,"sample_id":"<uuid>","start":680.16,"end":691.36,"text":"…","spoken_at":"2026-10-16T18:05:13.000Z"}}` — it DOES carry an utterance id and `spoken_at`, and has NO `speaker`. The id equals the REST utterance id in the capturing conversation's `realtime: true` transcription (3/3 matched). REST conversations have no `uuid` field. Completed conversations keep only the final (`realtime: false`) transcription. [verified live; friction F-14]
   - new-conversation: `{"conversation":{"id":123,"uuid":"uuid-string","state":"processing","title":"Optional title"}}`
   - update-conversation: `{"conversation":{"id":123,"state":"processed","title":"...","short_summary":"..."}}`
   - update-conversation-summary: `{"conversation_id":123,"short_summary":"Summary text"}`
