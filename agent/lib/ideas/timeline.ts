@@ -8,7 +8,7 @@ export const NOTE_FIRST = "first heard";
 export const NOTE_AGAIN = "mentioned again";
 
 // The model is told not to write a date; if it does anyway ("October 5 - ", "Oct 5, ", "Oct 5th: "), drop it.
-const LEADING_DATE = /^(?:[A-Z][a-z]+\.? \d{1,2}(?:st|nd|rd|th)?\s*[:,\-–]\s*)+/;
+const LEADING_DATE = /^(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.? \d{1,2}(?:st|nd|rd|th)?\s*[:,\-–]\s*)+/;
 // Quoted inside the prompt: their own double quotes become single quotes so the quoting stays intact.
 const unquote = (s: string) => s.replaceAll('"', "'");
 
