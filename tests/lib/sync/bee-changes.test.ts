@@ -277,4 +277,24 @@ describe("pending list", () => {
     await runBeeChangesSync(deps(changes()) as never);
     expect(cursors.savePending).not.toHaveBeenCalled();
   });
+
+  it("a pending conversation that hits its deadline stays pending and does not block the feed or the cursor", async () => {
+    const first = hours(1);
+    cursors.getPending.mockResolvedValue({ conversations: [{ id: 7, firstSeen: first }], journals: [] });
+    const d = deps(changes({ conversations: [8] }));
+    d.processConversation.mockImplementation(async (id: number) => ({ ...convResult, ...(id === 7 ? { incomplete: true } : {}) }) as never);
+    const r = await runBeeChangesSync(d as never);
+    expect(d.processConversation).toHaveBeenCalledWith(8, expect.anything());
+    expect(r).toMatchObject({ conversations: 1, pending: 1, cursorSaved: true });
+    expect(cursors.savePending).not.toHaveBeenCalled(); // 7 unchanged, still pending
+  });
+
+  it("treats a pending entry with an unparseable firstSeen as expired and logs its id", async () => {
+    cursors.getPending.mockResolvedValue({ conversations: [{ id: 5, firstSeen: "garbage" }], journals: [] });
+    const d = deps(changes());
+    await runBeeChangesSync(d as never);
+    expect(d.processConversation).not.toHaveBeenCalled();
+    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(errSpy.mock.calls.flat().join(" ")).toContain("expired id=5");
+  });
 });
