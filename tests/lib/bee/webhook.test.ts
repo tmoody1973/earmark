@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleRelayRequest, secretMatches, shapeOf } from "../../../agent/lib/bee/webhook";
+import { eventLabel, handleRelayRequest, secretMatches, shapeOf } from "../../../agent/lib/bee/webhook";
 
 const SECRET = "s".repeat(64);
 const body = JSON.stringify({ event: "new-utterance", ts: "t", data: { utterance: { text: "hi", speaker: "Unknown" }, conversation_uuid: "u" } });
@@ -134,5 +134,36 @@ describe("rejected payload logging", () => {
     await handleRelayRequest(req(SECRET), { secret: SECRET, waitUntil: vi.fn(), handle: vi.fn(async () => {}) });
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe("shapeOf caps and redaction", () => {
+  it("caps depth, keys and length, and never throws", () => {
+    const deep = { a: { b: { c: { d: { e: { f: 1 } } } } } };
+    expect(shapeOf(deep)).toContain("…");
+    expect(shapeOf(deep)).not.toContain("f:");
+    const wide = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, 1]));
+    expect(shapeOf(wide)).toContain("…");
+    expect(shapeOf(wide)).not.toContain("k25");
+    const longKeys = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`${"x".repeat(60)}${i}`, 1]));
+    expect(shapeOf(longKeys).length).toBeLessThanOrEqual(301);
+    const cyc: Record<string, unknown> = {};
+    cyc.self = cyc;
+    expect(() => shapeOf(cyc)).not.toThrow();
+    const bomb = { get x(): never { throw new Error("boom"); } };
+    expect(() => shapeOf(bomb)).not.toThrow();
+  });
+  it("redacts id-like keys", () => {
+    const out = shapeOf({ "3766760407": { a: 1 }, "123e4567-e89b-12d3-a456-426614174000": 1, ok: 1 });
+    expect(out).not.toContain("3766760407");
+    expect(out).not.toContain("123e4567");
+    expect(out).toContain("<id>");
+    expect(out).toContain("ok:number");
+  });
+  it("labels only well-formed event names, else the type", () => {
+    expect(eventLabel("new-conversation")).toBe("new-conversation");
+    expect(eventLabel("Some secret text, with spaces")).toBe("string");
+    expect(eventLabel(42)).toBe("number");
+    expect(eventLabel(undefined)).toBe("undefined");
   });
 });
