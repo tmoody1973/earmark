@@ -32,10 +32,23 @@ describe("classifyPhoto", () => {
   });
 });
 
+describe("classifyPhoto fail-closed", () => {
+  it("treats a non-boolean has_person answer as a person being present", async () => {
+    const decideImpl = vi.fn(async () => ({
+      answers: {
+        item: { type: "choice", choice: "a_specific_item", probabilities: { a_specific_item: 0.9 } },
+        rec_type: { type: "choice", choice: "book", probabilities: { book: 0.9 } },
+        has_person: { type: "choice", choice: "x" },
+      },
+    }));
+    expect((await classifyPhoto(bytes, "image/jpeg", decideImpl as never)).personProbability).toBe(1);
+  });
+});
+
 describe("readPhoto", () => {
   it("passes the image and returns the parsed object", async () => {
     const generateImpl = vi.fn(async (opts: { messages: { content: { type: string }[] }[] }) => {
-      expect(opts.messages[0].content.map((p) => p.type)).toEqual(["text", "image"]);
+      expect(opts.messages[0].content.map((p) => p.type)).toEqual(["text", "file"]); // "image" parts are deprecated
       return { output: { title: "Promises", creator: "Floating Points", visibleText: "PROMISES" } };
     });
     expect(await readPhoto(bytes, "image/jpeg", generateImpl as never)).toEqual({

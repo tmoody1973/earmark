@@ -75,7 +75,7 @@ export async function readPhoto(
         role: "user",
         content: [
           { type: "text", text: READ_PROMPT },
-          { type: "image", image: bytes, mediaType },
+          { type: "file", mediaType, data: bytes },
         ],
       },
     ],
