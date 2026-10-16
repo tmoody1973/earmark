@@ -151,12 +151,18 @@ async function syncOnce(
     }
   }
   // done/gone leave the list; pending joins it (keeping its first-seen time); failed/incomplete leave it as it was.
-  function settle<K>(map: Map<K, string>, id: K, outcome: Outcome): void {
+  // An `incomplete` item (hit its deadline) holds the cursor only when it came from the feed: a pending item is already
+  // tracked in the pending list, so it must not starve new items (decision: pending incomplete never holds the cursor).
+  function settle<K>(map: Map<K, string>, id: K, outcome: Outcome, fromFeed: boolean): void {
     if (outcome === "pending") map.set(id, map.get(id) ?? d.now().toISOString());
     else if (outcome === "done" || outcome === "gone") map.delete(id);
-    else if (outcome === "incomplete") unfinished = true;
+    else if (outcome === "incomplete" && fromFeed) unfinished = true;
   }
-  const expired = (firstSeen: string) => d.now().getTime() - Date.parse(firstSeen) > PENDING_TTL_MS;
+  // An unreadable firstSeen counts as expired (logged with its id) rather than retrying forever.
+  const expired = (firstSeen: string) => {
+    const age = d.now().getTime() - Date.parse(firstSeen);
+    return Number.isNaN(age) || age > PENDING_TTL_MS;
+  };
 
   const triedC = new Set<number>();
   const triedJ = new Set<string>();
@@ -165,13 +171,13 @@ async function syncOnce(
     if (expired(firstSeen)) { pendC.delete(id); console.error(`[bee-changes] pending conversation expired id=${id}`); continue; }
     if (outOfTime()) { unfinished = true; break; }
     triedC.add(id);
-    settle(pendC, id, await conversation(id));
+    settle(pendC, id, await conversation(id), false);
   }
   for (const [id, firstSeen] of [...pendJ]) {
     if (expired(firstSeen)) { pendJ.delete(id); console.error(`[bee-changes] pending journal expired id=${id}`); continue; }
     if (unfinished || outOfTime()) { unfinished = true; break; }
     triedJ.add(id);
-    settle(pendJ, id, await journal(id));
+    settle(pendJ, id, await journal(id), false);
   }
   if (unfinished) { console.error("[bee-changes] out of time; cursor not advanced"); return; }
 
@@ -180,12 +186,12 @@ async function syncOnce(
   for (const id of c.conversations) {
     if (triedC.has(id)) continue;
     if (outOfTime()) { unfinished = true; break; }
-    settle(pendC, id, await conversation(id));
+    settle(pendC, id, await conversation(id), true);
   }
   for (const id of c.journals) {
     if (unfinished || triedJ.has(id)) continue;
     if (outOfTime()) { unfinished = true; break; }
-    settle(pendJ, id, await journal(id));
+    settle(pendJ, id, await journal(id), true);
   }
   if (unfinished) { console.error("[bee-changes] out of time; cursor not advanced"); return; }
 
