@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { isBloomed, plantLevel, type PlantLevel } from "./plant";
@@ -53,6 +54,8 @@ const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOS
 
 export function toRecCard(r: GardenRecRow): RecCardData {
   const firstName = r.first_name?.trim();
+  // Read-time guard: the garden's owner is never credited, even if an old row slipped past the write-side check.
+  const isOwnerName = !!firstName && firstName.toLowerCase() === ownerFirstName()?.toLowerCase();
   return {
     id: Number(r.id),
     type: r.type as RecType,
@@ -62,7 +65,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     yearOrAddress: r.year_or_address,
     imageUrl: cardArtworkUrl(r.image_url, 600),
     why: clampWhy(r.context_summary),
-    recommender: r.recommender_id && firstName ? { id: Number(r.recommender_id), firstName } : null,
+    recommender: r.recommender_id && firstName && !isOwnerName ? { id: Number(r.recommender_id), firstName } : null,
     saidAt: iso(r.said_at)!,
     status: r.status as RecStatus,
     rating: r.rating as Rating | null,
@@ -88,17 +91,9 @@ export function toPlant(r: PlantRow): PlantView {
 }
 
 // Explicit column lists on purpose: raw_text and excerpts never reach the shelf through this path.
-// Unconfirmed (needs_review) tips stay visible: the card marks them and offers keep / dismiss.
-export async function getGardenView(): Promise<GardenView> {
-  const sql = db();
-  const plants = (await sql`
-    select id, title, stage, mention_count, last_mentioned_at, pinned,
-      (flagged_at is not null and (last_viewed_at is null or flagged_at > last_viewed_at)) as flagged
-    from idea_clusters
-    where stage <> 'dismissed' and mention_count > 0
-    order by pinned desc, last_mentioned_at desc nulls last
-    limit 60`) as PlantRow[];
-  const recs = (await sql`
+// Unconfirmed (needs_review) tips stay visible: the card marks them (decision 021).
+export async function getShelf(): Promise<RecCardData[]> {
+  const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.status, r.rating, r.lat, r.lng, r.links,
       p.id as recommender_id, p.first_name
@@ -106,5 +101,17 @@ export async function getGardenView(): Promise<GardenView> {
     where r.status not in ('dismissed','composted')
     order by r.said_at desc
     limit 60`) as GardenRecRow[];
-  return { plants: plants.map(toPlant), shelf: recs.map(toRecCard), serverTime: new Date().toISOString() };
+  return recs.map(toRecCard);
+}
+
+export async function getGardenView(): Promise<GardenView> {
+  const plants = (await db()`
+    select id, title, stage, mention_count, last_mentioned_at, pinned,
+      (flagged_at is not null and (last_viewed_at is null or flagged_at > last_viewed_at)) as flagged
+    from idea_clusters
+    where stage <> 'dismissed' and mention_count > 0
+    order by pinned desc, last_mentioned_at desc nulls last
+    limit 60`) as PlantRow[];
+  const shelf = await getShelf();
+  return { plants: plants.map(toPlant), shelf, serverTime: new Date().toISOString() };
 }

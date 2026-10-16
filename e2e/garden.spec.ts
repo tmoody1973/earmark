@@ -67,6 +67,37 @@ test("the shelf renders a type-aware card for every tip", async ({ page }, info)
   await page.screenshot({ path: `${dir}/m4-garden-${label}-${width}.png`, fullPage: true });
 });
 
+// Needs a linked place card with a map (the sample set has one); real data may not, so it skips there.
+test("on a linked place card, the map credit is its own click target above the card link", async ({ page }) => {
+  await signInAs(page, OWNER_EMAIL);
+  await page.goto("/shelf");
+  const card = page.locator('[data-variant="map"].rec-card--linked').filter({ has: page.locator(".rec-osm") }).first();
+  test.skip((await card.count()) === 0, "no linked place card with a map in this data set");
+  const credit = card.locator(".rec-osm");
+  await credit.scrollIntoViewIfNeeded();
+  const hit = async (x: number, y: number) =>
+    page.evaluate(([px, py]) => {
+      const el = document.elementFromPoint(px, py);
+      return el?.classList.contains("rec-osm") ? "credit" : el?.classList.contains("rec-link") ? "card-link" : el?.tagName ?? "none";
+    }, [x, y]);
+  const c = (await credit.boundingBox())!;
+  expect(await hit(c.x + c.width / 2, c.y + c.height / 2)).toBe("credit");
+  const art = (await card.locator(".rec-art").boundingBox())!;
+  expect(await hit(art.x + 12, art.y + 12)).toBe("card-link"); // the rest of the map still opens the tip
+  await credit.click({ trial: true }); // Playwright's own hit-target check
+  await expect(credit).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
+});
+
+// The sample set's "Range" cover URL 404s on purpose: the card must show its spine, never a broken image.
+test("a cover that fails to load falls back to the designed no-image state", async ({ page }) => {
+  await signInAs(page, OWNER_EMAIL);
+  await page.goto("/shelf");
+  const card = page.getByTestId("rec-card").filter({ has: page.getByRole("heading", { name: "Range", exact: true }) });
+  test.skip((await card.count()) === 0, "the sample set is not loaded");
+  await expect(card.locator(".jacket")).toBeVisible();
+  await expect(card.locator("img")).toHaveCount(0);
+});
+
 test("a signed-in non-owner is refused and sees no data", async ({ page }, info) => {
   await signInAs(page, STRANGER_EMAIL);
   const res = await page.goto("/");

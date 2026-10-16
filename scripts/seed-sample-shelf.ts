@@ -20,9 +20,11 @@ const SAMPLES: Sample[] = [
   { type: "artist", name: "Khruangbin", from: "Jordan", status: "tried", rating: "loved" },
   { type: "book", name: "Piranesi", creator: "Susanna Clarke", from: "Priya", why: "Short, strange and kind. Read it in two sittings.",
     image: "https://covers.openlibrary.org/b/id/10226290-L.jpg" },
-  { type: "book", name: "Range", creator: "David Epstein", status: "needs_review" },
+  // A cover URL that 404s on purpose: the card must fall back to its spine, never show a broken image.
+  { type: "book", name: "Range", creator: "David Epstein", status: "needs_review",
+    image: "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/00/00/00/earmark-missing/0.jpg/{w}x{h}bb.jpg" },
   { type: "place", name: "Milwaukee Public Market", addr: "400 N Water St, Milwaukee", from: "Ann", lat: 43.0352, lng: -87.9088,
-    why: "Go hungry on a Saturday morning." },
+    why: "Go hungry on a Saturday morning.", links: { url: "https://milwaukeepublicmarket.org" } },
   { type: "place", name: "Kawa Ramen", addr: "Brady St, Milwaukee", from: "Marcus" },
   { type: "podcast", name: "99% Invisible", creator: "Roman Mars", from: "Sam", status: "tried", rating: "fine",
     image: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/79/d0/35/79d035ea-9043-b43e-7380-33cd47bd968b/mza_2606971010425550919.jpg/{w}x{h}bb.jpg" },

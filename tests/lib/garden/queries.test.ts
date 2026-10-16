@@ -4,7 +4,7 @@ import { makeMockDb } from "../../helpers/mock-db";
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
-import { getGardenView, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
+import { getGardenView, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
 
 const recRow = {
   id: 7, type: "album", canonical_name: "Promises", creator: "Floating Points",
@@ -31,6 +31,16 @@ describe("garden queries", () => {
     expect(toRecCard({ ...recRow, first_name: "  " }).recommender).toBeNull();
   });
 
+  it("never credits the garden's owner as a recommender, whatever the stored row says", () => {
+    process.env.EARMARK_OWNER_FIRST_NAME = "Tarik";
+    try {
+      expect(toRecCard({ ...recRow, first_name: "tarik" }).recommender).toBeNull();
+      expect(toRecCard(recRow).recommender).toEqual({ id: 3, firstName: "Ann" });
+    } finally {
+      delete process.env.EARMARK_OWNER_FIRST_NAME;
+    }
+  });
+
   it("keeps the why empty when there is no context summary (the excerpt never stands in)", () => {
     expect(toRecCard({ ...recRow, context_summary: null }).why).toBeNull();
   });
@@ -50,5 +60,13 @@ describe("garden queries", () => {
     expect(h.mock.calls[0].text).toContain("stage <> 'dismissed'");
     expect(h.mock.calls[1].text).toContain("not in ('dismissed','composted')");
     expect(h.mock.calls[1].text).not.toContain("raw_text");
+  });
+
+  it("reads the shelf alone with one query (the Shelf tab never loads plants)", async () => {
+    h.mock.queue.push([recRow]);
+    const shelf = await getShelf();
+    expect(shelf).toHaveLength(1);
+    expect(h.mock.calls).toHaveLength(1);
+    expect(h.mock.calls[0].text).not.toContain("idea_clusters");
   });
 });

@@ -9,6 +9,8 @@
   gap: 0.75rem;
 }
 .shelf-grid > li { display: flex; min-width: 0; }
+/* compact notes keep their own height instead of stretching to a neighbour's artwork */
+.shelf-grid > li:has(> .rec-card--note) { align-self: start; }
 
 .rec-card {
   position: relative;
@@ -23,8 +25,11 @@
   transition: border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 .rec-card--linked:hover { border-color: #cdc2b1; transform: translateY(-2px); }
-/* Unconfirmed tips look quieter: an outline card on the ground, not a filled one. */
-.rec-card--unconfirmed { background: transparent; border-style: dashed; border-color: #cdc2b1; }
+/* Unconfirmed tips look quieter: a light dashed outline on the ground, not a filled card. */
+.rec-card--unconfirmed { background: transparent; border-style: dashed; border-color: #ddd3c4; }
+/* "Other" tips are compact notes: no artwork box, a lightly tinted card. */
+.rec-card--note { background: #f9f4ec; }
+.rec-card--note .rec-body { padding-top: 0.25rem; }
 
 /* ---- artwork box: fixed square, so nothing shifts while images load ---- */
 .rec-art {
@@ -72,20 +77,12 @@
 }
 .type-art-sub { font-family: var(--sans); font-size: max(0.6875rem, 5.5cqw); line-height: 1.25; color: var(--ink-2); }
 
-/* album / song: a typographic sleeve, title low-left like a label */
-.type-art--sleeve { flex-direction: column; justify-content: flex-end; gap: 3cqw; }
-.type-art--sleeve .type-art-title { font-size: 11.5cqw; }
-
-/* artist: the name, set large, centered — no portraits */
+/* artist: the name, set large, centered — no portraits, so the name is the artwork */
 .type-art--artist { align-items: center; justify-content: center; text-align: center; background: oklch(0.92 0.022 var(--hue)); }
 .type-art--artist .type-art-title { font-size: 11.5cqw; -webkit-line-clamp: 3; text-wrap: balance; }
 
-/* podcast / place without coordinates: a mark top-left, title bottom-left */
-.type-art--mark { flex-direction: column; justify-content: space-between; }
-.type-art--mark .type-art-title { font-size: 10.5cqw; }
-
-/* other: a quiet note */
-.type-art--note { align-items: center; justify-content: center; background: var(--art-ground); color: var(--ink-3); }
+/* album / song / podcast / place without a picture: the type's glyph on a tinted ground (the body has the title) */
+.type-art--glyph { align-items: center; justify-content: center; color: var(--ink-3); }
 
 /* book / film: a jacket or poster standing on a pale ground */
 .type-art--stand { align-items: center; justify-content: center; padding: 0; background: oklch(0.95 0.012 var(--hue)); }
@@ -102,7 +99,8 @@
 .jacket .type-art-title {
   display: block;
   writing-mode: vertical-rl;
-  font-size: 8cqw;
+  font-size: 6.5cqw;
+  font-weight: 500;
   max-height: 78%;
   -webkit-line-clamp: unset;
 }
@@ -115,13 +113,17 @@
   padding: 7cqw;
   background: oklch(0.31 0.045 var(--hue));
 }
-.poster .type-art-title { font-size: 8.5cqw; color: var(--surface); }
+.poster .type-art-title { font-size: 6.5cqw; font-weight: 500; color: var(--surface); }
 .poster .type-art-sub { font-size: max(0.625rem, 4cqw); color: rgb(253 251 247 / 0.85); }
 @container (max-width: 12rem) {
   .jacket .type-art-sub { display: none; }
 }
 
-/* ---- place map: one OSM tile, a pin at the exact spot, attribution on the map ---- */
+/* ---- place map: one OSM tile, a pin at the exact spot, attribution on the map ----
+   Engines that still give container-type layout containment make the art box a stacking context, which would trap
+   the attribution under the card's stretched link. Lift the whole map above the link and let every click except
+   the attribution fall through to it, so the credit is clickable everywhere (e2e: "map credit" test). */
+.rec-art--map { z-index: 2; pointer-events: none; }
 .rec-pin { position: absolute; line-height: 0; transform: translate(-50%, -100%); filter: drop-shadow(0 1px 1px rgb(29 26 22 / 0.3)); }
 .rec-osm {
   position: absolute;
@@ -138,9 +140,10 @@
   white-space: nowrap;
   font-size: 0.625rem;
   line-height: 1;
-  text-decoration: none;
+  pointer-events: auto;
 }
-.rec-osm:hover { text-decoration: underline; }
+/* inset, so the art box's overflow:hidden can't clip the focus ring */
+.rec-osm:focus-visible { outline-offset: -2px; }
 
 /* ---- text ---- */
 .rec-body { display: flex; flex-direction: column; flex: 1; padding: 0.75rem 0.25rem 0.125rem; }
@@ -188,27 +191,27 @@
 .rec-tag--fine,
 .rec-tag--not_for_me { background: var(--art-ground); color: var(--ink-2); }
 
-.rec-foot { margin-top: auto; padding-top: 0.75rem; }
+/* the short hairline above "from Ann", drawn as a background so the row stays one flex line */
+.rec-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 0.5rem;
+  margin-top: auto;
+  padding-top: 1.25rem;
+  background: linear-gradient(var(--hairline), var(--hairline)) no-repeat left 0.625rem / 1.25rem 1px;
+}
+.rec-foot:empty { display: none; }
 .rec-from { margin: 0; font-size: 0.8125rem; color: var(--ink-3); }
-.rec-from::before { content: ""; display: block; width: 1.25rem; height: 1px; margin-bottom: 0.5rem; background: var(--hairline); }
-
-.rec-review { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.375rem; margin-top: 0.5rem; }
-.rec-review-label { width: 100%; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; color: var(--ink-2); }
-.rec-review-btn {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 0.875rem;
+.rec-unconfirmed {
+  padding: 0.125rem 0.5rem;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.8125rem;
-  cursor: pointer;
-  transition: background-color 150ms var(--ease-out);
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
-.rec-review-btn:hover:not(:disabled) { background: var(--art-ground); }
-.rec-review-btn:disabled { color: var(--ink-3); cursor: not-allowed; }
 
 @media (min-width: 46rem) {
   .shelf-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
@@ -220,6 +223,6 @@
   .rec-card { padding: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rec-card, .rec-review-btn { transition: none; }
+  .rec-card { transition: none; }
   .rec-card--linked:hover { transform: none; }
 }
