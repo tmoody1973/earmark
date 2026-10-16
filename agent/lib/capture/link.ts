@@ -1,0 +1,106 @@
+import { experimental_decide as decide } from "ai";
+import { toDate, type BeeClient } from "../bee/client";
+import { getEnv, ownerFirstName } from "../env";
+import { distanceMeters, type LatLng } from "../geo";
+import { toWindows } from "../pipeline/windows";
+import { utterancesOf } from "../pipeline/utterances";
+import { extractRecommendation } from "../pipeline/extract";
+import { chooseRecommender } from "../pipeline/attribution";
+import { clampExcerpt } from "../pipeline/excerpt";
+import { WINDOW_PICK_MIN } from "../pipeline/thresholds";
+import type { AttributionSource, TranscriptWindow } from "../types";
+
+export const LINK_WINDOW_MS = 10 * 60 * 1000; // FR-09: within 10 minutes
+export const LINK_RADIUS_M = 500; // "nearby"
+const MAX_WINDOWS = 8; // Jev: short state, few options
+const LETTERS = "abcdefgh";
+
+export interface LinkedConversation {
+  conversationId: number;
+  summary: string | null;
+  windows: TranscriptWindow[];
+}
+
+export async function findConversationNear(
+  bee: BeeClient,
+  at: Date,
+  where: LatLng | null,
+): Promise<LinkedConversation | null> {
+  const t = at.getTime();
+  const candidates: { id: number; start: number }[] = [];
+  let cursor: string | undefined;
+  // ponytail: scans at most 3 pages (60 conversations); assumes newest-first ordering (unverified in Bee docs)
+  for (let page = 0; page < 3; page++) {
+    const res = await bee.listConversations({ limit: 20, cursor });
+    for (const c of res.conversations) {
+      const start = toDate(c.start_time)?.getTime() ?? 0;
+      const end = toDate(c.end_time)?.getTime() ?? Date.now();
+      if (t >= start - LINK_WINDOW_MS && t <= end + LINK_WINDOW_MS) candidates.push({ id: c.id, start });
+    }
+    const oldest = toDate(res.conversations.at(-1)?.start_time)?.getTime() ?? 0;
+    if (!res.next_cursor || oldest < t - 24 * 3600_000) break;
+    cursor = res.next_cursor;
+  }
+  candidates.sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t));
+
+  for (const cand of candidates) {
+    const { conversation } = await bee.getConversation(cand.id);
+    const loc = conversation.primary_location;
+    if (where && loc && distanceMeters(where, { lat: loc.latitude, lng: loc.longitude }) > LINK_RADIUS_M) continue;
+    const gap = (w: TranscriptWindow) => (w.startedAt ? Math.abs(w.startedAt.getTime() - t) : Number.POSITIVE_INFINITY);
+    const windows = toWindows(utterancesOf(conversation), { conversationId: conversation.id, conversationUuid: null })
+      .filter((w) => !w.startedAt || gap(w) <= LINK_WINDOW_MS)
+      .sort((a, b) => gap(a) - gap(b))
+      .slice(0, MAX_WINDOWS);
+    return { conversationId: conversation.id, summary: conversation.summary ?? null, windows };
+  }
+  return null;
+}
+
+export async function pickWindowForCapture(
+  capture: string,
+  windows: TranscriptWindow[],
+  decideImpl: typeof decide = decide,
+): Promise<{ window: TranscriptWindow; probability: number } | null> {
+  if (windows.length === 0) return null;
+  const keyed = windows.slice(0, MAX_WINDOWS).map((w, i) => [`w_${LETTERS[i]}`, w] as const);
+  const criteria: Record<string, string> = {};
+  for (const [key] of keyed) {
+    criteria[key] = `Window \`${key}\` in \`windows\` talks about the item in \`capture\`, by its name or by clearly describing it.`;
+  }
+  criteria.none = "No window in `windows` talks about the item in `capture`.";
+  const result = await decideImpl({
+    model: getEnv().TRIAGE_MODEL,
+    state: { capture, windows: Object.fromEntries(keyed.map(([k, w]) => [k, w.text])) },
+    questions: {
+      window: {
+        type: "choice",
+        instructions: "Which window in `windows` talks about the item described in `capture`?",
+        criteria,
+      },
+    },
+  });
+  const answer = result.answers.window;
+  if (answer.type !== "choice" || answer.choice === "none") return null;
+  const probability = answer.probabilities?.[answer.choice] ?? 0;
+  if (probability < WINDOW_PICK_MIN) return null;
+  const hit = keyed.find(([k]) => k === answer.choice);
+  return hit ? { window: hit[1], probability } : null;
+}
+
+export async function attributeFromWindow(
+  window: TranscriptWindow,
+  summary: string | null,
+  extract: typeof extractRecommendation = extractRecommendation,
+): Promise<{ firstName: string | null; source: AttributionSource; excerpt: string }> {
+  const ext = await extract({ text: window.text, summary });
+  const chosen = chooseRecommender({
+    triggerName: null,
+    windowName: ext.recommenderName,
+    windowText: window.text,
+    summaryName: null,
+    summaryText: summary,
+    ownerFirstName: ownerFirstName(),
+  });
+  return { firstName: chosen.firstName, source: chosen.source, excerpt: clampExcerpt(ext.excerpt) };
+}
