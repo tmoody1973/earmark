@@ -27,6 +27,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("conversation claim and all-or-n
     expect(await isConversationProcessed(TEST_ID)).toBe(false);
   });
 
+  it("guarded release: deletes an unfinished claim but never a done one (a slow run must not delete a newer runner's claim)", async () => {
+    const { conversationCountsQuery, markConversationProcessed, releaseConversation } = await import("../../agent/lib/store/conversations");
+    const { db } = await import("../../agent/lib/db");
+    const sql = db();
+    const id = TEST_ID + 3;
+    const exists = async () => (await sql`select 1 from processed_conversations where bee_conversation_id = ${id}`).length === 1;
+    try {
+      expect(await markConversationProcessed(id, { ideas: 0, recs: 0 })).toBe(true);
+      await releaseConversation(id);
+      expect(await exists()).toBe(false); // unfinished: released
+      expect(await markConversationProcessed(id, { ideas: 0, recs: 0 })).toBe(true);
+      await sql.transaction((txn) => [conversationCountsQuery(txn, id, { ideas: 0, recs: 0 })]); // done = true
+      await releaseConversation(id);
+      expect(await exists()).toBe(true); // done: kept
+    } finally {
+      await sql`delete from processed_conversations where bee_conversation_id = ${id}`;
+    }
+  });
+
   it("two concurrent claims produce exactly one winner", async () => {
     const { markConversationProcessed, releaseConversation } = await import("../../agent/lib/store/conversations");
     const id = TEST_ID + 1;
