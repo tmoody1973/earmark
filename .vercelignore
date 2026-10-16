@@ -1,0 +1,12 @@
+# Never upload secrets or local-only material. .env.example stays (placeholders).
+.env*
+!.env.example
+.superpowers/
+.claude/
+test-results/
+playwright-report/
+playwright/.clerk/
+docs/design/screens/
+docs/design/inspiration/
+.next/
+.eve/
