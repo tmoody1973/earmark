@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { buildSaveQueries, savedIds, type SaveItem } from "../pipeline/save-item";
 import { toVectorLiteral } from "../ideas/embed";
+import type { TimelineEntry } from "../ideas/timeline";
 import type { IdeaStage, Source } from "../types";
 
 export interface NewIdeaMention {
@@ -68,4 +69,10 @@ export async function hasMentionFromSameOccasion(
 export async function isClusterConfirmed(clusterId: number): Promise<boolean> {
   const rows = await db()`select 1 from idea_mentions where cluster_id = ${clusterId} and review_status = 'accepted' limit 1`;
   return rows.length > 0;
+}
+
+// Read helper only: timeline lines are appended inside buildSaveQueries' join/create statements, never by a separate write.
+export async function getClusterTimeline(clusterId: number): Promise<TimelineEntry[]> {
+  const rows = await db()`select timeline from idea_clusters where id = ${clusterId}`;
+  return (rows[0]?.timeline ?? []) as TimelineEntry[];
 }

@@ -103,6 +103,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea compost on the Neon test b
     const id = clusterIds[0]!;
     const deps = {
       embedText: async () => unit(DIM),
+      writeTimelineNote: async () => "stub note",
       chooseCluster: async (_i: unknown, options: { key: string }[]) => {
         const key = `c_${id}`;
         expect(options.map((o) => o.key)).toContain(key);
@@ -110,7 +111,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea compost on the Neon test b
       },
     };
     const fresh = await planIdeaClusters([idea({ beeConversationId: CONV(5) })], deps);
-    expect(fresh).toEqual([expect.objectContaining({ cluster: { action: "join", clusterId: id, embedding: unit(DIM) } })]);
+    expect(fresh).toEqual([expect.objectContaining({ cluster: { action: "join", clusterId: id, embedding: unit(DIM), timelineNote: "stub note" } })]);
     expect(await planIdeaClusters([idea({ beeConversationId: CONV(2) })], deps)).toEqual([]); // CONV(2) already counted
   });
 
