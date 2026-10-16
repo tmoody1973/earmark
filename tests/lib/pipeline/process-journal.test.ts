@@ -19,6 +19,9 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   releaseJournal: vi.fn(async () => undefined),
 }));
 
+vi.mock("../../../agent/lib/ideas/compost", () => ({ planIdeaClusters: vi.fn(async (items: unknown[]) => items) }));
+
+import { planIdeaClusters } from "../../../agent/lib/ideas/compost";
 import { markJournalProcessed, releaseJournal } from "../../../agent/lib/store/conversations";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import type { PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
@@ -93,6 +96,24 @@ describe("processJournal", () => {
     expect(committed.some((q) => /update processed_journals set item_type = 'idea'/.test(q.sql))).toBe(true);
     expect(ideas()[0]!.sql).toMatch(/insert into idea_mentions/);
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["voice", "57", 1, "accepted"]));
+  });
+
+  it("routes a voice idea through cluster planning and saves a join on the chosen cluster", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
+      items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1] } } : it)));
+    const r = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9));
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", source: "voice", beeJournalId: "57" })]);
+    expect(ideas()).toHaveLength(0);
+    expect(committed.find((q) => /update idea_clusters/.test(q.sql))!.params).toEqual(expect.arrayContaining([12, "voice", "57"]));
+    expect(r).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1] } });
+  });
+
+  it("a voice idea the planner drops (this note already counted) saves nothing new but still finishes the claim", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async () => []);
+    const r = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9));
+    expect(r).toEqual({ created: null, saved: NONE });
+    expect(committed.filter((q) => /idea_mentions \(|idea_clusters/.test(q.sql) && !/processed_journals/.test(q.sql))).toHaveLength(0);
+    expect(committed.some((q) => /update processed_journals set item_type = 'idea'/.test(q.sql))).toBe(true);
   });
 
   it("clamps the stored excerpt to 25 words while the voice body may be long", async () => {

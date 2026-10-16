@@ -24,6 +24,10 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   releaseConversation: vi.fn(async () => undefined),
 }));
 
+// Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
+vi.mock("../../../agent/lib/ideas/compost", () => ({ planIdeaClusters: vi.fn(async (items: unknown[]) => items) }));
+
+import { planIdeaClusters } from "../../../agent/lib/ideas/compost";
 import { isConversationProcessed, markConversationProcessed, releaseConversation } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
@@ -209,6 +213,27 @@ describe("processConversation", () => {
     expect(r.saved).toEqual({ recIds: [], ideaClusterIds: [101], mentionIds: [1] });
     expect(ideas()).toHaveLength(1);
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["House music segment", "accepted", "ambient", 42]));
+  });
+
+  it("plans clusters for the items after all windows, then saves a join as a mention on the chosen cluster", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
+      items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1, 0] } } : it)));
+    const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
+    expect(planIdeaClusters).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", route: "accept" })]);
+    expect(ideas()).toHaveLength(0); // no new cluster
+    const join = committed.find((q) => /update idea_clusters/.test(q.sql))!;
+    expect(join.params).toEqual(expect.arrayContaining([12, "[1,0]", "accepted", "ambient", 42]));
+    expect(r).toMatchObject({ ideas: 1, saved: { ideaClusterIds: [101], mentionIds: [1] } });
+  });
+
+  it("an idea the planner drops (same conversation already counted) is neither saved nor counted", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) => items.filter((it) => it.kind !== "idea"));
+    const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
+    expect(r).toMatchObject({ ideas: 0, recs: 0, saved: { ideaClusterIds: [], mentionIds: [] } });
+    expect(committed.filter((q) => /idea_clusters|idea_mentions/.test(q.sql))).toHaveLength(0);
+    const counts = committed.find((q) => /update processed_conversations/.test(q.sql))!;
+    expect(counts.params).toEqual(expect.arrayContaining([0, 0, 42]));
   });
 
   it("counts a failed window, logs only the error name, and keeps the claim", async () => {

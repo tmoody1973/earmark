@@ -1,5 +1,6 @@
 import { parseEarmarkTrigger } from "../bee/trigger";
 import { db } from "../db";
+import { planIdeaClusters } from "../ideas/compost";
 import { ownerFirstName } from "../env";
 import { journalItemQuery, markJournalProcessed, releaseJournal } from "../store/conversations";
 import { chooseRecommender } from "./attribution";
@@ -55,10 +56,13 @@ export async function processJournal(
   // Claim first so created+updated deliveries and the backfill cannot both create an item.
   if (!(await markJournalProcessed(j.id, { type: "none", id: null }))) return nothing;
   try {
-    const item = await planVoiceItem(j, trigger.body, resolveDeps(deps));
+    const planned = await planVoiceItem(j, trigger.body, resolveDeps(deps));
+    // Ideas join the compost (embedding + Jev cluster choice). Dropped only if this very note already has a mention
+    // on the chosen cluster; the claim still finishes (its item is that existing mention's cluster).
+    const [item] = await planIdeaClusters([planned]);
     // The item and the claim's item_type/item_id commit together, or nothing does.
-    const results = await db().transaction((txn) => [...buildSaveQueries(txn, item), journalItemQuery(txn, j.id, item.kind)]);
-    return { created: item.kind, saved: savedIds([item], results) };
+    const results = await db().transaction((txn) => [...(item ? buildSaveQueries(txn, item) : []), journalItemQuery(txn, j.id, planned.kind)]);
+    return item ? { created: item.kind, saved: savedIds([item], results) } : nothing;
   } catch (err) {
     try {
       await releaseJournal(j.id);
