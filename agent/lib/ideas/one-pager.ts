@@ -3,13 +3,20 @@ import { createBeeClient, type BeeClient, type KeywordSearchResult, type NeuralS
 import { db } from "../db";
 import { getEnv } from "../env";
 import { clampExcerpt, wordCount } from "../pipeline/excerpt";
-import { claimDraftableClusters, getClusterForDraft, releaseDraftClaim, saveDraft } from "../store/ideas";
+import { claimDraftableClusters, getClusterForDraft, MAX_DRAFT_ATTEMPTS, releaseDraftClaim, saveDraft } from "../store/ideas";
+import { MATCH_MIN } from "./choose-cluster";
 import { ONE_PAGER_PROMPT } from "./one-pager-prompt";
 import { formatTimelineDate } from "./timeline";
 
 // The one-page draft written when an idea blooms (M2-T7). Runs AFTER the bloom committed, never inside the claim
 // transaction: the ingest path kicks it right after a save that bloomed, and the 10-minute bee-changes schedule tail
-// picks up anything missed or failed. Jev only chooses the format; the WRITE model only writes; code does the rest.
+// picks up anything missed or failed. Jev only chooses (format, context relevance); the WRITE model only writes.
+
+// Every step fails inside the 60 s ingress route (live triage ~5 s before it): Bee searches run in parallel with the
+// format choice, then the context gate, then the write: 6 + 10 + 30 = 46 s worst case.
+export const BEE_SEARCH_TIMEOUT_MS = 6_000;
+export const JEV_TIMEOUT_MS = 10_000;
+export const WRITE_TIMEOUT_MS = 30_000;
 
 export type DraftFormat = "newsletter_pitch" | "radio_segment" | "product_brief";
 
@@ -36,8 +43,33 @@ export const DRAFT_FORMAT_CRITERIA: Record<DraftFormat, string> = {
     "a piece of audio.",
 };
 
+// Context gate (privacy): a Bee search result reaches the writer only when Jev judges it about THIS idea. The excluding
+// option is listed first: Jev leans toward the first option, so a close call leaves the context out.
+export const CONTEXT_MATCH_MIN = MATCH_MIN; // same bar as joining a cluster (0.6)
+export const RELATED_CRITERIA = {
+  different_idea:
+    "The note only shares a topic word, a kind of tool, a person or a place with the idea; e.g. a CRM for real-estate " +
+    "agents is not a CRM for public radio stations, and a podcast about cooking is not a podcast about music. Choose " +
+    "this also when the note is about a different subject, a different deliverable or a different audience, or when " +
+    "the idea is only mentioned in passing.",
+  same_idea:
+    "The note discusses the same core proposal as the idea (same subject and same deliverable or audience), even in " +
+    "different words, in a different format or with extra details such as names or places.",
+} as const;
+export const FACT_CRITERIA = {
+  not_relevant:
+    "The fact only shares a topic word with the idea, or is about a part of the author's life that does not bear on " +
+    "making it; e.g. 'sells houses on the side' is not relevant to a CRM for public radio stations just because a CRM " +
+    "could serve both, and a favourite food or a family detail is never relevant. Do not choose relevant for these.",
+  relevant:
+    "The fact tells something about the author's own work, role, skills, audience or existing projects that bears " +
+    "directly on making this idea; e.g. 'works at a public radio station' for a CRM for public radio stations, or " +
+    "'writes a newsletter' for a newsletter idea.",
+} as const;
+
 const errName = (err: unknown) => (err instanceof Error ? err.name : "unknown");
 const unquote = (s: string) => s.replaceAll('"', "'"); // excerpts are wrapped in double quotes below
+const bullets = (items: string[]) => items.map((e) => `- ${e}`).join("\n");
 
 export async function chooseDraftFormat(
   idea: { title: string; excerpts: string[] },
@@ -46,14 +78,54 @@ export async function chooseDraftFormat(
   const decide = opts.decideImpl ?? experimental_decide;
   const result = await decide({
     model: opts.model ?? getEnv().TRIAGE_MODEL,
-    state: { idea: idea.title, mentions: idea.excerpts.map((e) => `- ${e}`).join("\n") },
+    state: { idea: idea.title, mentions: bullets(idea.excerpts) },
     questions: { format: { type: "choice", instructions: FORMAT_INSTRUCTIONS, criteria: DRAFT_FORMAT_CRITERIA } },
-    abortSignal: AbortSignal.timeout(20_000),
+    abortSignal: AbortSignal.timeout(JEV_TIMEOUT_MS),
   });
   const answer = result.answers.format;
   const format = String(answer.choice) as DraftFormat;
   if (!Object.hasOwn(DRAFT_FORMAT_CRITERIA, format)) throw new Error("unexpected draft format");
   return { format, probability: answer.probabilities?.[format] ?? 0 };
+}
+
+export interface GatedContext { related: string[]; facts: string[]; probabilities: { related: number[]; facts: number[] } }
+
+// One Jev call: a Choice per related note (rel_<i>) and per fact (fact_<i>), each judged on its own against the idea.
+// Kept only when P(same_idea | relevant) ≥ CONTEXT_MATCH_MIN; a missing distribution counts as 0.
+export async function gateContext(
+  input: { title: string; excerpts: string[]; related: string[]; facts: string[] },
+  opts: { model?: string; decideImpl?: typeof experimental_decide } = {},
+): Promise<GatedContext> {
+  if (input.related.length === 0 && input.facts.length === 0) return { related: [], facts: [], probabilities: { related: [], facts: [] } };
+  const decide = opts.decideImpl ?? experimental_decide;
+  const state: Record<string, string> = { idea: input.title, mentions: bullets(input.excerpts) };
+  const questions: Record<string, { type: "choice"; instructions: string; criteria: Record<string, string> }> = {};
+  input.related.forEach((note, i) => {
+    state[`rel_${i}`] = note;
+    questions[`rel_${i}`] = {
+      type: "choice", criteria: RELATED_CRITERIA,
+      instructions: `Is the conversation note in \`rel_${i}\` about the same idea as \`idea\` (as said in \`mentions\`)?`,
+    };
+  });
+  input.facts.forEach((fact, i) => {
+    state[`fact_${i}`] = fact;
+    questions[`fact_${i}`] = {
+      type: "choice", criteria: FACT_CRITERIA,
+      instructions: `Is the fact about the author in \`fact_${i}\` relevant to making the idea in \`idea\` (as said in \`mentions\`)?`,
+    };
+  });
+  const result = await decide({
+    model: opts.model ?? getEnv().TRIAGE_MODEL, state, questions, abortSignal: AbortSignal.timeout(JEV_TIMEOUT_MS),
+  });
+  const answers = result.answers as Record<string, { probabilities?: Record<string, number> } | undefined>;
+  const p = (key: string, keep: string) => answers[key]?.probabilities?.[keep] ?? 0;
+  const pRel = input.related.map((_, i) => p(`rel_${i}`, "same_idea"));
+  const pFact = input.facts.map((_, i) => p(`fact_${i}`, "relevant"));
+  return {
+    related: input.related.filter((_, i) => pRel[i]! >= CONTEXT_MATCH_MIN),
+    facts: input.facts.filter((_, i) => pFact[i]! >= CONTEXT_MATCH_MIN),
+    probabilities: { related: pRel, facts: pFact },
+  };
 }
 
 // Summaries only (never transcript text) go into the prompt, and the prompt forbids quoting them.
@@ -68,9 +140,27 @@ export function factsFromKeyword(results: KeywordSearchResult["results"]): strin
   return results.filter((r) => r.type === "fact").map((r) => r.summary?.trim() || r.snippet?.trim() || "").filter(Boolean);
 }
 
-// The quote limit, in code: any quoted span (straight or curly, within one line) is cut to maxWords.
-export function enforceQuoteLimit(text: string, maxWords = 25): string {
-  return text.replace(/(["“])([^"”\n]+)(["”])/g, (_m, open: string, body: string, close: string) => `${open}${clampExcerpt(body, maxWords)}${close}`);
+const norm = (s: string) => s.toLowerCase().replace(/[‘’]/g, "'").replace(/[^\p{L}\p{N}']+/gu, " ").trim();
+
+// The quote rules, in code. Any quoted span is cut to maxWords. Curly quotes pair strictly (“…”); straight quotes are
+// touched only on a line where they balance (a lone `5" screen` never pairs with a later quote and cuts prose).
+// With `excerpts`: a quote that is not (after normalising case and punctuation) part of an excerpt loses its quote
+// marks, so the draft never presents invented words as said. Lines under "## Headline options" are exempt.
+export function enforceQuoteLimit(text: string, maxWords = 25, excerpts?: string[]): string {
+  const real = excerpts?.map(norm);
+  let headlines = false;
+  return text.split("\n").map((line) => {
+    if (line.startsWith("## ")) headlines = /^## Headline options\b/i.test(line);
+    const fix = (open: string, body: string, close: string) => {
+      const clamped = clampExcerpt(body, maxWords);
+      if (!real || headlines) return `${open}${clamped}${close}`;
+      const n = norm(clamped);
+      return n && real.some((r) => r.includes(n)) ? `${open}${clamped}${close}` : clamped;
+    };
+    let out = line.replace(/“([^“”\n]+)”/g, (_m, body: string) => fix("“", body, "”"));
+    if ((out.match(/"/g) ?? []).length % 2 === 0) out = out.replace(/"([^"\n]+)"/g, (_m, body: string) => fix('"', body, '"'));
+    return out;
+  }).join("\n");
 }
 
 export function mentionDatesLine(dates: Date[]): string {
@@ -91,14 +181,14 @@ export interface OnePagerInput {
   title: string; format: DraftFormat; timelineLines: string[]; excerpts: string[]; related: string[]; facts: string[];
 }
 
-const list = (label: string, items: string[]) => (items.length ? `${label}:\n${items.map((l) => `- ${l}`).join("\n")}` : `${label}: none.`);
+const list = (label: string, items: string[]) => (items.length ? `${label}:\n${bullets(items)}` : `${label}: none.`);
 
 export async function writeOnePager(input: OnePagerInput, opts: { generateImpl?: typeof generateText } = {}): Promise<string> {
   const run = opts.generateImpl ?? generateText;
   const { text } = await run({
     model: getEnv().WRITE_MODEL,
     instructions: ONE_PAGER_PROMPT,
-    abortSignal: AbortSignal.timeout(120_000),
+    abortSignal: AbortSignal.timeout(WRITE_TIMEOUT_MS),
     prompt: [
       `Format: ${input.format}`,
       `Idea: ${input.title}`,
@@ -116,13 +206,40 @@ export async function writeOnePager(input: OnePagerInput, opts: { generateImpl?:
 
 export interface OnePagerDeps {
   bee: Pick<BeeClient, "neuralSearch" | "keywordSearch">;
+  gateContext: typeof gateContext;
   chooseDraftFormat: typeof chooseDraftFormat;
   writeOnePager: typeof writeOnePager;
 }
-export interface DraftResult { clusterId: number; format: DraftFormat; draft: string }
+export interface DraftResult { clusterId: number; format: DraftFormat; probability: number; draft: string }
 
-// ponytail: a few per run, one at a time; each is ~3 s Bee search + a Jev call + one write.
+// ponytail: a few per run, one at a time; each is ≤ 46 s by the timeouts above.
 export const DRAFTS_PER_RUN = 3;
+
+const fmt = (ps: number[]) => ps.map((p) => p.toFixed(2)).join(",") || "-";
+
+// Bee search, then the relevance gate. Fails closed: any failure yields no context (ids + error names logged).
+async function gatedContext(clusterId: number, title: string, excerpts: string[], d: OnePagerDeps): Promise<{ related: string[]; facts: string[] }> {
+  const [related, facts] = await Promise.all([
+    d.bee.neuralSearch(title, { limit: 5 }, AbortSignal.timeout(BEE_SEARCH_TIMEOUT_MS)).then((r) => relatedFromNeural(r.results)).catch((err: unknown) => {
+      console.error(`[draft] cluster=${clusterId} neural search failed error=${errName(err)}`);
+      return [] as string[];
+    }),
+    d.bee.keywordSearch(title, { filter: "facts", limit: 5 }, AbortSignal.timeout(BEE_SEARCH_TIMEOUT_MS)).then((r) => factsFromKeyword(r.results)).catch((err: unknown) => {
+      console.error(`[draft] cluster=${clusterId} fact search failed error=${errName(err)}`);
+      return [] as string[];
+    }),
+  ]);
+  if (related.length === 0 && facts.length === 0) return { related, facts };
+  try {
+    const g = await d.gateContext({ title, excerpts, related, facts });
+    console.log(`[draft] cluster=${clusterId} context related=${g.related.length}/${related.length} p_rel=${fmt(g.probabilities.related)} ` +
+      `facts=${g.facts.length}/${facts.length} p_fact=${fmt(g.probabilities.facts)}`);
+    return g;
+  } catch (err) {
+    console.error(`[draft] cluster=${clusterId} context gate failed error=${errName(err)}; drafting without related notes or facts`);
+    return { related: [], facts: [] };
+  }
+}
 
 async function draftClaimed(clusterId: number, d: OnePagerDeps): Promise<DraftResult | null> {
   const c = await getClusterForDraft(clusterId);
@@ -132,31 +249,23 @@ async function draftClaimed(clusterId: number, d: OnePagerDeps): Promise<DraftRe
   const timelineLines = [...c.timeline].sort((a, b) => a.date.localeCompare(b.date)).map((t) => t.line);
   const excerpts = mentions.map((m) => unquote(clampExcerpt(m.excerpt)));
 
-  // Bee context, both searches at once; either failing still yields a draft.
-  const [related, facts] = await Promise.all([
-    d.bee.neuralSearch(c.title, { limit: 5 }).then((r) => relatedFromNeural(r.results)).catch((err: unknown) => {
-      console.error(`[draft] cluster=${clusterId} neural search failed error=${errName(err)}`);
-      return [] as string[];
-    }),
-    d.bee.keywordSearch(c.title, { filter: "facts", limit: 5 }).then((r) => factsFromKeyword(r.results)).catch((err: unknown) => {
-      console.error(`[draft] cluster=${clusterId} fact search failed error=${errName(err)}`);
-      return [] as string[];
-    }),
+  // The format choice does not need Bee context, so it runs alongside search + gate.
+  const [{ related, facts }, { format, probability }] = await Promise.all([
+    gatedContext(clusterId, c.title, excerpts, d),
+    d.chooseDraftFormat({ title: c.title, excerpts }),
   ]);
-
-  const { format } = await d.chooseDraftFormat({ title: c.title, excerpts });
   const body = await d.writeOnePager({
     title: c.title, format, timelineLines, related, facts,
     excerpts: mentions.map((m, i) => `${formatTimelineDate(m.spokenAt)}: "${excerpts[i]}"`),
   });
-  const draft = `${mentionDatesLine(mentions.map((m) => m.spokenAt))}\n\n${enforceQuoteLimit(body)}`;
+  const draft = `${mentionDatesLine(mentions.map((m) => m.spokenAt))}\n\n${enforceQuoteLimit(body, 25, excerpts)}`;
   const [saved] = await db().transaction((txn) => [saveDraft(txn, clusterId, draft, format)]);
   if (!saved?.length) {
     console.log(`[draft] cluster=${clusterId} no longer ready; draft discarded`);
     return null;
   }
-  console.log(`[draft] cluster=${clusterId} drafted format=${format} words=${wordCount(draft)}`);
-  return { clusterId, format, draft };
+  console.log(`[draft] cluster=${clusterId} drafted format=${format} p=${probability.toFixed(2)} words=${wordCount(draft)}`);
+  return { clusterId, format, probability, draft };
 }
 
 // Claim bloomed clusters without a draft (only `clusterIds` if given), draft each, save draft + stage 'drafted' in one
@@ -165,16 +274,19 @@ async function draftClaimed(clusterId: number, d: OnePagerDeps): Promise<DraftRe
 export async function draftBlooms(
   opts: { clusterIds?: number[]; limit?: number; deps?: Partial<OnePagerDeps> } = {},
 ): Promise<DraftResult[]> {
-  const ids = await claimDraftableClusters({ clusterIds: opts.clusterIds, limit: opts.limit ?? DRAFTS_PER_RUN });
-  if (ids.length === 0) return [];
-  const d: OnePagerDeps = { chooseDraftFormat, writeOnePager, ...opts.deps, bee: opts.deps?.bee ?? createBeeClient() };
+  const claims = await claimDraftableClusters({ clusterIds: opts.clusterIds, limit: opts.limit ?? DRAFTS_PER_RUN });
+  if (claims.length === 0) return [];
+  const d: OnePagerDeps = { gateContext, chooseDraftFormat, writeOnePager, ...opts.deps, bee: opts.deps?.bee ?? createBeeClient() };
   const out: DraftResult[] = [];
-  for (const id of ids) {
+  for (const { id, attempts } of claims) {
     try {
       const r = await draftClaimed(id, d);
       if (r) out.push(r);
     } catch (err) {
-      console.error(`[draft] cluster=${id} failed error=${errName(err)}; stays bloomed without a draft, retried later`);
+      console.error(`[draft] cluster=${id} failed error=${errName(err)}; stays bloomed without a draft`);
+      if (attempts >= MAX_DRAFT_ATTEMPTS) {
+        console.error(`[draft] cluster=${id} gave up after ${attempts} attempts error=${errName(err)}; retry: scripts/draft-one-pager.ts ${id} --reset`);
+      }
       await releaseDraftClaim(id).catch((e: unknown) => console.error(`[draft] cluster=${id} release failed error=${errName(e)}`));
     }
   }

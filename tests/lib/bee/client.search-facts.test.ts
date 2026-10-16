@@ -38,6 +38,19 @@ describe("BeeClient.keywordSearch", () => {
   });
 });
 
+describe("search timeouts", () => {
+  it("a caller's abort signal is used for the request and never sent in the body", async () => {
+    const fetchImpl = vi.fn(async (url: string) => ok(url.endsWith("/neural") ? neuralBody : keywordBody));
+    const signal = AbortSignal.timeout(6_000);
+    await client(fetchImpl).neuralSearch("q", { limit: 5 }, signal);
+    await client(fetchImpl).keywordSearch("q", { filter: "facts" }, signal);
+    for (const call of fetchImpl.mock.calls as unknown as [string, RequestInit][]) {
+      expect(call[1].signal).toBe(signal);
+      expect(Object.keys(JSON.parse(String(call[1].body)))).not.toContain("signal");
+    }
+  });
+});
+
 describe("search schemas", () => {
   it("accept the verified shapes and reject a swapped id type", () => {
     expect(() => NeuralSearchSchema.parse(neuralBody)).not.toThrow();

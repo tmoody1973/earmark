@@ -32,9 +32,12 @@ async function main(): Promise<void> {
   const { db } = await import("../agent/lib/db");
   const { planIdeaClusters } = await import("../agent/lib/ideas/compost");
   const { buildSaveQueries, savedIds } = await import("../agent/lib/pipeline/save-item");
-  const { draftBlooms, writeOnePager } = await import("../agent/lib/ideas/one-pager");
+  const { draftBlooms, gateContext, writeOnePager } = await import("../agent/lib/ideas/one-pager");
   const { wordCount } = await import("../agent/lib/pipeline/excerpt");
   const sql = db();
+  // Fresh start (test branch only): an earlier run's cluster would absorb mentions 2 and 3.
+  const old = await sql`delete from idea_clusters where title = ${TITLE} returning id`;
+  if (old.length) console.log(`removed earlier check clusters ${old.map((r) => r.id).join(",")}`);
 
   let clusterId: number | null = null;
   for (const [i, m] of MENTIONS.entries()) {
@@ -62,7 +65,16 @@ async function main(): Promise<void> {
   const id = clusterId!;
 
   let raw = "";
-  const deps = { writeOnePager: async (input: Parameters<typeof writeOnePager>[0]) => (raw = await writeOnePager(input)) };
+  const deps = {
+    writeOnePager: async (input: Parameters<typeof writeOnePager>[0]) => (raw = await writeOnePager(input)),
+    // Shows each Bee result's gate decision (first 70 chars of the summary: real Bee data, local console only).
+    gateContext: async (input: Parameters<typeof gateContext>[0]) => {
+      const g = await gateContext(input);
+      input.related.forEach((n, i) => console.log(`gate rel_${i} p_same=${g.probabilities.related[i]!.toFixed(2)} ${g.related.includes(n) ? "KEPT" : "dropped"} | ${n.slice(0, 70)}`));
+      input.facts.forEach((f, i) => console.log(`gate fact_${i} p_rel=${g.probabilities.facts[i]!.toFixed(2)} ${g.facts.includes(f) ? "KEPT" : "dropped"} | ${f.slice(0, 70)}`));
+      return g;
+    },
+  };
   const started = Date.now();
   const [r] = await draftBlooms({ clusterIds: [id], deps });
   const ms = Date.now() - started;
@@ -71,8 +83,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const quotes = (t: string) => [...t.matchAll(/["“]([^"”\n]+)["”]/g)].map((q) => wordCount(q[1]!));
-  console.log(`\nformat=${r.format} elapsed=${ms}ms body_words=${wordCount(raw)} draft_words=${wordCount(r.draft)}`);
-  console.log(`quotes: raw=${quotes(raw).length} raw_over_25=${quotes(raw).filter((n) => n > 25).length} final_max_words=${Math.max(0, ...quotes(r.draft))}`);
+  console.log(`\nformat=${r.format} p=${r.probability.toFixed(2)} elapsed=${ms}ms body_words=${wordCount(raw)} draft_words=${wordCount(r.draft)}`);
+  console.log(`quotes: raw=${quotes(raw).length} raw_over_25=${quotes(raw).filter((n) => n > 25).length} final=${quotes(r.draft).length} final_max_words=${Math.max(0, ...quotes(r.draft))}`);
   console.log("first 8 lines:\n" + r.draft.split("\n").slice(0, 8).join("\n"));
 
   const again = await draftBlooms({ clusterIds: [id] });
