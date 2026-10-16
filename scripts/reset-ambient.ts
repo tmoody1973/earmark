@@ -1,5 +1,6 @@
 // Ops: wipe ambient-derived items so the backfill can rebuild them from Bee. One transaction; prints counts only.
 // Keeps voice items and processed_journals. Requires --yes.
+// Run only while the relay and the 10-minute sync are idle: it deletes unfinished claims too.
 import { db } from "../agent/lib/db";
 
 if (!process.argv.includes("--yes")) {

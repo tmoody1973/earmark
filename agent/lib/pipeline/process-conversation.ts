@@ -3,7 +3,7 @@ import {
   conversationCountsQuery, isConversationProcessed, markConversationProcessed, releaseConversation,
 } from "../store/conversations";
 import { db } from "../db";
-import { planIdeaClusters } from "../ideas/compost";
+import { planIdeaClusters, type CompostDeps } from "../ideas/compost";
 import { ownerFirstName } from "../env";
 import { chooseRecommender } from "./attribution";
 import { extractIdea, extractRecommendation } from "./extract";
@@ -20,6 +20,8 @@ export interface PipelineDeps {
   extractRecommendation: typeof extractRecommendation;
   extractIdea: typeof extractIdea;
   now: () => Date;
+  // Cluster-planning deps (embed, Jev, timeline note); tests inject fakes so they never reach the Gateway.
+  compost?: Partial<CompostDeps>;
 }
 
 // saved: ids from the save transaction — M3's rec lane and M2's clustering hook on these.
@@ -32,6 +34,7 @@ export function resolveDeps(deps: Partial<PipelineDeps>): PipelineDeps {
     extractRecommendation: deps.extractRecommendation ?? extractRecommendation,
     extractIdea: deps.extractIdea ?? extractIdea,
     now: deps.now ?? (() => new Date()),
+    compost: deps.compost,
   };
 }
 
@@ -155,7 +158,7 @@ export async function processConversation(
     }
     const items = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])));
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
-    const saveItems = await planIdeaClusters(items.map((p) => p.item));
+    const saveItems = await planIdeaClusters(items.map((p) => p.item), d.compost);
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);

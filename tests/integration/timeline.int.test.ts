@@ -55,6 +55,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea timeline on the Neon test 
     ]);
   });
 
+  it("the CREATE path also dates in Chicago: 03:00Z is the previous day, and a CST 05:30Z on Nov 10 is Nov 9", async () => {
+    const { getClusterTimeline } = await mods();
+    for (const [n, at, want] of [[6, "2026-10-03T03:00:00Z", "Oct 2: n"], [7, "2026-11-10T05:30:00Z", "Nov 9: n"]] as const) {
+      const r = await save(idea({ beeConversationId: CONV(n), spokenAt: new Date(at), cluster: { action: "create", embedding: unit(DIM + n), timelineNote: "n" } }));
+      clusterIds.push(r.ideaClusterIds[0]!);
+      expect((await getClusterTimeline(r.ideaClusterIds[0]!)).map((e) => e.line)).toEqual([want]);
+    }
+  });
+
   it("a legacy create with no plan still gets its 'first heard' line", async () => {
     const { getClusterTimeline } = await mods();
     const r = await save(idea({ beeConversationId: CONV(4) }));

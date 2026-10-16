@@ -56,10 +56,11 @@ export async function processJournal(
   // Claim first so created+updated deliveries and the backfill cannot both create an item.
   if (!(await markJournalProcessed(j.id, { type: "none", id: null }))) return nothing;
   try {
-    const planned = await planVoiceItem(j, trigger.body, resolveDeps(deps));
+    const d = resolveDeps(deps);
+    const planned = await planVoiceItem(j, trigger.body, d);
     // Ideas join the compost (embedding + Jev cluster choice). Dropped only if this very note already has a mention
     // on the chosen cluster; the claim still finishes (its item is that existing mention's cluster).
-    const [item] = await planIdeaClusters([planned]);
+    const [item] = await planIdeaClusters([planned], d.compost);
     // The item and the claim's item_type/item_id commit together, or nothing does.
     const results = await db().transaction((txn) => [...(item ? buildSaveQueries(txn, item) : []), journalItemQuery(txn, j.id, planned.kind)]);
     return item ? { created: item.kind, saved: savedIds([item], results) } : nothing;
