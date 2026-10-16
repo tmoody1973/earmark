@@ -21,21 +21,30 @@ const INSTRUCTIONS =
 
 // Exact per-option criteria with the boundary cases (Jev rules): same core proposal = same idea; a different subject or
 // a different deliverable = a different idea, even when they share a topic, a person or a place.
+const DEFINITIONS =
+  "Format means the medium that carries the same content: a newsletter, a radio segment or a podcast about the same " +
+  "thing is the same idea. Deliverable means the thing actually made or done: an event and a history series are " +
+  "different ideas even on the same topic.";
+
+// Titles and excerpts are quoted inside the criteria: their own double quotes become single quotes so the quoting stays intact.
+const unquote = (s: string) => s.replaceAll('"', "'");
+
 export function buildClusterCriteria(options: readonly ClusterOption[]): Record<string, string> {
   const criteria: Record<string, string> = {};
   for (const o of options) {
-    const said = o.excerpt ? ` (said as: "${o.excerpt}")` : "";
+    const title = unquote(o.title);
+    const said = o.excerpt ? ` (said as: "${unquote(o.excerpt)}")` : "";
     criteria[o.key] =
-      `The new idea proposes the same core thing as the existing idea "${o.title}"${said}. ` +
-      "Choose this even when the new idea uses different words, changes the format or angle (a newsletter instead of a radio " +
-      "segment, a podcast instead of an article, a product instead of a pitch), or adds details such as names or places. " +
-      `Do not choose this when it only shares a broad topic, a person or a place with "${o.title}" but proposes ` +
-      "a different subject or a different deliverable.";
+      `The new idea proposes the same core thing as the existing idea "${title}"${said}. ` +
+      "Choose this even when the new idea uses different words, changes the format or angle (a newsletter instead of a " +
+      "radio segment, a podcast instead of an article), or adds details such as names or places. " +
+      `Do not choose this when it only shares a broad topic, a person or a place with "${title}" but proposes ` +
+      `a different subject or a different deliverable. ${DEFINITIONS}`;
   }
   criteria[NEW_IDEA] =
     "The new idea is not the same core proposal as any existing idea listed: compared with each of them it proposes " +
     "a different subject or a different deliverable. Choose this also when it only shares a broad topic, a person or " +
-    "a place with an existing idea.";
+    `a place with an existing idea. ${DEFINITIONS}`;
   return criteria;
 }
 

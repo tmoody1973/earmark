@@ -19,9 +19,12 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   releaseJournal: vi.fn(async () => undefined),
 }));
 
-vi.mock("../../../agent/lib/ideas/compost", () => ({ planIdeaClusters: vi.fn(async (items: unknown[]) => items) }));
+vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/ideas/compost")>()),
+  planIdeaClusters: vi.fn(async (items: unknown[]) => items),
+}));
 
-import { planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
 import { markJournalProcessed, releaseJournal } from "../../../agent/lib/store/conversations";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import type { PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
@@ -177,6 +180,14 @@ describe("processJournal", () => {
     expect(committed).toHaveLength(0);
     expect(spy.mock.calls.flat().join("\n")).toContain("[pipeline] systemic failure journal=63 reason=no_probabilities");
     spy.mockRestore();
+  });
+
+  it("a compost outage on a voice idea saves nothing, releases the claim and throws CompostUnavailableError", async () => {
+    vi.mocked(planIdeaClusters).mockRejectedValueOnce(new CompostUnavailableError(1));
+    const err = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CompostUnavailableError);
+    expect(committed).toHaveLength(0);
+    expect(releaseJournal).toHaveBeenCalledWith("57");
   });
 
   it("rethrows the original error even when releasing the claim also fails", async () => {

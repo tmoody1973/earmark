@@ -30,6 +30,23 @@ describe("buildClusterCriteria", () => {
     expect(criteria.c_12).toMatch(/different subject or a different deliverable/);
     expect(criteria[NEW_IDEA]).toMatch(/different subject or a different deliverable/);
   });
+  it("defines format and deliverable inline, with the boundary examples", () => {
+    const criteria = buildClusterCriteria(options);
+    for (const text of [criteria.c_12!, criteria[NEW_IDEA]!]) {
+      expect(text).toMatch(/format means the medium that carries the same content/i);
+      expect(text).toMatch(/deliverable means the thing actually made or done/i);
+    }
+    expect(criteria.c_12).toMatch(/newsletter.*radio segment.*podcast/);
+    expect(criteria.c_12).toMatch(/an event.*a history series/);
+  });
+
+  it("strips double quotes from titles and excerpts placed inside quotes", () => {
+    const criteria = buildClusterCriteria([{ key: "c_7", title: 'The "Jazz" hour', excerpt: 'say "hi" on air', pinned: false }]);
+    expect(criteria.c_7).toContain(`"The 'Jazz' hour"`);
+    expect(criteria.c_7).toContain(`"say 'hi' on air"`);
+    expect((criteria.c_7!.match(/"/g) ?? []).length % 2).toBe(0);
+  });
+
   it("never asks Jev to count or compare dates", () => {
     const all = Object.values(buildClusterCriteria(options)).join(" ");
     expect(all).not.toMatch(/how many|count|times|date|before|after|earlier|later/i);

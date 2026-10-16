@@ -26,22 +26,22 @@ export async function createClusterWithMention(m: NewIdeaMention & { title: stri
   return { clusterId: saved.ideaClusterIds[0]!, mentionId: saved.mentionIds[0]! };
 }
 
-// A stored cluster near a new mention, offered to Jev as an option. excerpt: its latest accepted mention, so Jev sees
+// A stored cluster near a new mention, offered to Jev as an option. excerpt: its latest non-dismissed mention, so Jev sees
 // how the idea was actually said, not only the short title.
 export interface ClusterCandidate {
   id: number; title: string; excerpt: string | null; stage: IdeaStage; pinned: boolean; mentionCount: number; distance: number;
 }
 
-// Nearest clusters by cosine distance (HNSW). Clusters without a centroid (needs_review ideas, fallback creates) and
-// dismissed ideas are never candidates.
+// Nearest clusters by cosine distance (HNSW). Clusters without a centroid (failed-embedding fallbacks, legacy rows) are
+// never candidates. Dismissed clusters are (Tarik: dismissed stays dismissed; a new mention attaches, stage unchanged).
 export async function nearestClusters(embedding: readonly number[], k = 5): Promise<ClusterCandidate[]> {
   const v = toVectorLiteral(embedding);
   const rows = await db()`
     select c.id, c.title, c.stage, c.pinned, c.mention_count, c.centroid <=> ${v}::vector as distance,
            (select m.excerpt from idea_mentions m
-             where m.cluster_id = c.id and m.review_status = 'accepted' order by m.spoken_at desc limit 1) as excerpt
+             where m.cluster_id = c.id and m.review_status <> 'dismissed' order by m.spoken_at desc limit 1) as excerpt
     from idea_clusters c
-    where c.centroid is not null and c.stage <> 'dismissed'
+    where c.centroid is not null
     order by c.centroid <=> ${v}::vector
     limit ${k}`;
   return rows.map((r) => ({
@@ -60,5 +60,12 @@ export async function hasMentionFromSameOccasion(
     where cluster_id = ${clusterId}
       and (bee_conversation_id = ${m.beeConversationId}::bigint or bee_journal_id = ${m.beeJournalId}::text)
     limit 1`;
+  return rows.length > 0;
+}
+
+// Derived, no column (decision 004): a cluster is confirmed once any of its mentions is accepted; until then it is
+// "unconfirmed" (review-band mentions only) but still counts toward its stage.
+export async function isClusterConfirmed(clusterId: number): Promise<boolean> {
+  const rows = await db()`select 1 from idea_mentions where cluster_id = ${clusterId} and review_status = 'accepted' limit 1`;
   return rows.length > 0;
 }

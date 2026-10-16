@@ -74,12 +74,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea compost on the Neon test b
   it("the SQL stage rule matches stageFor", async () => {
     const { db, stageFor } = await mods();
     const stages = ["compost", "sprouting", "ready", "drafted", "used", "dismissed"] as const;
-    for (const s of stages) {
-      for (const n of [0, 1, 2, 3, 4]) {
-        const [row] = await db()`select idea_stage_for(${s}, ${n}::int) as stage`;
-        expect(row!.stage, `${s} at ${n}`).toBe(stageFor(s, n));
-      }
-    }
+    // One round trip for all 30 cases.
+    const rows = await db()`select s, n, idea_stage_for(s, n) as stage
+                            from unnest(${stages}::text[]) s cross join generate_series(0, 4) n`;
+    expect(rows).toHaveLength(stages.length * 5);
+    for (const r of rows) expect(r.stage, `${r.s} at ${r.n}`).toBe(stageFor(r.s as (typeof stages)[number], Number(r.n)));
   });
 
   it("finds the cluster as a nearest candidate, with its latest accepted excerpt", async () => {
@@ -113,6 +112,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea compost on the Neon test b
     const fresh = await planIdeaClusters([idea({ beeConversationId: CONV(5) })], deps);
     expect(fresh).toEqual([expect.objectContaining({ cluster: { action: "join", clusterId: id, embedding: unit(DIM) } })]);
     expect(await planIdeaClusters([idea({ beeConversationId: CONV(2) })], deps)).toEqual([]); // CONV(2) already counted
+  });
+
+  it("review-band ideas count: needs_review mentions grow the cluster, which stays unconfirmed until an accepted mention joins", async () => {
+    const { isClusterConfirmed } = await mods();
+    const review = { route: "review" as const, confidence: 0.7 };
+    const r = await save(idea({ ...review, beeConversationId: CONV(11), cluster: { action: "create", embedding: unit(DIM + 2) } }));
+    const id = r.ideaClusterIds[0]!;
+    clusterIds.push(id);
+    expect(await cluster(id)).toMatchObject({ mention_count: 1, stage: "compost" });
+    await save(idea({ ...review, beeConversationId: CONV(12), cluster: { action: "join", clusterId: id, embedding: unit(DIM + 2) } }));
+    expect(await cluster(id)).toMatchObject({ mention_count: 2, stage: "sprouting" });
+    expect(await isClusterConfirmed(id)).toBe(false);
+    await save(idea({ beeConversationId: CONV(13), cluster: { action: "join", clusterId: id, embedding: unit(DIM + 2) } }));
+    expect(await cluster(id)).toMatchObject({ mention_count: 3, stage: "ready" });
+    expect(await isClusterConfirmed(id)).toBe(true);
+    const { db } = await mods();
+    const statuses = await db()`select review_status, count(*)::int as n from idea_mentions where cluster_id = ${id} group by 1 order by 1`;
+    expect(statuses).toEqual([{ review_status: "accepted", n: 1 }, { review_status: "needs_review", n: 2 }]);
+  });
+
+  it("dismissed stays dismissed: a dismissed cluster is a candidate, a new mention is recorded and counted, the stage does not move", async () => {
+    const { db, nearestClusters } = await mods();
+    const r = await save(idea({ beeConversationId: CONV(21), cluster: { action: "create", embedding: unit(DIM + 3) } }));
+    const id = r.ideaClusterIds[0]!;
+    clusterIds.push(id);
+    await db()`update idea_clusters set stage = 'dismissed' where id = ${id}`;
+    expect((await nearestClusters(unit(DIM + 3), 5)).find((c) => c.id === id)).toMatchObject({ stage: "dismissed" });
+    for (const n of [22, 23, 24]) {
+      await save(idea({ beeConversationId: CONV(n), cluster: { action: "join", clusterId: id, embedding: unit(DIM + 3) } }));
+    }
+    expect(await cluster(id)).toMatchObject({ mention_count: 4, stage: "dismissed" });
+  });
+
+  it("one mention per occasion is enforced by the database: a second join from the same conversation fails and the transaction rolls back", async () => {
+    const { db, buildSaveQueries } = await mods();
+    const id = clusterIds[0]!;
+    const before = await cluster(id);
+    const item = idea({ beeConversationId: CONV(31), cluster: { action: "join", clusterId: id, embedding: unit(DIM) } });
+    await expect(db().transaction((txn) => [...buildSaveQueries(txn, item), ...buildSaveQueries(txn, item)])).rejects.toThrow();
+    expect(await cluster(id)).toMatchObject({ mention_count: before.mention_count });
+    expect(await db()`select 1 from idea_mentions where bee_conversation_id = ${CONV(31)}`).toHaveLength(0);
+
+    const voice = idea({ beeConversationId: null, beeJournalId: JOURNAL, source: "voice", cluster: { action: "join", clusterId: id, embedding: unit(DIM) } });
+    await expect(db().transaction((txn) => buildSaveQueries(txn, voice))).rejects.toThrow(); // JOURNAL already joined in test 1
   });
 
   it("a fallback create without an embedding has no centroid, so it is never a nearest candidate", async () => {

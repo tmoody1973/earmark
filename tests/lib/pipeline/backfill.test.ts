@@ -84,6 +84,17 @@ describe("runBackfill", () => {
     expect(bee.listJournals).toHaveBeenCalledTimes(20);
   });
 
+  it("counts a compost outage as a failed item (retried next run) and keeps going", async () => {
+    const { CompostUnavailableError } = await import("../../../agent/lib/ideas/compost");
+    vi.mocked(processConversation).mockRejectedValueOnce(new CompostUnavailableError(2));
+    vi.mocked(processJournal).mockRejectedValueOnce(new CompostUnavailableError(1));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await runBackfill({ deps: deps(fakeBee()) });
+    expect(r).toEqual({ conversations: 1, journals: 0, failed: 2, incomplete: 0, stoppedEarly: false });
+    expect(JSON.stringify(err.mock.calls)).toContain("CompostUnavailableError");
+    err.mockRestore();
+  });
+
   it("keeps going when one conversation or journal fails, logging only id and error name", async () => {
     vi.mocked(processConversation).mockRejectedValueOnce(new TypeError("secret transcript words"));
     vi.mocked(processJournal).mockRejectedValueOnce(new Error("boom secret"));

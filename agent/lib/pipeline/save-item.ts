@@ -23,9 +23,9 @@ export type SaveItem =
     })
   | (Common & { kind: "idea"; extraction: IdeaExtraction; cluster?: ClusterPlan });
 
-// Where an accepted idea mention goes, decided before the transaction by planIdeaClusters (embedding + Jev).
+// Where an idea mention goes (accepted or needs_review alike), decided before the transaction by planIdeaClusters.
 // create: a new cluster (embedding null when embedding failed: no centroid, so never a nearest candidate).
-// join: one more mention on an existing cluster. Absent (needs_review, legacy callers): a new cluster, no embedding.
+// join: one more mention on an existing cluster. Absent (legacy callers): a new cluster, no embedding.
 export type ClusterPlan =
   | { action: "create"; embedding: number[] | null }
   | { action: "join"; clusterId: number; embedding: number[] };
@@ -57,15 +57,16 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
     if (plan?.action === "join") {
       const v = toVectorLiteral(plan.embedding);
       // Stage via idea_stage_for (= stageFor) on the row's own count, so drafted/used/dismissed never move.
-      // Centroid = mean of the cluster's accepted mention embeddings plus this one (the CTE's insert is not visible to
-      // the subquery, so the new vector is added explicitly).
+      // Centroid = mean of the cluster's non-dismissed mention embeddings (accepted and needs_review) plus this one
+      // (the CTE's insert is not visible to the subquery, so the new vector is added explicitly).
+      // Migration 004's unique indexes make a second mention from the same conversation/journal fail the transaction.
       // ponytail: two concurrent joins on one cluster may each miss the other's vector in the mean (count stays exact);
       // recompute centroids in a nightly job if live and backfill ever overlap on one idea.
       return [
         txn`with m as (
               insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
               values (${plan.clusterId}::bigint, ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${excerpt}::text, ${v}::vector,
-                      ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${"accepted"}::text, ${item.source}::text)
+                      ${item.spokenAt}::timestamptz, ${item.confidence}::real, ${review ? "needs_review" : "accepted"}::text, ${item.source}::text)
               returning id, cluster_id
             ), c as (
               update idea_clusters set
@@ -73,7 +74,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
                 stage = idea_stage_for(stage, mention_count + 1),
                 centroid = (select avg(e) from (
                               select embedding as e from idea_mentions
-                              where cluster_id = ${plan.clusterId}::bigint and review_status = 'accepted' and embedding is not null
+                              where cluster_id = ${plan.clusterId}::bigint and review_status <> 'dismissed' and embedding is not null
                               union all select ${v}::vector) s),
                 first_mentioned_at = least(first_mentioned_at, ${item.spokenAt}::timestamptz),
                 last_mentioned_at = greatest(last_mentioned_at, ${item.spokenAt}::timestamptz),
@@ -83,7 +84,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
             select id, cluster_id from m`,
       ];
     }
-    const counted = review ? 0 : 1;
+    const counted = 1; // every mention counts, needs_review too (Tarik: review-band ideas count; decision 004)
     const v = plan?.embedding ? toVectorLiteral(plan.embedding) : null;
     return [
       txn`with c as (
