@@ -98,4 +98,20 @@ describe("garden queries", () => {
     expect(h.mock.calls[1].text).toContain("when review_status = 'dismissed' then null else excerpt");
     expect(idea?.mentions[0]).toMatchObject({ excerpt: null, reviewStatus: "dismissed" });
   });
+
+  it("never puts a dismissed mention's note on the card (latestLine skips it)", () => {
+    const plant = toPlant({
+      id: 3, title: "Crates", stage: "sprouting", mention_count: 1, last_mentioned_at: null, pinned: false,
+      flagged: false, confirmed: true,
+      timeline: [{ date: "2026-10-01T00:00:00Z", line: "Oct 1: first heard" }, { date: "2026-10-05T00:00:00Z", line: "Oct 5: a dismissed note" }],
+      dismissed_at: [new Date("2026-10-05T00:00:00Z")],
+    });
+    expect(plant.latestLine).toBe("Oct 1: first heard");
+  });
+
+  it("reads the dismissed mention times with the plants", async () => {
+    h.mock.queue.push([], []);
+    await getGardenView();
+    expect(h.mock.calls[0].text).toContain("review_status = 'dismissed'");
+  });
 });

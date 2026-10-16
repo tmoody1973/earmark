@@ -20,7 +20,8 @@ export function IdeaPlant({ plant, href }: IdeaPlantProps) {
         </h3>
         <p className="idea-meta">
           {plant.bloomed && <span className="bloom-dot" aria-hidden="true" />}
-          {stageLabel(plant.stage)} · {plant.mentionCount} {plant.mentionCount === 1 ? "mention" : "mentions"}
+          <span className="idea-stage">{stageLabel(plant.stage)}</span>
+          {` · ${plant.mentionCount} ${plant.mentionCount === 1 ? "mention" : "mentions"}`}
         </p>
         {plant.latestLine && <p className="idea-line">{plant.latestLine}</p>}
         {/* TODO(M3): Keep / Dismiss for unconfirmed ideas once an idea review action exists. */}

@@ -3,7 +3,7 @@ import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
-import { parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
+import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
 
 export interface RecCardData {
   id: number;
@@ -53,7 +53,7 @@ export type GardenRecRow = {
 export type PlantRow = {
   id: number; title: string; stage: string; mention_count: number;
   last_mentioned_at: Date | string | null; pinned: boolean; flagged: boolean;
-  confirmed?: boolean; timeline?: unknown;
+  confirmed?: boolean; timeline?: unknown; dismissed_at?: Array<Date | string> | null;
 };
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
@@ -94,7 +94,7 @@ export function toPlant(r: PlantRow): PlantView {
     pinned: r.pinned,
     flagged: r.flagged,
     confirmed: r.confirmed ?? true,
-    latestLine: parseTimeline(r.timeline).at(-1)?.line ?? null,
+    latestLine: latestLine(parseTimeline(r.timeline), (r.dismissed_at ?? []).map((d) => iso(d)!)),
   };
 }
 
@@ -118,7 +118,8 @@ export async function getPlants(): Promise<PlantView[]> {
   const rows = (await db()`
     select c.id, c.title, c.stage, c.mention_count, c.last_mentioned_at, c.pinned, c.timeline,
       (c.flagged_at is not null and (c.last_viewed_at is null or c.flagged_at > c.last_viewed_at)) as flagged,
-      exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed
+      exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed,
+      array(select m.spoken_at from idea_mentions m where m.cluster_id = c.id and m.review_status = 'dismissed') as dismissed_at
     from idea_clusters c
     where c.stage <> 'dismissed' and c.mention_count > 0
     order by c.last_mentioned_at desc nulls last

@@ -147,6 +147,7 @@ export function PlantArt({ plant, size, decorative = false }: PlantArtProps) {
     <svg
       className={classes.filter(Boolean).join(" ")}
       viewBox="0 0 80 100"
+      preserveAspectRatio="xMidYMax slice"
       data-testid="plant"
       data-cluster-id={plant.id}
       data-level={plant.level}

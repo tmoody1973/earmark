@@ -35,7 +35,9 @@ export function draftBlocks(md: string): DraftBlock[] {
     } else para.push(line);
   }
   flush();
-  return blocks;
+  // The shallowest heading present becomes level 1, so a draft that starts at "##" still opens at the page's h3.
+  const top = Math.min(...blocks.flatMap((b) => (b.kind === "h" ? [b.level] : [])));
+  return blocks.map((b) => (b.kind === "h" ? { ...b, level: (b.level - top + 1) as 1 | 2 | 3 } : b));
 }
 
 export function inlineRuns(text: string): Array<{ bold: boolean; text: string }> {

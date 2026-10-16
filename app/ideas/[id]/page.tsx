@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Fragment } from "react";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
@@ -40,7 +41,9 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const dismissed = plant.stage === "dismissed";
   const steps = growthSteps(idea.timeline, idea.mentions);
   const stillToBloom = plant.stage === "compost" || plant.stage === "sprouting" ? toBloom(plant.mentionCount) : 0;
-  const meta = heardLine({ stage: plant.stage, mentionCount: plant.mentionCount, first: idea.firstMentionedAt, last: plant.lastMentionedAt });
+  const [stageWord, ...meta] = heardLine({
+    stage: plant.stage, mentionCount: plant.mentionCount, first: idea.firstMentionedAt, last: plant.lastMentionedAt,
+  }).split(" · ");
 
   return (
     <main className={`idea-page${dismissed ? " idea-page--dismissed" : ""}`} id="idea">
@@ -54,7 +57,9 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         <h1>{plant.title}</h1>
         <p className="idea-meta">
           {plant.bloomed && <span className="bloom-dot" aria-hidden="true" />}
-          {meta}
+          <span className="idea-stage">{stageWord}</span>
+          {/* each part stays whole ("last Oct 16" never splits); lines break only at the separators */}
+          {meta.map((m) => <Fragment key={m}>{" · "}<span className="idea-meta-part">{m}</span></Fragment>)}
         </p>
         {!plant.confirmed && <span className="rec-unconfirmed">Unconfirmed</span>}
         {/* TODO(M3): Restore (un-dismiss) once an idea action exists; until then the page only says so. */}

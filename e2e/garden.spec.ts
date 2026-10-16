@@ -12,6 +12,13 @@ const STRANGER_EMAIL = "earmark-test+clerk_test@example.com";
 const SHOTS = "test-results/screens";
 const HIDE_DEV_BADGE = "nextjs-portal { display: none !important; }";
 
+// Lazy images below the fold would be blank in a full-page shot: load every one (or let it fail to its no-image state).
+async function loadImages(page: Page) {
+  await page.evaluate(async () => {
+    for (const img of Array.from(document.images)) { img.loading = "eager"; await img.decode().catch(() => {}); }
+  });
+}
+
 async function signInAs(page: Page, emailAddress: string) {
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
@@ -36,6 +43,7 @@ test("the owner sees the garden", async ({ page }, info) => {
   expect(overflow).toBeLessThanOrEqual(0);
 
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
   await page.screenshot({ path: `${SHOTS}/m1-garden-${info.project.name}.png`, fullPage: true });
 });
 
@@ -54,17 +62,17 @@ test("the shelf renders a type-aware card for every tip", async ({ page }, info)
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   // every image has loaded or been swapped for its no-image state: none may be broken
-  await page.evaluate(async () => {
-    for (const img of Array.from(document.images)) { img.loading = "eager"; await img.decode().catch(() => {}); }
-  });
+  await loadImages(page);
   const broken = await page.evaluate(() => Array.from(document.images).filter((i) => i.complete && i.naturalWidth === 0).length);
   expect(broken).toBe(0);
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   const width = info.project.name === "phone" ? 390 : 1440;
+  await loadImages(page);
   await page.screenshot({ path: `${dir}/m4-shelf-${label}-${width}.png`, fullPage: true });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Shelf" })).toBeVisible();
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
   await page.screenshot({ path: `${dir}/m4-garden-${label}-${width}.png`, fullPage: true });
 });
 
@@ -88,6 +96,7 @@ test("ideas grow as plants on the garden, and each opens its own page", async ({
   }
   await noOverflow();
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
   await page.screenshot({ path: `${dir}/m4-ideas-home-${label}-${width}.png`, fullPage: true });
 
   await page.goto("/garden");
@@ -119,12 +128,27 @@ test("ideas grow as plants on the garden, and each opens its own page", async ({
     }
     await noOverflow();
     await page.addStyleTag({ content: HIDE_DEV_BADGE });
+    await loadImages(page);
     await page.screenshot({ path: `${dir}/m4-idea-${label}-${level}-${width}.png`, fullPage: true });
   }
-  // 320 px still works
+  // 320 px still works, and the bloom dot never wraps away from its stage word
   await page.setViewportSize({ width: 320, height: 800 });
-  await page.goto(visits[0]![1]);
+  const dotOnStageLine = async () => {
+    for (const meta of await page.locator(".idea-meta").filter({ has: page.locator(".bloom-dot") }).all()) {
+      const dot = (await meta.locator(".bloom-dot").boundingBox())!;
+      const word = (await meta.locator(".idea-stage").boundingBox())!;
+      expect(dot.y).toBeGreaterThanOrEqual(word.y - 2);
+      expect(dot.y + dot.height).toBeLessThanOrEqual(word.y + word.height + 2);
+    }
+  };
+  await page.goto("/garden");
   await noOverflow();
+  await dotOnStageLine();
+  for (const [, href] of visits) {
+    await page.goto(href);
+    await noOverflow();
+    await dotOnStageLine();
+  }
 });
 
 test("an idea that does not exist is a 404", async ({ page }) => {
@@ -171,6 +195,7 @@ test("a signed-in non-owner is refused and sees no data", async ({ page }, info)
   await expect(page.getByRole("heading", { name: "This isn't your garden" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ideas" })).toHaveCount(0);
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
   if (info.project.name === "desktop") await page.screenshot({ path: `${SHOTS}/m1-not-owner.png`, fullPage: true });
 
   // the way out: sign out, land on sign-in, and the garden is closed again

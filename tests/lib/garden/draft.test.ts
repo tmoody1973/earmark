@@ -40,3 +40,13 @@ describe("inlineRuns", () => {
     expect(inlineRuns("no marks")).toEqual([{ bold: false, text: "no marks" }]);
   });
 });
+
+describe("draftBlocks heading levels", () => {
+  it("maps the shallowest heading present to level 1", () => {
+    const out = draftBlocks("## Problem\ntext\n### Detail");
+    expect(out.filter((b) => b.kind === "h")).toEqual([
+      { kind: "h", level: 1, text: "Problem" },
+      { kind: "h", level: 2, text: "Detail" },
+    ]);
+  });
+});

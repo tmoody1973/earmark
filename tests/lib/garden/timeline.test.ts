@@ -91,3 +91,30 @@ describe("growthSteps", () => {
     expect(steps.map((s) => s.excerpt)).toEqual(["one", "two"]);
   });
 });
+
+describe("growthSteps with mentions that have no timeline line", () => {
+  it("adds each unpaired, non-dismissed mention as a 'mentioned again' step, in date order", () => {
+    const entries = parseTimeline([{ date: "2026-10-01T15:00:00.000Z", line: "Oct 1: first heard" }]);
+    const steps = growthSteps(entries, [
+      { id: 1, spokenAt: "2026-10-01T15:00:00.000Z", excerpt: "one", source: "ambient", reviewStatus: "accepted" },
+      { id: 2, spokenAt: "2026-10-09T15:00:00.000Z", excerpt: "two", source: "voice", reviewStatus: "needs_review" },
+      { id: 3, spokenAt: "2026-09-20T15:00:00.000Z", excerpt: null, source: "ambient", reviewStatus: "dismissed" },
+    ]);
+    expect(steps.map((s) => [s.dateLabel, s.note, s.excerpt, s.source, s.unconfirmed])).toEqual([
+      ["Oct 1", "first heard", "one", "Bee conversation", false],
+      ["Oct 9", "mentioned again", "two", "Voice note", true],
+    ]);
+  });
+  it("keeps the step count equal to the non-dismissed mentions when every line has its mention", () => {
+    const entries = parseTimeline([
+      { date: "2026-10-01T15:00:00.000Z", line: "Oct 1: first heard" },
+      { date: "2026-10-02T15:00:00.000Z", line: "Oct 2: added more" },
+    ]);
+    const mentions = [
+      { id: 1, spokenAt: "2026-10-01T15:00:00.000Z", excerpt: "a", source: "ambient", reviewStatus: "accepted" },
+      { id: 2, spokenAt: "2026-10-02T15:00:00.000Z", excerpt: "b", source: "ambient", reviewStatus: "accepted" },
+      { id: 3, spokenAt: "2026-10-03T15:00:00.000Z", excerpt: "c", source: "ambient", reviewStatus: "accepted" },
+    ];
+    expect(growthSteps(entries, mentions)).toHaveLength(3);
+  });
+});
