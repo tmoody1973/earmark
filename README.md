@@ -68,6 +68,20 @@ Set `EARMARK_CAPTURE_TOKEN` (at least 32 characters: `openssl rand -base64 32`) 
 
 Probe first: add `?dry=1` to the URL and run it on any photo. The response lists each field it received (name, type, size) without processing anything, so a mis-named Shortcut field shows up immediately. Remove `?dry=1` afterwards. Images must be JPEG or PNG and under 4 MB. Recommended at deploy: a Vercel firewall rate-limit rule on `/api/capture/*`.
 
+## Capture a song
+
+Press your iPhone Action button while a song plays. Shazam names it, and Earmark saves it as a song recommendation, links it to the Bee conversation you were in (the picker must find the song being talked about in a nearby stretch of that conversation), and credits whoever mentioned it. Pressing twice within 10 minutes saves once.
+
+Uses the same `EARMARK_CAPTURE_TOKEN` as photos. Build the "Earmark this song" Shortcut (assign it to the Action button in Settings, Action Button, Shortcut):
+
+1. **Recognize Music** (Shazam).
+2. **Get Details of Shazam Media** for *Title* (`Title`), *Artist* (`Artist`) and *Apple Music URL* (`AMURL`). If your iOS version does not offer the URL, leave `apple_music_url` out in step 4; Earmark then saves the song without an Apple Music id.
+3. **Current Date**, **Format Date** (ISO 8601, include time) as `At`. **Get Current Location**, then *Latitude* (`Lat`) and *Longitude* (`Lng`).
+4. **Get Contents of URL** `https://<production-host>/api/capture/song`: method **POST**, header `Authorization: Bearer <EARMARK_CAPTURE_TOKEN>`, body **JSON** with `title` (Text) = `Title`, `artist` (Text) = `Artist`, `apple_music_url` (Text) = `AMURL`, `captured_at` (Text) = `At`, `lat` (Text) = `Lat`, `lng` (Text) = `Lng`. Only `title` is required.
+5. **Get Dictionary Value** for `message`, then **Show Notification**.
+
+Only https `music.apple.com` links are accepted. A bad field returns 400 with the reason in `error`; a non-JSON body returns 415.
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).
