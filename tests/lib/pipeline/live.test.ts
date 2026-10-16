@@ -6,11 +6,17 @@ import type { TriageResult } from "../../../agent/lib/types";
 const conv = vi.hoisted(() => ({ bufferUtterance: vi.fn(async () => {}), rememberConversationUuid: vi.fn(async () => {}) }));
 vi.mock("../../../agent/lib/store/conversations", () => conv);
 const buf = vi.hoisted(() => ({
+  LIVE_WINDOW: { size: 4, stride: 4 },
   claimUtterances: vi.fn(),
   finishUtterancesQuery: vi.fn((_txn: unknown, ids: number[]) => ({ finish: ids })),
   conversationIdForUuid: vi.fn(),
 }));
 vi.mock("../../../agent/lib/store/utterances", () => buf);
+const win = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("../../../agent/lib/pipeline/windows", async (orig) => {
+  const real = await orig<typeof import("../../../agent/lib/pipeline/windows")>();
+  return { toWindows: (...args: Parameters<typeof real.toWindows>) => { win.calls.push(args); return real.toWindows(...args); } };
+});
 const compost = vi.hoisted(() => ({
   planIdeaClusters: vi.fn(async (items: SaveItem[], _deps?: unknown) => items.map((it) => ({ ...it, cluster: { action: "join" as const, clusterId: 9, embedding: [1] } }))),
 }));
@@ -60,7 +66,7 @@ describe("handleLiveUtterance", () => {
     buf.claimUtterances.mockResolvedValue(null);
     const d = deps();
     expect(await handleLiveUtterance(u, d)).toEqual({ triaged: false, windows: 0, ideas: 0 });
-    expect(conv.bufferUtterance).toHaveBeenCalledWith("uuid-1", "Unknown", "every Friday");
+    expect(conv.bufferUtterance).toHaveBeenCalledWith("uuid-1", "Unknown", "every Friday", null);
     expect(d.triage).not.toHaveBeenCalled();
     expect(tx.statements).toEqual([]);
   });
@@ -97,10 +103,23 @@ describe("handleLiveUtterance", () => {
     expect(tx.statements).toEqual([{ finish: [1, 2, 3, 4] }]);
   });
 
-  it("a backlog claim (context + 4 new) triages each window that holds new utterances", async () => {
-    buf.claimUtterances.mockResolvedValue({ claimed: [3, 4, 5, 6], rows: [...rows4, row(5, "e"), row(6, "f")] });
-    const d = { ...deps(), triage: vi.fn(async () => tri({ kind: "neither" })) };
+  it("claims and windows with LIVE_WINDOW (4, non-overlapping): 8 claimed utterances are exactly 2 windows", async () => {
+    const rows8 = [...rows4, row(5, "e"), row(6, "f"), row(7, "g"), row(8, "h")];
+    buf.claimUtterances.mockResolvedValue({ claimed: [1, 2, 3, 4, 5, 6, 7, 8], rows: rows8 });
+    const d = { ...deps(), triage: vi.fn(async (_t: string) => tri({ kind: "neither" })) };
     expect(await handleLiveUtterance(u, d)).toMatchObject({ windows: 2 });
+    expect(d.triage).toHaveBeenCalledTimes(2);
+    expect(d.triage.mock.calls[1]![0]).toBe("Unknown: e\nUnknown: f\nUnknown: g\nUnknown: h");
+    expect(buf.claimUtterances).toHaveBeenCalledWith("uuid-1", buf.LIVE_WINDOW);
+    expect(win.calls.at(-1)![2]).toBe(buf.LIVE_WINDOW);
+  });
+
+  it("dates a live mention by the stream's spoken_at when it was buffered (receivedAt otherwise)", async () => {
+    const said = new Date("2026-10-17T14:59:00Z");
+    buf.claimUtterances.mockResolvedValue({ claimed: [1, 2, 3, 4], rows: rows4.map((r, i) => (i === 0 ? { ...r, spokenAt: said } : r)) });
+    await handleLiveUtterance({ ...u, spokenAt: said }, deps());
+    expect(conv.bufferUtterance).toHaveBeenCalledWith("uuid-1", "Unknown", "every Friday", said);
+    expect(compost.planIdeaClusters.mock.calls[0]![0]).toMatchObject([{ spokenAt: said }]);
   });
 
   it("resolves an unmapped stream uuid by finding its utterance id in a still-capturing conversation, and remembers it", async () => {

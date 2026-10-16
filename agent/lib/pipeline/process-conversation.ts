@@ -155,7 +155,9 @@ export async function processConversation(
     }
     const items = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])));
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
-    const saveItems = await planIdeaClusters(items.map((p) => p.item), d.compost);
+    // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion.
+    const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
+    const saveItems = await planIdeaClusters(items.map((p) => p.item), d.compost, { span });
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);

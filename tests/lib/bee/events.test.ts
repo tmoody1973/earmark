@@ -26,7 +26,7 @@ describe("parseBeeEnvelope", () => {
     };
     const evt = parseBeeEnvelope(wrap("new-utterance", data));
     if (evt.event !== "new-utterance") throw new Error("narrowing");
-    expect(evt.data.utterance).toMatchObject({ id: 3766760407, speaker: "Unknown", text: "hello" });
+    expect(evt.data.utterance).toMatchObject({ id: 3766760407, speaker: "Unknown", text: "hello", spoken_at: "2026-10-16T18:05:13.000Z" });
     expect(evt.data.conversation_uuid).toBe("0fe1bdc8-9cd0-4180-84e1-bd936e430b6c");
   });
 

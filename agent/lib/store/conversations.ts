@@ -11,8 +11,9 @@ export type Txn = NeonQueryFunctionInTransaction<false, false>;
 // ponytail: fixed 15 min lease; make it per-caller if runs ever get longer.
 export const CLAIM_LEASE = "15 minutes";
 
-export async function bufferUtterance(uuid: string, speaker: string, text: string): Promise<void> {
-  await db()`insert into utterance_buffer (conversation_uuid, speaker, text) values (${uuid}, ${speaker}, ${text})`;
+// spokenAt: the stream's own spoken_at, when it sent one.
+export async function bufferUtterance(uuid: string, speaker: string, text: string, spokenAt: Date | null = null): Promise<void> {
+  await db()`insert into utterance_buffer (conversation_uuid, speaker, text, spoken_at) values (${uuid}, ${speaker}, ${text}, ${spokenAt})`;
 }
 
 // Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise):

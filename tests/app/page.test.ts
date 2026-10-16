@@ -39,6 +39,26 @@ describe("garden page owner guard", () => {
     expect(listGardenItems).not.toHaveBeenCalled();
   });
 
+  it("starts the live ticker from the server's render time, so nothing between render and first poll is missed", async () => {
+    signedInAs("user_owner");
+    const before = Date.now();
+    const tree = await Garden();
+    const find = (n: unknown): { props: { since?: string } } | null => {
+      if (!n || typeof n !== "object") return null;
+      const el = n as { type?: { name?: string }; props?: { children?: unknown; since?: string } };
+      if (el.type?.name === "BloomTicker") return el as { props: { since?: string } };
+      const kids = el.props?.children;
+      for (const k of Array.isArray(kids) ? kids : [kids]) {
+        const hit = find(k);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    const since = find(tree)?.props.since;
+    expect(typeof since).toBe("string");
+    expect(new Date(since!).getTime()).toBeGreaterThanOrEqual(before - 1000);
+  });
+
   it("reads the garden for the owner", async () => {
     signedInAs("user_owner");
     await Garden();

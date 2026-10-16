@@ -2,31 +2,34 @@ import type { BeeClient } from "../bee/client";
 import { db } from "../db";
 import { planIdeaClusters } from "../ideas/compost";
 import { bufferUtterance, rememberConversationUuid } from "../store/conversations";
-import { claimUtterances, conversationIdForUuid, finishUtterancesQuery } from "../store/utterances";
+import { LIVE_WINDOW, claimUtterances, conversationIdForUuid, finishUtterancesQuery } from "../store/utterances";
 import { resolveDeps, type PipelineDeps } from "./process-conversation";
 import { buildSaveQueries, savedIds, type SaveItem, type SavedIds } from "./save-item";
 import { windowRoute } from "./thresholds";
 import { toWindows } from "./windows";
 
-export interface LiveUtterance { conversationUuid: string; speaker: string; text: string; utteranceId: number | null }
+export interface LiveUtterance {
+  conversationUuid: string; speaker: string; text: string; utteranceId: number | null; spokenAt?: Date | null;
+}
 export interface LiveResult { triaged: boolean; windows: number; ideas: number; saved?: SavedIds }
 
 // The live path (M2-T6): ideas only (recs wait for the completed pass: a rec need not appear mid-sentence).
-// Every utterance is buffered; models run only when claimUtterances hands over a full window (4 utterances, a new
-// window every 2), never per utterance. Found ideas (accepted and review-band, decision 004) go through the idea
+// Every utterance is buffered; models run only when claimUtterances hands over a full window (LIVE_WINDOW: 4
+// utterances, non-overlapping), never per utterance. Found ideas (accepted and review-band, decision 004) go through the idea
 // compost plan and are saved by buildSaveQueries in one transaction that also marks the claimed utterances done, so
 // the save, its garden events and the claim's done commit together or not at all.
 // A failure leaves the claim unfinished: its lease lets a later delivery retry; the completed pass catches up anyway.
 export async function handleLiveUtterance(u: LiveUtterance, deps: Partial<PipelineDeps> = {}): Promise<LiveResult> {
-  await bufferUtterance(u.conversationUuid, u.speaker, u.text);
-  const claim = await claimUtterances(u.conversationUuid);
+  await bufferUtterance(u.conversationUuid, u.speaker, u.text, u.spokenAt ?? null);
+  const claim = await claimUtterances(u.conversationUuid, LIVE_WINDOW);
   if (!claim) return { triaged: false, windows: 0, ideas: 0 };
 
   const d = resolveDeps(deps);
   const conversationId = await resolveConversationId(u.conversationUuid, u.utteranceId, d.bee);
   const windows = toWindows(
-    claim.rows.map((r) => ({ text: r.text, speaker: r.speaker, spokenAt: r.receivedAt })),
+    claim.rows.map((r) => ({ text: r.text, speaker: r.speaker, spokenAt: r.spokenAt ?? r.receivedAt })),
     { conversationId, conversationUuid: u.conversationUuid },
+    LIVE_WINDOW,
   );
   const items: SaveItem[] = [];
   // ponytail: sequential; a claim is one window except after a retry backlog.

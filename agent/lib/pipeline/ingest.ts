@@ -1,3 +1,4 @@
+import { toDate } from "../bee/client";
 import { isJournalComplete, type BeeEvent } from "../bee/events";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
 import { handleLiveUtterance } from "./live";
@@ -20,7 +21,10 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
       const { utterance, conversation_uuid } = evt.data;
       try {
         const r = await handleLiveUtterance(
-          { conversationUuid: conversation_uuid, speaker: utterance.speaker, text: utterance.text, utteranceId: utterance.id ?? null }, deps,
+          {
+            conversationUuid: conversation_uuid, speaker: utterance.speaker, text: utterance.text,
+            utteranceId: utterance.id ?? null, spokenAt: toDate(utterance.spoken_at),
+          }, deps,
         );
         if (r.triaged) console.log(`[live] uuid=${conversation_uuid} windows=${r.windows} ideas=${r.ideas} blooms=${r.saved?.bloomedClusterIds.join(",") ?? "-"}`);
       } finally {

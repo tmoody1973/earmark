@@ -24,11 +24,12 @@ const tri = (): TriageResult => ({
   broadcastProbability: 0.01, model: "fake", providerMetadata: null,
 });
 // The completed conversation as REST returns it, plus "no capturing conversation" for the live uuid lookup.
-const fakeBee = (id: number) => ({
+// Recorded "just now": the live deliveries below are stamped with the real clock, inside this span.
+const fakeBee = (id: number, span = { start: Date.now() - 600_000, end: Date.now() + 600_000 }) => ({
   listConversations: async () => ({ conversations: [] }),
   getConversation: async () => ({
     conversation: {
-      id, state: "COMPLETED", start_time: Date.parse("2026-10-16T15:00:00Z"), summary: null, short_summary: null,
+      id, state: "COMPLETED", start_time: span.start, end_time: span.end, summary: null, short_summary: null,
       transcriptions: [{ realtime: false, utterances: LINES.map((text, i) => ({ text, speaker: "Unknown", spoken_at: Date.parse("2026-10-16T15:00:00Z") + i * 1000 })) }],
     },
   }),
@@ -107,7 +108,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("live bloom and occasion identit
     for (const id of clusterIds) await db()`delete from idea_clusters where id = ${id}`;
     await db()`delete from utterance_buffer where conversation_uuid like ${`it-live-occ-${RUN}-%`}`;
     await db()`delete from bee_conversation_map where conversation_uuid like ${`it-live-occ-${RUN}-%`}`;
-    for (const n of [10, 20]) await db()`delete from processed_conversations where bee_conversation_id = ${CONV(n)}`;
+    for (const n of [10, 20, 30]) await db()`delete from processed_conversations where bee_conversation_id = ${CONV(n)}`;
   });
 
   it("a third mention spoken live blooms the cluster: event kinds follow isNewBloom on the returned stages", async () => {
@@ -158,4 +159,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("live bloom and occasion identit
     const sneak = idea({ beeConversationId: CONV(20), cluster: { action: "join", clusterId: id, embedding: unit(DIM) } });
     await expect(db().transaction((txn) => buildSaveQueries(txn, sneak))).rejects.toThrow(/idea_mentions_cluster_uuid_uniq/);
   }, SLOW);
+
+  it("a uuid that is NEVER mapped is still one occasion: the completed pass matches it by its time span (no 2nd mention, no bloom)", async () => {
+    const { processConversation, hasMentionFromSameOccasion } = await mods();
+    let target: number | null = null;
+    const out = await speak(UUID(30), deps(CONV(30), () => target)); // no map row, ever
+    target = out[3]!.saved!.ideaClusterIds[0]!;
+    clusterIds.push(target);
+    expect(await state(target)).toMatchObject({ mention_count: 1, timeline: 1, events: ["mention"] });
+
+    const r = await processConversation(CONV(30), deps(CONV(30), () => target));
+    expect(r).toMatchObject({ skipped: false, ideas: 0 });
+    expect(await state(target)).toMatchObject({
+      mention_count: 1, stage: "compost", timeline: 1, events: ["mention"],
+      mentions: [{ bee_conversation_id: null, bee_conversation_uuid: UUID(30) }],
+    });
+
+    // Negative: the same uuid-only mention does not block a conversation recorded at another time.
+    const elsewhere = { start: new Date(Date.now() - 7_200_000), end: new Date(Date.now() - 3_600_000) };
+    expect(await hasMentionFromSameOccasion(target, { beeConversationId: CONV(31), beeJournalId: null, span: elsewhere })).toBe(false);
+    const inside = { start: new Date(Date.now() - 600_000), end: new Date(Date.now() + 600_000) };
+    expect(await hasMentionFromSameOccasion(target, { beeConversationId: CONV(31), beeJournalId: null, span: inside })).toBe(true);
+  }, SLOW);
+
+  it.each(["dismissed", "drafted"])("a 3rd mention on a %s cluster is a plain 'mention', never a bloom, and the stage stays", async (stage) => {
+    const { db } = await mods();
+    const id = await seed(stage === "dismissed" ? 40 : 50);
+    await db()`update idea_clusters set stage = ${stage} where id = ${id}`;
+    const r = await save(idea({ beeConversationId: CONV(stage === "dismissed" ? 42 : 52), cluster: { action: "join", clusterId: id, embedding: unit(DIM) } }));
+    expect(r.bloomedClusterIds).toEqual([]);
+    expect(await state(id)).toMatchObject({ mention_count: 3, stage, events: ["mention", "mention", "mention"] });
+  });
 });
