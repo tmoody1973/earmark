@@ -19,6 +19,7 @@
   "dependencies": {
     "@clerk/nextjs": "7.9.16",
     "@neondatabase/serverless": "1.2.0",
+    "@vercel/blob": "2.8.2",
     "ai": "7.0.142",
     "eve": "0.80.0",
     "next": "16.4.2",

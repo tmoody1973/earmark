@@ -33,6 +33,11 @@ describe("isPublicPath", () => {
   it.each(["/", "/ideas/3", "/api/other", "/sign-inx", "/sign-outx", "/api/beeper", "/eve/v10"])("%s is private", (p) => expect(isPublicPath(p)).toBe(false));
 });
 
+describe("isPublicPath (M5 channels)", () => {
+  it.each(["/api/capture/photo", "/api/mcp", "/r/abc", "/s/abc", "/feed/xyz.xml"])("%s is public", (p) => expect(isPublicPath(p)).toBe(true));
+  it.each(["/api/captures", "/spaces/1"])("%s stays private", (p) => expect(isPublicPath(p)).toBe(false));
+});
+
 describe("gate (what proxy.ts does with a request)", () => {
   it("lets public paths through for anyone, signed in or not", () => {
     expect(gate("/api/bee/events", null, "user_abc")).toBe("allow");
