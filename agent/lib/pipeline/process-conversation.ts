@@ -3,6 +3,7 @@ import {
   conversationCountsQuery, isConversationProcessed, markConversationProcessed, releaseConversation,
 } from "../store/conversations";
 import { db } from "../db";
+import { planIdeaClusters } from "../ideas/compost";
 import { ownerFirstName } from "../env";
 import { chooseRecommender } from "./attribution";
 import { extractIdea, extractRecommendation } from "./extract";
@@ -153,9 +154,10 @@ export async function processConversation(
       throw new SystemicTriageError(systemic);
     }
     const items = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])));
-    const counts = { ideas: items.filter((p) => p.item.kind === "idea").length, recs: items.filter((p) => p.item.kind === "rec").length };
+    // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
+    const saveItems = await planIdeaClusters(items.map((p) => p.item));
+    const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.
-    const saveItems = items.map((p) => p.item);
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);
     return {
       skipped: false, ...counts, reviews: saveItems.filter((it) => it.route === "review").length, failed, incomplete: false,
