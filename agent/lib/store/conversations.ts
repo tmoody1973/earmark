@@ -1,0 +1,93 @@
+import type { NeonQueryFunctionInTransaction } from "@neondatabase/serverless";
+import { db } from "../db";
+
+export type Txn = NeonQueryFunctionInTransaction<false, false>;
+
+// Claim lease: a claim is "in progress" until its saves commit with done = true. An unfinished claim older than
+// this (the run crashed or hit its time limit) may be re-taken; a done claim never can.
+// ponytail: fixed 15 min lease, longer than any single run's time limit; make it per-caller if runs ever get longer.
+export const CLAIM_LEASE = "15 minutes";
+
+export async function bufferUtterance(uuid: string, speaker: string, text: string): Promise<void> {
+  await db()`insert into utterance_buffer (conversation_uuid, speaker, text) values (${uuid}, ${speaker}, ${text})`;
+}
+
+// Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise).
+export async function pruneUtteranceBuffer(): Promise<void> {
+  await db()`delete from utterance_buffer where received_at < now() - interval '6 hours'`;
+}
+
+export async function rememberConversationUuid(uuid: string, id: number): Promise<void> {
+  await db()`insert into bee_conversation_map (conversation_uuid, bee_conversation_id)
+             values (${uuid}, ${id}) on conflict do nothing`;
+}
+
+// Processed = finished, or claimed recently enough that its run may still be going.
+export async function isConversationProcessed(id: number): Promise<boolean> {
+  const rows = await db()`select 1 from processed_conversations
+                          where bee_conversation_id = ${id}
+                            and (done or processed_at >= now() - ${CLAIM_LEASE}::interval)`;
+  return rows.length > 0;
+}
+
+// Claim: true only for the first caller (or whoever re-takes a stale unfinished claim), so concurrent runs cannot double-insert.
+export async function markConversationProcessed(id: number, counts: { ideas: number; recs: number }): Promise<boolean> {
+  const rows = await db()`insert into processed_conversations (bee_conversation_id, idea_count, rec_count)
+                          values (${id}, ${counts.ideas}, ${counts.recs})
+                          on conflict (bee_conversation_id) do update
+                            set processed_at = now(), idea_count = excluded.idea_count, rec_count = excluded.rec_count
+                            where processed_conversations.done = false
+                              and processed_conversations.processed_at < now() - ${CLAIM_LEASE}::interval
+                          returning bee_conversation_id`;
+  return rows.length === 1;
+}
+
+// Query builder: runs inside the same transaction as the item inserts, so counts, items and done commit together.
+export function conversationCountsQuery(txn: Txn, id: number, counts: { ideas: number; recs: number }) {
+  return txn`update processed_conversations set idea_count = ${counts.ideas}, rec_count = ${counts.recs}, done = true
+             where bee_conversation_id = ${id}`;
+}
+
+// Undo a claim when the run failed after claiming, so the backfill can retry.
+export async function releaseConversation(id: number): Promise<void> {
+  await db()`delete from processed_conversations where bee_conversation_id = ${id}`;
+}
+
+export async function isJournalProcessed(id: string): Promise<boolean> {
+  const rows = await db()`select 1 from processed_journals
+                          where bee_journal_id = ${id}
+                            and (done or processed_at >= now() - ${CLAIM_LEASE}::interval)`;
+  return rows.length > 0;
+}
+
+// Claim: true only for the first caller (or whoever re-takes a stale unfinished claim). Journal ids are strings
+// (stream numbers are normalized upstream). done = true records a finished outcome in one step (a non-trigger note).
+export async function markJournalProcessed(
+  id: string, item: { type: "idea" | "rec" | "none"; id: number | null }, done = false,
+): Promise<boolean> {
+  const rows = await db()`insert into processed_journals (bee_journal_id, item_type, item_id, done)
+                          values (${id}, ${item.type}, ${item.id}, ${done})
+                          on conflict (bee_journal_id) do update
+                            set processed_at = now(), item_type = excluded.item_type, item_id = excluded.item_id, done = excluded.done
+                            where processed_journals.done = false
+                              and processed_journals.processed_at < now() - ${CLAIM_LEASE}::interval
+                          returning bee_journal_id`;
+  return rows.length === 1;
+}
+
+// Query builder: runs in the same transaction as the item insert, so the claim records its item (and done) or the save rolls back.
+// Self-contained: finds the item by its journal id (inserted by an earlier statement in the same transaction).
+export function journalItemQuery(txn: Txn, id: string, kind: "idea" | "rec") {
+  return kind === "rec"
+    ? txn`update processed_journals set item_type = 'rec', done = true,
+            item_id = (select max(id) from recommendations where bee_journal_id = ${id}::text)
+          where bee_journal_id = ${id}::text`
+    : txn`update processed_journals set item_type = 'idea', done = true,
+            item_id = (select max(cluster_id) from idea_mentions where bee_journal_id = ${id}::text)
+          where bee_journal_id = ${id}::text`;
+}
+
+// Undo a claim when the run failed after claiming, so a later delivery or the backfill can retry.
+export async function releaseJournal(id: string): Promise<void> {
+  await db()`delete from processed_journals where bee_journal_id = ${id}`;
+}

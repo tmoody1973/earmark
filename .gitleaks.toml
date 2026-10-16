@@ -1,0 +1,10 @@
+title = "Earmark gitleaks config"
+
+[extend]
+useDefault = true
+
+# Narrow on purpose: only the literal placeholder text is exempt, in any file.
+# A real token pasted into .env.example is still caught by every rule.
+[[allowlists]]
+description = "Placeholder values only (e.g. replace-me-with-64-hex-chars trips generic-api-key)"
+regexes = ['''replace-me[\w-]*''']

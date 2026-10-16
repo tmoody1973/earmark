@@ -1,0 +1,48 @@
+{
+  "name": "earmark",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "dev:agent": "eve dev --no-ui --port 2000",
+    "garden:counts": "tsx --env-file=.env.local scripts/garden-counts.ts",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:int": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.int.config.ts",
+    "typecheck": "next typegen && tsc --noEmit",
+    "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "7.9.16",
+    "@neondatabase/serverless": "1.2.0",
+    "ai": "7.0.142",
+    "eve": "0.80.0",
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@clerk/testing": "^2.2.46",
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "tailwindcss": "^4",
+    "tsx": "4.23.15",
+    "typescript": "^5",
+    "vitest": "5.0.5"
+  },
+  "packageManager": "pnpm@10.19.0",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  }
+}

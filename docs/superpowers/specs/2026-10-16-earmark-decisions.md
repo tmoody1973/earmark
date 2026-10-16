@@ -11,7 +11,7 @@ Research notes with sources: `docs/research/{bee-api,eve,triage-models,integrati
 | D1 | Final name | **Earmark.** Voice trigger "Earmark that". Bee todo prefix "Earmark ·". |
 | D2 | Repo home | **Public at `github.com/tmoody1973/earmark` from the first push**, MIT license in commit one, license visible in the About section. |
 | D3 | Bee developer access | Not set up yet → enabling Developer Mode, installing bee-cli and logging in is M1 Task 1. |
-| D4 | Real Bee history | Tarik has worn Bee since Oct 15 → first backfill pulls real conversations on day one. |
+| D4 | Real Bee history | Tarik wore Bee Oct 6–14 (11 real conversations; not worn Oct 15 or the morning of Oct 16) → the first backfill pulls those on day one. |
 | D5 | Design process | Impeccable for all Earmark UI: `teach`/`init` before any UI code (M1), `shape` before each M4 view, `critique` + `polish` after M4, `detect` before M6. |
 
 ## Resolved by documentation (no question needed)

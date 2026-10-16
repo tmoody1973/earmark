@@ -7,3 +7,14 @@ node_modules/
 .remember/
 .claude/worktrees/
 .superpowers/
+/out
+/build
+*.tsbuildinfo
+next-env.d.ts
+.eve/
+.impeccable/cache/
+
+# playwright
+/test-results/
+/playwright-report/
+docs/design/inspiration/*.png
