@@ -8,3 +8,12 @@ useDefault = true
 [[allowlists]]
 description = "Placeholder values only (e.g. replace-me-with-64-hex-chars trips generic-api-key)"
 regexes = ['''replace-me[\w-]*''']
+
+# CI placeholder: base64 of "example.clerk.accounts.dev$", the format Clerk's build validates. Not a real key.
+[[allowlists]]
+description = "Clerk test-format publishable key placeholder used in CI"
+regexes = ['''pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk''']
+
+[[allowlists]]
+description = "Dummy CI secret named in the implementation plan (history scan)"
+regexes = ['''ci-dummy-secret-at-least-24-chars''']
