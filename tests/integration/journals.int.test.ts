@@ -89,6 +89,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(await markJournalProcessed(id, { type: "none", id: null })).toBe(false); // done is final
   });
 
+  it("guarded release: deletes an unfinished journal claim but never a done one", async () => {
+    const { markJournalProcessed, releaseJournal } = await import("../../agent/lib/store/conversations");
+    const { db } = await import("../../agent/lib/db");
+    const sql = db();
+    const id = `${JID}-g`;
+    const exists = async () => (await sql`select 1 from processed_journals where bee_journal_id = ${id}`).length === 1;
+    expect(await markJournalProcessed(id, { type: "none", id: null })).toBe(true);
+    await releaseJournal(id);
+    expect(await exists()).toBe(false); // unfinished: released
+    expect(await markJournalProcessed(id, { type: "none", id: null }, true)).toBe(true); // done = true
+    await releaseJournal(id);
+    expect(await exists()).toBe(true); // done: kept (afterAll cleans up)
+  });
+
   it("a failure after the claim saves nothing and releases the claim", async () => {
     const { processJournal } = await import("../../agent/lib/pipeline/process-journal");
     const { isJournalProcessed } = await import("../../agent/lib/store/conversations");

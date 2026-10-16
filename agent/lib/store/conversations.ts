@@ -5,7 +5,10 @@ export type Txn = NeonQueryFunctionInTransaction<false, false>;
 
 // Claim lease: a claim is "in progress" until its saves commit with done = true. An unfinished claim older than
 // this (the run crashed or hit its time limit) may be re-taken; a done claim never can.
-// ponytail: fixed 15 min lease, longer than any single run's time limit; make it per-caller if runs ever get longer.
+// INVARIANT: the lease must stay strictly longer than the longest function duration that can process one conversation
+// (it assumes the nightly schedule's Vercel "max" duration is under 15 minutes). If a run could outlive it, a newer
+// runner may re-take the claim while the old run is still saving.
+// ponytail: fixed 15 min lease; make it per-caller if runs ever get longer.
 export const CLAIM_LEASE = "15 minutes";
 
 export async function bufferUtterance(uuid: string, speaker: string, text: string): Promise<void> {
@@ -48,9 +51,10 @@ export function conversationCountsQuery(txn: Txn, id: number, counts: { ideas: n
              where bee_conversation_id = ${id}`;
 }
 
-// Undo a claim when the run failed after claiming, so the backfill can retry.
+// Undo a claim when the run failed after claiming, so the backfill can retry. Guarded: a slow run that outlived its
+// lease must not delete a newer runner's finished (done) claim.
 export async function releaseConversation(id: number): Promise<void> {
-  await db()`delete from processed_conversations where bee_conversation_id = ${id}`;
+  await db()`delete from processed_conversations where bee_conversation_id = ${id} and done = false`;
 }
 
 export async function isJournalProcessed(id: string): Promise<boolean> {
@@ -87,7 +91,8 @@ export function journalItemQuery(txn: Txn, id: string, kind: "idea" | "rec") {
           where bee_journal_id = ${id}::text`;
 }
 
-// Undo a claim when the run failed after claiming, so a later delivery or the backfill can retry.
+// Undo a claim when the run failed after claiming, so a later delivery or the backfill can retry. Guarded like
+// releaseConversation: a done claim is never deleted.
 export async function releaseJournal(id: string): Promise<void> {
-  await db()`delete from processed_journals where bee_journal_id = ${id}`;
+  await db()`delete from processed_journals where bee_journal_id = ${id} and done = false`;
 }

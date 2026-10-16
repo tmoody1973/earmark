@@ -77,7 +77,7 @@ describe("processConversation", () => {
   it("stores an accepted rec with a second-person attribution, and the counts, in one transaction", async () => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
     // saved ids come from the transaction's own results (statement 1 = the rec insert)
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
     expect(recs()).toHaveLength(1);
     const q = recs()[0]!;
     expect(q.sql).toContain("insert into recommenders");
@@ -99,7 +99,7 @@ describe("processConversation", () => {
     ["low confidence", { kindProbability: 0.3 }],
   ])("drops %s but still keeps the conversation claimed", async (_label, over) => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri(over) });
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } });
     expect(recs()).toHaveLength(0);
     expect(releaseConversation).not.toHaveBeenCalled();
   });
@@ -305,5 +305,39 @@ describe("processConversation", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(processConversation(42, { ...base, bee: bee(), triage: tri({}) })).rejects.toThrow("db down");
     spy.mockRestore();
+  });
+
+  describe("per-conversation deadline", () => {
+    it("past the deadline: no windows triaged, nothing saved, claim released, incomplete, no throw", async () => {
+      const triage = tri({});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", lines(40)), triage, deadline: now().getTime() - 1 });
+      expect(r).toMatchObject({ skipped: false, incomplete: true, ideas: 0, recs: 0 });
+      expect(triage).not.toHaveBeenCalled();
+      expect(committed).toHaveLength(0);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("a slow triage that crosses the deadline stops scheduling new windows and saves nothing", async () => {
+      let clock = now().getTime();
+      const triage = vi.fn(async () => {
+        clock += 1000; // each window takes 1 s
+        return { kind: "rec_to_user", kindProbability: 0.95, recType: "place", recTypeProbability: 0.9, jokingProbability: 0.02, broadcastProbability: 0.01, model: "m", providerMetadata: {} };
+      }) as unknown as PipelineDeps["triage"];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", lines(60)), triage, now: () => new Date(clock), deadline: now().getTime() + 2500 });
+      expect(r).toMatchObject({ skipped: false, incomplete: true });
+      expect(vi.mocked(triage).mock.calls.length).toBeLessThan(10); // only windows started before the deadline (30 exist)
+      expect(committed).toHaveLength(0);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("a deadline in the future leaves the normal path unchanged", async () => {
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}), deadline: now().getTime() + 60_000 });
+      expect(r).toMatchObject({ skipped: false, incomplete: false, recs: 1 });
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    it("no deadline is never incomplete", async () => {
+      expect(await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).toMatchObject({ incomplete: false });
+    });
   });
 });

@@ -22,7 +22,7 @@ export interface PipelineDeps {
 }
 
 // saved: ids from the save transaction — M3's rec lane and M2's clustering hook on these.
-export interface ConversationResult { skipped: boolean; ideas: number; recs: number; reviews: number; failed: number; saved: SavedIds }
+export interface ConversationResult { skipped: boolean; ideas: number; recs: number; reviews: number; failed: number; incomplete: boolean; saved: SavedIds }
 
 export function resolveDeps(deps: Partial<PipelineDeps>): PipelineDeps {
   return {
@@ -41,12 +41,13 @@ const FREQUENCY_ONLY = /^\s*\d{2,3}(\.\d)?\s*(fm|mhz)?\s*$/i;
 
 type Planned = { item: SaveItem; key: string; windowIndex: number };
 
-type WindowOutcome = { planned: Planned | null; finite: boolean; failed: boolean };
+type WindowOutcome = { planned: Planned | null; finite: boolean; failed: boolean; aborted?: boolean };
 
 // Never rejects: a model failure on one window is logged (error name only: messages can echo transcript text) and counted.
 async function runWindow(
-  w: TranscriptWindow, index: number, id: number, summary: string | null, fallbackAt: Date, d: PipelineDeps,
+  w: TranscriptWindow, index: number, id: number, summary: string | null, fallbackAt: Date, d: PipelineDeps, deadline?: number,
 ): Promise<WindowOutcome> {
+  if (deadline !== undefined && d.now().getTime() > deadline) return { planned: null, finite: false, failed: false, aborted: true };
   let finite = false;
   try {
     const t = await d.triage(w.text);
@@ -114,10 +115,16 @@ function dedupe(planned: Planned[]): Planned[] {
   return out;
 }
 
-export async function processConversation(id: number, deps: Partial<PipelineDeps> = {}): Promise<ConversationResult> {
-  const skipped: ConversationResult = { skipped: true, ideas: 0, recs: 0, reviews: 0, failed: 0, saved: noneSaved() };
+// deadline: absolute epoch ms. Past it no new window starts; the run saves nothing, releases its claim and returns incomplete.
+// ponytail: a conversation larger than one function budget never completes on serverless (no per-window progress is
+// saved); run it locally with scripts/backfill-once.ts.
+export async function processConversation(
+  id: number, deps: Partial<PipelineDeps> & { deadline?: number } = {},
+): Promise<ConversationResult> {
+  const skipped: ConversationResult = { skipped: true, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: noneSaved() };
   if (await isConversationProcessed(id)) return skipped;
   const d = resolveDeps(deps);
+  const { deadline } = deps;
   const { conversation } = await d.bee.getConversation(id);
   if (conversation.state !== "COMPLETED") return skipped; // still capturing, so unclaimed; the backfill picks it up later
 
@@ -131,7 +138,12 @@ export async function processConversation(id: number, deps: Partial<PipelineDeps
     const fallbackAt = toDate(conversation.start_time) ?? d.now();
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
-    const outcomes = await mapLimit(windows, WINDOW_CONCURRENCY, (w, i) => runWindow(w, i, id, summary, fallbackAt, d));
+    const outcomes = await mapLimit(windows, WINDOW_CONCURRENCY, (w, i) => runWindow(w, i, id, summary, fallbackAt, d, deadline));
+    if (outcomes.some((o) => o.aborted)) {
+      console.error(`[pipeline] deadline reached conversation=${id}; nothing saved, claim released`);
+      await releaseConversation(id);
+      return { ...skipped, skipped: false, incomplete: true };
+    }
     const failed = outcomes.filter((o) => o.failed).length;
     // A few failed windows keep the claim; a model that failed everywhere (or never gave a probability) is an outage,
     // not "nothing found", so release the claim (catch below) and let the backfill retry.
@@ -146,7 +158,7 @@ export async function processConversation(id: number, deps: Partial<PipelineDeps
     const saveItems = items.map((p) => p.item);
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);
     return {
-      skipped: false, ...counts, reviews: saveItems.filter((it) => it.route === "review").length, failed,
+      skipped: false, ...counts, reviews: saveItems.filter((it) => it.route === "review").length, failed, incomplete: false,
       saved: savedIds(saveItems, results),
     };
   } catch (err) {
