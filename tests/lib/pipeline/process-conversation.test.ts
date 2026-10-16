@@ -78,6 +78,7 @@ describe("processConversation", () => {
   it("skips a conversation that is still capturing without claiming it", async () => {
     const r = await processConversation(42, { ...base, bee: bee("CAPTURING"), triage: tri({}) });
     expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("capturing");
     expect(markConversationProcessed).not.toHaveBeenCalled();
   });
 
