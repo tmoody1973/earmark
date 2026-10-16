@@ -28,6 +28,8 @@ type IdeaItem = Extract<SaveItem, { kind: "idea" }>;
 type Decision = ClusterPlan | { action: "skip" };
 
 // The pre-transaction half of the idea compost (the save is buildSaveQueries, inside the claim transaction).
+// `items` must come from ONE occasion (one conversation or one voice note): a match on a cluster planned earlier in
+// the same call is treated as a repeat from that occasion.
 // For each accepted idea, in order: embed it, offer Jev the nearest stored clusters plus the clusters this run is
 // about to create, and attach the decision. An idea whose chosen cluster already has a mention from the same
 // conversation or voice note (stored, or planned earlier in this run) is dropped: one mention per occasion.
