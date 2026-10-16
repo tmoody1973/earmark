@@ -110,6 +110,19 @@ describe("splitDeliberate: a trigger split across two utterances", () => {
     if (want) expect(earmarks[0]!.body).toBe("Kawa Ramen on Brady Street");
   });
 
+  // M4: the two halves must be said together: both have spoken_at, at most 2 s apart. Within that, a split line
+  // behaves exactly like the same words said as one utterance ("Remark that…" is a trigger, decision 007).
+  const at = (s: number, text: string, id: number): Utterance => ({ text, speaker: "Unknown", spokenAt: new Date(Date.UTC(2026, 9, 16, 18, 23, s)), id });
+  it.each([
+    ["Remark | that the weather is nice, 1 s apart", [at(0, "Remark", 1), at(1, "that the weather is nice", 2)], "the weather is nice"],
+    ["Re | mark that down, 2 s apart", [at(0, "Re", 1), at(2, "mark that down", 2)], "down"],
+    ["Earm | ark that., 3 s apart", [at(0, "Earm", 1), at(3, "ark that.", 2), at(4, "Kawa Ramen on Brady", 3)], null],
+    ["Earm | ark that., second half has no spoken_at", [at(0, "Earm", 1), { ...at(0, "ark that.", 2), spokenAt: null }, at(1, "Kawa Ramen", 3)], null],
+  ] as const)("%s", (_name, lines, body) => {
+    const { earmarks } = splitDeliberate(lines);
+    expect(earmarks[0]?.body ?? null).toBe(body);
+  });
+
   it("an utterance that triggers on its own keeps its own key (never the filler before it)", () => {
     const { earmarks, rest } = splitDeliberate([u("Done.", 1), u("Earmark that.", 2), u("Kawa Ramen on Brady Street", 3)]);
     expect(earmarks.map((e) => e.key)).toEqual(["u2"]);

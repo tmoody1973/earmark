@@ -27,6 +27,9 @@ async function draftIfBloomed(saved: { bloomedClusterIds: number[] } | undefined
 
 // The stream sends no created_at, yet a voice note's recording time is its rec's said_at and what the ±60 s
 // one-earmark-per-moment check compares (M2-T14). For an earmark note only (rare), ask REST; on any failure use now.
+// Known cost of the fallback: the note is dated by its delivery, which can be minutes after it was said, so the ±60 s
+// check can miss its conversation copy and both are saved (a duplicate, never a lost earmark). Non-earmark notes save
+// nothing, so they keep now without a lookup.
 async function journalCreatedAt(id: string, text: string, deps: Partial<PipelineDeps>): Promise<Date> {
   const now = (deps.now ?? (() => new Date()))();
   if (!parseEarmarkTrigger(text).matched) return now;

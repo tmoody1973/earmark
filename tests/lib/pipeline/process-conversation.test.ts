@@ -409,8 +409,47 @@ describe("processConversation", () => {
     });
 
     // M2-T14: Bee heard the same words as a voice note during this conversation.
-    const voiceNote = (over: Partial<{ name: string; type: string; firstName: string | null; saidAt: Date }> = {}) =>
-      ({ id: 156, name: "Ardent", type: "place", firstName: "Ann", saidAt: new Date(1760600000000 + 4_000), ...over });
+    const voiceNote = (over: Partial<{ id: number; name: string; type: string; firstName: string | null; saidAt: Date }> = {}) =>
+      ({ id: 156, name: "Ardent", type: "place", firstName: "Ann", saidAt: new Date(1760600000000 + 4_000), deliberate: true, ...over });
+
+    it("I-2a: an ambient rec is matched to a voice note by name only, never by recommender + type", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Kawa Ramen", saidAt: new Date(1760600000000 + 1) })]);
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) }); // ambient "Ardent", Ann, place
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("I-2c: Marcus's Acts of Faith (saved as a voice note), then a cut-off 'Blonde' (Marcus, album): Blonde is saved", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ id: 157, name: "Acts of Faith", type: "album", firstName: "Marcus" })]);
+      const extractRecommendation = vi.fn(async ({ text }: { text: string }) => ({
+        canonicalName: text.includes("Blonde") ? "Blonde" : "Acts of Faith", creator: null, recommenderName: "Marcus", excerpt: "Marcus says",
+      })) as PipelineDeps["extractRecommendation"];
+      const utterances = [spoken("Earmark that Marcus says listen to Acts of Faith.", 1), spoken("Earmark that Marcus says try Blonde now.", 2)];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", utterances), triage: tri({ recType: "album" }) });
+      expect(r).toMatchObject({ recs: 1 });
+      expect(recs()[0]!.params).toContain("Blonde");
+    });
+
+    it("M3: across the whole span only an exact normalized name blocks ambient ('Shogun' at min 2 vs 'Shogun on Hulu' at min 40)", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Shogun", type: "film_tv", firstName: null, saidAt: new Date(1760600000000 - 38 * 60_000) })]);
+      const extractRecommendation = vi.fn(async () => ({ canonicalName: "Shogun on Hulu", creator: null, recommenderName: null, excerpt: "watch it" })) as PipelineDeps["extractRecommendation"];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee(), triage: tri({ recType: "film_tv" }) });
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("M5: a systemic triage failure throws before the voice-note lookup", async () => {
+      await expect(processConversation(42, { ...base, bee: bee(), triage: vi.fn(async () => { throw new Error("down"); }) as PipelineDeps["triage"] })).rejects.toThrow();
+      expect(recsSaidBetween).not.toHaveBeenCalled();
+    });
+
+    it("M7: without spoken_at the transcript is ordered by id, then by array order", async () => {
+      const raw = (text: string, id?: number) => ({ text, speaker: "Unknown", ...(id ? { id } : {}) });
+      const triage = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [raw("Earmark that.", 1), raw("later talk", 3), raw("Ann says try Ardent", 2)] as never), triage });
+      expect(vi.mocked(triage).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent later talk");
+      const triage2 = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [raw("Earmark that."), raw("Ann says try Ardent"), raw("later talk")] as never), triage: triage2 });
+      expect(vi.mocked(triage2).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent later talk");
+    });
 
     it("asks for the voice notes said during the conversation (its span ± 60 s)", async () => {
       await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });

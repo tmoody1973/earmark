@@ -80,7 +80,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("one earmark per moment across v
     else process.env.EARMARK_OWNER_FIRST_NAME = prevOwner;
     const { db } = await import("../../agent/lib/db");
     const sql = db();
-    await sql`delete from recommendations where bee_conversation_id in (${CONV_A}, ${CONV_B}) or bee_journal_id like ${JID + "%"}`;
+    await sql`delete from recommendations where bee_conversation_id between ${CONV_A} and ${CONV_A + 9} or bee_journal_id like ${JID + "%"}`;
+    await sql`delete from idea_clusters where id in (select cluster_id from idea_mentions
+              where bee_conversation_id between ${CONV_A} and ${CONV_A + 9} or bee_journal_id like ${JID + "%"})`;
+    await sql`delete from processed_conversations where bee_conversation_id between ${CONV_A} and ${CONV_A + 9}`;
     await sql`delete from recommenders r where first_name_key = any(${PEOPLE}) and not exists (select 1 from recommendations x where x.recommender_id = r.id)`;
     await sql`delete from processed_journals where bee_journal_id like ${JID + "%"}`;
     await sql`delete from processed_conversations where bee_conversation_id in (${CONV_A}, ${CONV_B})`;
@@ -171,5 +174,79 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("one earmark per moment across v
       ["lena", "rec", byName["Shogun"], true],
       ["marcus", "rec", byName["Acts of Faith"], true],
     ]);
+  }, SLOW);
+
+  // I-2c: a conversation rec that one voice note already repeated (its claim points at it) cannot absorb a second note.
+  it("a second voice note with the same name is saved: the conversation rec is already paired", async () => {
+    const base = baseFor(1);
+    const { processJournal } = await import("../../agent/lib/pipeline/process-journal");
+    await processJournal({ id: `${JID}-b-kawa2`, text: "Earmark that Zzann's ramen spot, Kawa Ramen", createdAt: new Date(base + 50_000) }, deps(base));
+    expect((await recsOf({ journalPrefix: `${JID}-b-kawa2` })).map((r) => r.canonical_name)).toEqual(["Kawa Ramen"]);
+  }, SLOW);
+
+  // ── I-1: ideas count once per moment ────────────────────────────────────────────────────────────────────────────
+  const titleFor = (base: number) => `Zz record store segment ${base}`; // one cluster per test
+  const IDEA = "zzidea a weekly segment about record stores";
+  const ideaDeps = (base: number, as: "idea" | "rec"): Partial<PipelineDeps> => ({
+    ...deps(base),
+    bee: {
+      getConversation: async (id: number) => ({
+        conversation: {
+          id, state: "COMPLETED", start_time: base - 600_000, end_time: base + 600_000, summary: null, short_summary: null,
+          transcriptions: [{ realtime: false, utterances: [
+            { id: 301, text: "so where were we", speaker: "Tarik", spoken_at: base - 20_000 },
+            { id: 302, text: `Earmark that, ${IDEA}.`, speaker: "Tarik", spoken_at: base },
+            { id: 303, text: "right, back to work then", speaker: "Unknown", spoken_at: base + 30_000 },
+          ] }],
+        },
+      }),
+    } as unknown as BeeClient,
+    triage: async (text: string) =>
+      text.includes("zzidea") ? (as === "idea" ? tri({ kind: "idea_by_user", recType: "none" }) : tri({ recType: "other" })) : tri({ kind: "neither" }),
+    extractRecommendation: async () => ({ canonicalName: "Record store segment", creator: null, recommenderName: null, excerpt: "a weekly segment about record stores" }),
+    extractIdea: async () => ({ title: titleFor(base), excerpt: "a weekly segment about record stores" }),
+    compost: {
+      embedText: async () => Array.from({ length: 1536 }, (_, j) => (j === 1200 + (RUN % 100) ? 1 : 0)),
+      chooseCluster: async (_i: unknown, options: { key: string; title: string }[]) => ({ key: options.find((o) => o.title === titleFor(base))?.key ?? null }),
+      writeTimelineNote: async () => "stub",
+    } as never,
+  });
+  const voiceIdea = async (base: number, name: string, as: "idea" | "rec") => {
+    const { processJournal } = await import("../../agent/lib/pipeline/process-journal");
+    return processJournal({ id: `${JID}-${name}`, text: `Earmark that ${IDEA}`, createdAt: new Date(base + 3_000) }, ideaDeps(base, as));
+  };
+  const clusterOf = async (where: { conv: number } | { journal: string }) => {
+    const { db } = await import("../../agent/lib/db");
+    const rows = "conv" in where
+      ? await db()`select c.id, c.mention_count from idea_clusters c join idea_mentions m on m.cluster_id = c.id where m.bee_conversation_id = ${where.conv}`
+      : await db()`select c.id, c.mention_count from idea_clusters c join idea_mentions m on m.cluster_id = c.id where m.bee_journal_id = ${`${JID}-${where.journal}`}`;
+    return rows.map((r) => ({ id: Number(r.id), mentions: Number(r.mention_count) }));
+  };
+
+  it("I-1: an idea voice note, then the conversation's deliberate idea: one mention", async () => {
+    const base = baseFor(2);
+    expect(await voiceIdea(base, "idea-a", "idea")).toMatchObject({ created: "idea" });
+    const { processConversation } = await import("../../agent/lib/pipeline/process-conversation");
+    expect(await processConversation(CONV_A + 2, ideaDeps(base, "idea"))).toMatchObject({ skipped: false, ideas: 0 });
+    expect(await clusterOf({ journal: "idea-a" })).toEqual([{ id: expect.any(Number), mentions: 1 }]);
+    expect(await clusterOf({ conv: CONV_A + 2 })).toEqual([]);
+  }, SLOW);
+
+  it("I-1: the conversation's deliberate idea, then the idea voice note: one mention", async () => {
+    const base = baseFor(3);
+    const { processConversation } = await import("../../agent/lib/pipeline/process-conversation");
+    expect(await processConversation(CONV_A + 3, ideaDeps(base, "idea"))).toMatchObject({ skipped: false, ideas: 1 });
+    expect(await voiceIdea(base, "idea-b", "idea")).toMatchObject({ created: null });
+    expect(await clusterOf({ conv: CONV_A + 3 })).toEqual([{ id: expect.any(Number), mentions: 1 }]);
+    expect(await clusterOf({ journal: "idea-b" })).toEqual([]);
+  }, SLOW);
+
+  it("I-1: the two copies classified differently (voice note idea, conversation rec): the idea still counts once", async () => {
+    const base = baseFor(4);
+    expect(await voiceIdea(base, "idea-c", "idea")).toMatchObject({ created: "idea" });
+    const { processConversation } = await import("../../agent/lib/pipeline/process-conversation");
+    expect(await processConversation(CONV_A + 4, ideaDeps(base, "rec"))).toMatchObject({ skipped: false, ideas: 0 });
+    expect(await clusterOf({ journal: "idea-c" })).toEqual([{ id: expect.any(Number), mentions: 1 }]);
+    expect(await clusterOf({ conv: CONV_A + 4 })).toEqual([]);
   }, SLOW);
 });

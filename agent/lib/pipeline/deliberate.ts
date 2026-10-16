@@ -26,14 +26,19 @@ const endsSentence = (t: string) => /[.!?…]["'”’)]*\s*$/.test(t.trim());
 
 // Bee's diarization can cut the trigger word itself in two (real conversation 11338188: "Earm" | "ark that.", two
 // speakers, same second). A short fragment is joined to the next utterance (with and without a space) when that next
-// utterance does not trigger on its own. span = how many utterances the trigger used.
+// utterance does not trigger on its own and both were said together (both spoken_at known, ≤ 2 s apart). Joined, it
+// behaves exactly like the same words said as one utterance. span = how many utterances the trigger used.
 const MAX_FRAGMENT_WORDS = 3;
+const MAX_FRAGMENT_GAP_MS = 2_000;
 type Trigger = { t: ReturnType<typeof detectEarmarkTrigger>; text: string; span: 1 | 2 };
-function triggerAt(texts: readonly string[], p: number): Trigger {
-  const a = texts[p]!.trim();
+function triggerAt(us: readonly Utterance[], p: number): Trigger {
+  const a = us[p]!.text.trim();
   const t = detectEarmarkTrigger(a);
-  const b = texts[p + 1]?.trim();
-  if (t.matched || !b || wordCount(a) > MAX_FRAGMENT_WORDS || detectEarmarkTrigger(b).matched) return { t, text: a, span: 1 };
+  const next = us[p + 1];
+  const b = next?.text.trim();
+  const [ta, tb] = [us[p]!.spokenAt?.getTime(), next?.spokenAt?.getTime()];
+  const together = ta !== undefined && tb !== undefined && Math.abs(tb - ta) <= MAX_FRAGMENT_GAP_MS;
+  if (t.matched || !b || !together || wordCount(a) > MAX_FRAGMENT_WORDS || detectEarmarkTrigger(b).matched) return { t, text: a, span: 1 };
   for (const joined of [a + b, `${a} ${b}`]) {
     const j = detectEarmarkTrigger(joined);
     if (j.matched) return { t: j, text: joined, span: 2 };
@@ -45,8 +50,8 @@ function triggerAt(texts: readonly string[], p: number): Trigger {
 // continuation), so ambient triage can never save the same thing a second time.
 export function splitDeliberate(utterances: readonly Utterance[]): { earmarks: DeliberateEarmark[]; rest: Utterance[] } {
   const present = utterances.flatMap((x, index) => (x.text.trim() ? [{ x, index }] : []));
-  const texts = present.map(({ x }) => x.text);
-  const trigger = present.map((_, p) => triggerAt(texts, p));
+  const said = present.map(({ x }) => x);
+  const trigger = present.map((_, p) => triggerAt(said, p));
   const taken = new Set<number>(); // original indexes removed from the transcript
   const earmarks: DeliberateEarmark[] = [];
   for (let p = 0; p < present.length; p++) {
