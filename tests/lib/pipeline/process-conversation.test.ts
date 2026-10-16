@@ -22,6 +22,7 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   isConversationProcessed: vi.fn(async () => false),
   markConversationProcessed: vi.fn(async () => true),
   releaseConversation: vi.fn(async () => undefined),
+  savedDeliberateKeys: vi.fn(async () => new Set<string>()),
 }));
 
 // Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
@@ -31,7 +32,7 @@ vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
 }));
 
 import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
-import { isConversationProcessed, markConversationProcessed, releaseConversation } from "../../../agent/lib/store/conversations";
+import { isConversationProcessed, markConversationProcessed, releaseConversation, savedDeliberateKeys } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
 import type { BeeClient } from "../../../agent/lib/bee/client";
@@ -390,6 +391,49 @@ describe("processConversation", () => {
 
     it("no deadline is never incomplete", async () => {
       expect(await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).toMatchObject({ incomplete: false });
+    });
+  });
+
+  describe("deliberate 'Earmark that' (M2-T12)", () => {
+    const spoken = (text: string, id: number) => ({ text, speaker: "Unknown", spoken_at: 1760600000000 + id, id });
+    const EARMARK = "Earmark that Ann says to try Ardent on Brady Street.";
+
+    it("an ambient window that re-mentions an earmarked thing by name does not save it a second time", async () => {
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 1 });
+      expect(recs()).toHaveLength(1);
+      expect(recs()[0]!.params).toEqual(expect.arrayContaining(["voice", "new", "u1"]));
+    });
+
+    it("the earmarked lines never reach ambient triage", async () => {
+      const utterances = [spoken(EARMARK, 1), spoken("one", 2), spoken("two", 3)];
+      const triage = tri({ kind: "neither" });
+      await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage });
+      const seen = vi.mocked(triage).mock.calls.map((c) => c[0]);
+      expect(seen.some((t) => t.includes("Earmark"))).toBe(false);
+      expect(seen).toContain("Unknown: Ann says to try Ardent on Brady Street"); // the deliberate planner's own call
+    });
+
+    it("a conversation of only earmarks still completes (an empty ambient transcript is not an outage)", async () => {
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 1, incomplete: false });
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    it("an earmark already saved from this conversation is skipped before any model call", async () => {
+      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Set(["u1"]));
+      const triage = tri({});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage });
+      expect(triage).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ skipped: false, recs: 0 });
+    });
+
+    it("a triage outage on a deliberate earmark releases the claim and throws (the person asked for it)", async () => {
+      const triage = vi.fn(async () => { throw new Error("gateway down"); }) as unknown as PipelineDeps["triage"];
+      await expect(processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage })).rejects.toBeInstanceOf(SystemicTriageError);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+      expect(committed).toHaveLength(0);
     });
   });
 });
