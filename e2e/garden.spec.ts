@@ -1,4 +1,5 @@
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
+import { neon } from "@neondatabase/serverless";
 import { expect, test, type Page } from "@playwright/test";
 
 // Both users live in the Clerk *development* instance. The owner is whoever EARMARK_OWNER_CLERK_ID names;
@@ -65,6 +66,71 @@ test("the shelf renders a type-aware card for every tip", async ({ page }, info)
   await expect(page.getByRole("heading", { name: "Shelf" })).toBeVisible();
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   await page.screenshot({ path: `${dir}/m4-garden-${label}-${width}.png`, fullPage: true });
+});
+
+// Idea plants and the idea page (M4-T3). With SHOT_LABEL=sample (dev server on the test branch seeded by
+// scripts/seed-sample-ideas.ts) it visits one idea per plant level plus the dismissed one; with real data, the first.
+test("ideas grow as plants on the garden, and each opens its own page", async ({ page }, info) => {
+  const label = process.env.SHOT_LABEL ?? "real";
+  const dir = "docs/design/screens";
+  const width = info.project.name === "phone" ? 390 : 1440;
+  const noOverflow = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  await signInAs(page, OWNER_EMAIL);
+
+  await page.goto("/");
+  const homePlants = page.locator("#garden").getByTestId("plant");
+  await expect(homePlants.first()).toBeVisible();
+  expect(await homePlants.count()).toBeLessThanOrEqual(6);
+  for (const p of await homePlants.all()) {
+    await expect(p).toHaveAttribute("data-cluster-id", /^\d+$/);
+    await expect(p).toHaveAttribute("data-level", /^(seed|sprout|bloom|fruit|harvested)$/);
+  }
+  await noOverflow();
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await page.screenshot({ path: `${dir}/m4-ideas-home-${label}-${width}.png`, fullPage: true });
+
+  await page.goto("/garden");
+  const byLevel = new Map<string, string>();
+  for (const card of await page.locator(".idea-card").all()) {
+    const level = (await card.getByTestId("plant").getAttribute("data-level"))!;
+    if (!byLevel.has(level)) byLevel.set(level, (await card.locator("a.idea-link").getAttribute("href"))!);
+  }
+  const visits = label === "sample" ? [...byLevel] : [...byLevel].slice(0, 1);
+  if (label === "sample") {
+    const [d] = await neon(process.env.TEST_DATABASE_URL!)`select id from idea_clusters where summary = 'sample-ideas' and stage = 'dismissed'`;
+    if (d) visits.push(["dismissed", `/ideas/${d.id}`]);
+  }
+  expect(visits.length).toBeGreaterThan(0);
+  for (const [level, href] of visits) {
+    await page.goto(href);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How it grew" })).toBeVisible();
+    await expect(page.locator(".idea-head").getByTestId("plant")).toHaveAttribute("role", "img");
+    // timeline lines in date order, oldest first
+    const dates = await page.locator(".growth > li").evaluateAll((els) => els.map((e) => e.getAttribute("data-date")!));
+    expect(dates).toEqual([...dates].sort());
+    // excerpts stay folded until asked for
+    const first = page.locator(".growth details").first();
+    if (await first.count()) {
+      await expect(first.locator("blockquote")).toBeHidden();
+      await first.locator("summary").click();
+      await expect(first.locator("blockquote")).toBeVisible();
+    }
+    await noOverflow();
+    await page.addStyleTag({ content: HIDE_DEV_BADGE });
+    await page.screenshot({ path: `${dir}/m4-idea-${label}-${level}-${width}.png`, fullPage: true });
+  }
+  // 320 px still works
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(visits[0]![1]);
+  await noOverflow();
+});
+
+test("an idea that does not exist is a 404", async ({ page }) => {
+  await signInAs(page, OWNER_EMAIL);
+  expect((await page.goto("/ideas/999999999"))?.status()).toBe(404);
+  expect((await page.goto("/ideas/not-a-number"))?.status()).toBe(404);
 });
 
 // Needs a linked place card with a map (the sample set has one); real data may not, so it skips there.

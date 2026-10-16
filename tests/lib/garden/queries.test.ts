@@ -4,7 +4,7 @@ import { makeMockDb } from "../../helpers/mock-db";
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
-import { getGardenView, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
+import { getGardenView, getIdeaDetail, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
 
 const recRow = {
   id: 7, type: "album", canonical_name: "Promises", creator: "Floating Points",
@@ -68,5 +68,34 @@ describe("garden queries", () => {
     expect(shelf).toHaveLength(1);
     expect(h.mock.calls).toHaveLength(1);
     expect(h.mock.calls[0].text).not.toContain("idea_clusters");
+  });
+
+  it("marks a plant unconfirmed and carries its newest line by date", () => {
+    const plant = toPlant({
+      id: 2, title: "Station crates", stage: "sprouting", mention_count: 2, last_mentioned_at: null, pinned: false,
+      flagged: false, confirmed: false,
+      timeline: [{ date: "2026-10-12T00:00:00Z", line: "Oct 11: added crates" }, { date: "2026-10-01T00:00:00Z", line: "Sep 30: first heard" }],
+    });
+    expect(plant).toMatchObject({ confirmed: false, latestLine: "Oct 11: added crates" });
+  });
+
+  it("returns null for a missing idea", async () => {
+    h.mock.queue.push([]);
+    expect(await getIdeaDetail(999)).toBeNull();
+    expect(h.mock.calls).toHaveLength(1);
+  });
+
+  it("loads a dismissed idea (shown greyed) but never selects a dismissed mention's excerpt", async () => {
+    h.mock.queue.push(
+      [{ id: 5, title: "Old idea", stage: "dismissed", mention_count: 2, last_mentioned_at: "2026-10-02T00:00:00Z",
+        first_mentioned_at: "2026-10-01T00:00:00Z", pinned: false, flagged: false, confirmed: true, timeline: [],
+        draft_md: null, draft_format: null, notion_page_id: null }],
+      [{ id: 1, spoken_at: "2026-10-01T00:00:00Z", source: "ambient", review_status: "dismissed", excerpt: null }],
+    );
+    const idea = await getIdeaDetail(5);
+    expect(idea?.plant.stage).toBe("dismissed");
+    expect(h.mock.calls[0].text).not.toContain("stage <> 'dismissed'");
+    expect(h.mock.calls[1].text).toContain("when review_status = 'dismissed' then null else excerpt");
+    expect(idea?.mentions[0]).toMatchObject({ excerpt: null, reviewStatus: "dismissed" });
   });
 });
