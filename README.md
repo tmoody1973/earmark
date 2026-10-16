@@ -27,6 +27,8 @@ Requirements: Node 24 (`.node-version`), pnpm 10, a Bee with Developer Mode on, 
    - A production Clerk instance has different user ids, so set `EARMARK_OWNER_CLERK_ID` separately for each instance (and each Vercel environment).
    - `pnpm test:e2e` also needs `E2E_OWNER_EMAIL` (the owner's Clerk email) in `.env.local`.
 
+CI: every PR and push to `main` runs typecheck, unit tests, lint, build and a gitleaks secret scan (`.github/workflows/ci.yml`, no secrets needed). Making it block merges is a manual GitHub step: Settings → Branches → Add rule → `main` → Require status checks to pass → `CI` (add both the `check` and `gitleaks` jobs).
+
 ## Run
 
 - Agent (relay target, schedules): `pnpm dev:agent` → http://localhost:2000
