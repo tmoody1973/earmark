@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({
   nearestClusters: vi.fn(),
   hasMentionFromSameOccasion: vi.fn(),
+  getClusterTimeline: vi.fn(),
 }));
 vi.mock("../../../agent/lib/store/ideas", () => store);
 
@@ -26,6 +27,7 @@ type Choose = (idea: { title: string; excerpt: string }, options: ClusterOption[
 const deps = {
   embedText: vi.fn(async (_t: string) => vec(0)),
   chooseCluster: vi.fn<Choose>(),
+  writeTimelineNote: vi.fn(async (_i: { clusterTitle: string; priorLines: string[]; excerpt: string }) => "added a radio segment angle"),
 };
 
 beforeEach(() => {
@@ -33,6 +35,8 @@ beforeEach(() => {
   deps.embedText.mockImplementation(async () => vec(0));
   store.nearestClusters.mockResolvedValue([]);
   store.hasMentionFromSameOccasion.mockResolvedValue(false);
+  store.getClusterTimeline.mockResolvedValue([]);
+  deps.writeTimelineNote.mockImplementation(async () => "added a radio segment angle");
   deps.chooseCluster.mockImplementation(async (_i, opts) => (opts.length === 0 ? { key: null, choice: "new_idea", probability: 1 } : { key: null, choice: "new_idea", probability: 0.9 }));
 });
 
@@ -178,5 +182,67 @@ describe("planIdeaClusters", () => {
     deps.chooseCluster.mockRejectedValueOnce(new Error("jev down"));
     await expect(planIdeaClusters([idea("A"), idea("B", { route: "review" })], deps)).rejects.toBeInstanceOf(CompostUnavailableError);
     spy.mockRestore();
+  });
+
+  describe("timeline note", () => {
+    const entry = (line: string) => ({ date: "2026-09-01T00:00:00.000Z", line });
+
+    it("create: asks for a note with the idea's own title and no prior lines, and carries it on the plan", async () => {
+      const [out] = await planIdeaClusters([idea("House music segment")], deps);
+      expect(deps.writeTimelineNote).toHaveBeenCalledWith({ clusterTitle: "House music segment", priorLines: [], excerpt: "what if we did House music segment" });
+      expect(out).toMatchObject({ cluster: { action: "create", timelineNote: "added a radio segment angle" } });
+    });
+
+    it("join: gives the model the cluster's title and only its last 2 prior lines", async () => {
+      store.nearestClusters.mockResolvedValue([dbCluster(12, "AI newsletter")]);
+      deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+      store.getClusterTimeline.mockResolvedValue([entry("Sep 1: a"), entry("Sep 2: b"), entry("Sep 3: c")]);
+      const [out] = await planIdeaClusters([idea("Newsletter on AI")], deps);
+      expect(store.getClusterTimeline).toHaveBeenCalledWith(12);
+      expect(deps.writeTimelineNote).toHaveBeenCalledWith(expect.objectContaining({ clusterTitle: "AI newsletter", priorLines: ["Sep 2: b", "Sep 3: c"] }));
+      expect(out).toMatchObject({ cluster: { action: "join", clusterId: 12, timelineNote: "added a radio segment angle" } });
+    });
+
+    it("a dropped duplicate (same occasion) generates no note at all", async () => {
+      store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+      deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+      store.hasMentionFromSameOccasion.mockResolvedValue(true);
+      expect(await planIdeaClusters([idea("Newsletter on AI")], deps)).toEqual([]);
+      expect(deps.writeTimelineNote).not.toHaveBeenCalled();
+    });
+
+    it("note failure falls back to the code line, logs ids + error name only, and is not an outage", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      class GatewayError extends Error { override name = "GatewayError"; }
+      deps.writeTimelineNote.mockRejectedValue(new GatewayError("excerpt words here"));
+      store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+      deps.chooseCluster.mockResolvedValueOnce({ key: "c_12", choice: "c_12", probability: 0.8 }).mockResolvedValueOnce({ key: null, choice: "new_idea", probability: 1 });
+      const out = await planIdeaClusters([idea("A"), idea("B")], deps);
+      expect(out[0]).toMatchObject({ cluster: { action: "join", clusterId: 12, timelineNote: "mentioned again" } });
+      expect(out[1]).toMatchObject({ cluster: { action: "create", timelineNote: "first heard" } });
+      const logged = spy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(logged).toContain("conversation=501");
+      expect(logged).toContain("GatewayError");
+      expect(logged).not.toContain("excerpt words");
+      spy.mockRestore();
+    });
+
+    it("an unreadable prior timeline also falls back instead of failing the plan", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      store.nearestClusters.mockResolvedValue([dbCluster(12)]);
+      deps.chooseCluster.mockResolvedValue({ key: "c_12", choice: "c_12", probability: 0.8 });
+      store.getClusterTimeline.mockRejectedValue(new Error("db blip"));
+      const [out] = await planIdeaClusters([idea("A")], deps);
+      expect(out).toMatchObject({ cluster: { action: "join", timelineNote: "mentioned again" } });
+      spy.mockRestore();
+    });
+
+    it("a plan that already fell back to create (embed failed) skips the model and uses the code line", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      deps.embedText.mockRejectedValueOnce(new Error("x"));
+      const [out] = await planIdeaClusters([idea("A"), idea("B")], deps);
+      expect(out).toMatchObject({ cluster: { action: "create", timelineNote: "first heard" } });
+      spy.mockRestore();
+    });
   });
 });

@@ -63,7 +63,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(await processJournal({ id: none, text: "remind me to call mom", createdAt }, fakeDeps("neither"))).toMatchObject({ created: null });
     const [n] = await db()`select item_type from processed_journals where bee_journal_id = ${none}`;
     expect(n).toMatchObject({ item_type: "none" });
-  });
+  }, 30_000); // embed + Jev + timeline note are real Gateway calls (compost is not stubbed here)
 
   it("finished claims are done: a saved voice item and a non-trigger note", async () => {
     const { db } = await import("../../agent/lib/db");

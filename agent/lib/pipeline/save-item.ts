@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { toVectorLiteral } from "../ideas/embed";
+import { NOTE_AGAIN, NOTE_FIRST, timelineEntryJson } from "../ideas/timeline";
 import type { Txn } from "../store/conversations";
 import type { AttributionSource, IdeaExtraction, RecExtraction, RecType, Source } from "../types";
 import { clampExcerpt } from "./excerpt";
@@ -26,9 +27,11 @@ export type SaveItem =
 // Where an idea mention goes (accepted or needs_review alike), decided before the transaction by planIdeaClusters.
 // create: a new cluster (embedding null when embedding failed: no centroid, so never a nearest candidate).
 // join: one more mention on an existing cluster. Absent (legacy callers): a new cluster, no embedding.
+// timelineNote: the short "what this mention added" text (model-written, or the code fallback); the date is added by
+// code in buildSaveQueries. Absent: "first heard" / "mentioned again".
 export type ClusterPlan =
-  | { action: "create"; embedding: number[] | null }
-  | { action: "join"; clusterId: number; embedding: number[] };
+  | { action: "create"; embedding: number[] | null; timelineNote?: string }
+  | { action: "join"; clusterId: number; embedding: number[]; timelineNote?: string };
 
 // Ids of what one transaction saved, for the lanes that hook on new items (M2 clustering, M3 rec lane).
 export interface SavedIds { recIds: number[]; ideaClusterIds: number[]; mentionIds: number[] }
@@ -56,6 +59,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
     const excerpt = clampExcerpt(item.extraction.excerpt);
     if (plan?.action === "join") {
       const v = toVectorLiteral(plan.embedding);
+      const entry = timelineEntryJson(item.spokenAt, plan.timelineNote ?? NOTE_AGAIN);
       // Stage via idea_stage_for (= stageFor) on the row's own count, so drafted/used/dismissed never move.
       // Centroid = mean of the cluster's non-dismissed mention embeddings (accepted and needs_review) plus this one
       // (the CTE's insert is not visible to the subquery, so the new vector is added explicitly).
@@ -78,6 +82,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
                               union all select ${v}::vector) s),
                 first_mentioned_at = least(first_mentioned_at, ${item.spokenAt}::timestamptz),
                 last_mentioned_at = greatest(last_mentioned_at, ${item.spokenAt}::timestamptz),
+                timeline = coalesce(timeline, '[]'::jsonb) || ${entry}::jsonb,
                 updated_at = now()
               where id = ${plan.clusterId}::bigint
             )
@@ -86,10 +91,11 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
     }
     const counted = 1; // every mention counts, needs_review too (Tarik: review-band ideas count; decision 004)
     const v = plan?.embedding ? toVectorLiteral(plan.embedding) : null;
+    const entry = timelineEntryJson(item.spokenAt, plan?.timelineNote ?? NOTE_FIRST);
     return [
       txn`with c as (
-            insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, centroid)
-            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector)
+            insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, centroid, timeline)
+            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector, ${entry}::jsonb)
             returning id
           )
           insert into idea_mentions (cluster_id, bee_conversation_id, bee_journal_id, excerpt, embedding, spoken_at, confidence, review_status, source)
