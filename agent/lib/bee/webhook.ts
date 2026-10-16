@@ -15,6 +15,14 @@ export function presentedSecret(request: Request): string | null {
   return request.headers.get("x-earmark-key") ?? bearer?.[1] ?? null;
 }
 
+// Structure only (keys + value types, arrays as [elementType]); never values, so it is safe to log.
+export function shapeOf(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return v.length ? `[${shapeOf(v[0])}]` : "[]";
+  if (typeof v === "object") return `{${Object.entries(v).map(([k, x]) => `${k}:${shapeOf(x)}`).join(",")}}`;
+  return typeof v;
+}
+
 export async function handleRelayRequest(
   request: Request,
   opts: { secret: string; waitUntil: (p: Promise<unknown>) => void; handle: (evt: BeeEvent) => Promise<void> },
@@ -31,7 +39,7 @@ export async function handleRelayRequest(
   const parsed = BeeEventSchema.safeParse(body);
   if (!parsed.success) {
     const name = typeof body === "object" && body !== null && "event" in body ? String(body.event) : "?";
-    console.warn(`[bee] unrecognized event: ${name}`);
+    console.warn(`[bee] unrecognized event: ${name} shape=${shapeOf(body)}`);
     return Response.json({ ok: false, error: "unrecognized event" }, { status: 400 });
   }
   const evt = parsed.data;
