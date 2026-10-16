@@ -4,6 +4,7 @@ import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
+import { newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
 
 export interface RecCardData {
   id: number;
@@ -17,6 +18,8 @@ export interface RecCardData {
   why: string | null;
   recommender: { id: number; firstName: string } | null;
   saidAt: string;
+  /** When Earmark caught it: the "New since last time" row compares this, not when it was said. */
+  createdAt: string;
   status: RecStatus;
   rating: Rating | null;
   lat: number | null;
@@ -40,12 +43,12 @@ export interface PlantView {
   latestLine: string | null;
 }
 
-export interface GardenView { plants: PlantView[]; shelf: RecCardData[]; serverTime: string }
+export interface GardenView { plants: PlantView[]; shelf: RecCardData[]; serverTime: string; newChips: NewChip[] }
 
 export type GardenRecRow = {
   id: number; type: string; canonical_name: string; creator: string | null;
   year_or_address: string | null; image_url: string | null; context_summary: string | null;
-  said_at: Date | string; status: string; rating: string | null;
+  said_at: Date | string; created_at?: Date | string; status: string; rating: string | null;
   lat: number | null; lng: number | null; links: unknown;
   recommender_id: number | null; first_name: string | null;
 };
@@ -73,6 +76,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     why: clampWhy(r.context_summary),
     recommender: r.recommender_id && firstName && !isOwnerName ? { id: Number(r.recommender_id), firstName } : null,
     saidAt: iso(r.said_at)!,
+    createdAt: iso(r.created_at ?? r.said_at)!,
     status: r.status as RecStatus,
     rating: r.rating as Rating | null,
     lat: r.lat,
@@ -103,7 +107,7 @@ export function toPlant(r: PlantRow): PlantView {
 export async function getShelf(): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.status, r.rating, r.lat, r.lng, r.links,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.status not in ('dismissed','composted')
@@ -127,10 +131,38 @@ export async function getPlants(): Promise<PlantView[]> {
   return gardenOrder(rows.map(toPlant));
 }
 
-export async function getGardenView(): Promise<GardenView> {
+// `since`: the visit baseline (visit.ts); null on the first visit ever, when everything counts as new.
+export async function getGardenView(since: string | null = null): Promise<GardenView> {
+  const serverTime = new Date().toISOString(); // before the reads: the live poller picks up anything saved after it
   const plants = await getPlants();
   const shelf = await getShelf();
-  return { plants, shelf, serverTime: new Date().toISOString() };
+  const blooms = await getBloomsSince(since);
+  // ponytail: new tips come from the shelf's newest 60 by said_at; a tip said long ago but caught today past that
+  // window would be missed. Query recommendations by created_at if that ever happens.
+  return { plants, shelf, serverTime, newChips: newSince(since, shelf, blooms) };
+}
+
+// The latest bloom per idea after `since` (garden_events, M2-T6), for the "New since last time" row.
+export async function getBloomsSince(since: string | null): Promise<BloomSince[]> {
+  const rows = (await db()`
+    select distinct on (e.cluster_id) e.cluster_id, e.created_at, c.title, c.mention_count
+    from garden_events e join idea_clusters c on c.id = e.cluster_id
+    where e.kind = 'bloom' and c.stage <> 'dismissed'
+      and (${since}::timestamptz is null or e.created_at > ${since}::timestamptz)
+    order by e.cluster_id, e.created_at desc
+    limit 50`) as Array<{ cluster_id: number; created_at: Date | string; title: string; mention_count: number }>;
+  return rows.map((r) => ({ clusterId: Number(r.cluster_id), title: r.title, mentionCount: Number(r.mention_count), at: iso(r.created_at)! }));
+}
+
+// The owner's garden visits (visit.ts): one JSON record in sync_cursors (decision 023: no new table for one row).
+export const GARDEN_VISIT = "garden_visit";
+export async function getGardenVisit(): Promise<VisitState | null> {
+  const [r] = await db()`select cursor from sync_cursors where name = ${GARDEN_VISIT}`;
+  return parseVisit(r ? String(r.cursor) : null);
+}
+export async function saveGardenVisit(v: VisitState): Promise<void> {
+  await db()`insert into sync_cursors (name, cursor) values (${GARDEN_VISIT}, ${JSON.stringify(v)})
+             on conflict (name) do update set cursor = excluded.cursor, updated_at = now()`;
 }
 
 export interface IdeaDetail {
