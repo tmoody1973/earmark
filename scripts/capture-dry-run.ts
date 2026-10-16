@@ -44,7 +44,7 @@ console.log(JSON.stringify({
   pickedWindowIndex: picked && linked ? linked.windows.indexOf(picked.window) : null,
   pickProbability: picked?.probability ?? null,
   attributedWindow: picked ? "picked" : target ? "nearest (forced)" : "none",
-  classify: cls,
+  classify: { itemProbability: cls.itemProbability, isBook: cls.recType === "book", recTypeProbability: cls.recTypeProbability, personProbability: cls.personProbability },
   recommenderSource: who?.source ?? null,
   firstNameFound: who ? who.firstName !== null : null,
 }));

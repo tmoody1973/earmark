@@ -79,6 +79,19 @@ describe("findConversationNear candidate ordering", () => {
     expect(linked?.conversationId).toBe(6);
     expect(bee.getConversation).toHaveBeenCalledTimes(2);
   });
+  it("keeps paging past an undated conversation at the end of a page", async () => {
+    const dated = conv(8, T - 5 * 60_000, T + 3600_000, T - 30_000);
+    const undated = { ...conv(9, null, T + 3600_000, T - 30_000) };
+    const older = conv(10, T - 20 * 60_000, T + 3600_000, T - 40_000);
+    const all = [dated, undated, older];
+    const bee = {
+      listConversations: vi.fn(async ({ cursor }: { cursor?: string }) =>
+        cursor ? { conversations: [older], next_cursor: null } : { conversations: [dated, undated], next_cursor: "p2" }),
+      getConversation: vi.fn(async (id: number) => ({ conversation: all.find((c) => c.id === id)! })),
+    };
+    await findConversationNear(bee as never, new Date(T), here);
+    expect(bee.listConversations).toHaveBeenCalledTimes(2);
+  });
   it("skips a conversation with no start time instead of treating it as the epoch", async () => {
     const bee = beeOf([conv(7, null, T + 3600_000, T - 30_000)]);
     expect(await findConversationNear(bee as never, new Date(T), here)).toBeNull();
