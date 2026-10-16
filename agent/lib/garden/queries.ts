@@ -2,7 +2,8 @@ import { db } from "../db";
 import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
-import { isBloomed, plantLevel, type PlantLevel } from "./plant";
+import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
+import { parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
 
 export interface RecCardData {
   id: number;
@@ -33,6 +34,10 @@ export interface PlantView {
   lastMentionedAt: string | null;
   pinned: boolean;
   flagged: boolean;
+  /** false while every mention is still review-band (decision 004): the plant still grows, drawn lighter. */
+  confirmed: boolean;
+  /** The newest timeline line by date ("Oct 16: named three guests"), or null. */
+  latestLine: string | null;
 }
 
 export interface GardenView { plants: PlantView[]; shelf: RecCardData[]; serverTime: string }
@@ -48,6 +53,7 @@ export type GardenRecRow = {
 export type PlantRow = {
   id: number; title: string; stage: string; mention_count: number;
   last_mentioned_at: Date | string | null; pinned: boolean; flagged: boolean;
+  confirmed?: boolean; timeline?: unknown;
 };
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
@@ -87,6 +93,8 @@ export function toPlant(r: PlantRow): PlantView {
     lastMentionedAt: iso(r.last_mentioned_at),
     pinned: r.pinned,
     flagged: r.flagged,
+    confirmed: r.confirmed ?? true,
+    latestLine: parseTimeline(r.timeline).at(-1)?.line ?? null,
   };
 }
 
@@ -104,14 +112,70 @@ export async function getShelf(): Promise<RecCardData[]> {
   return recs.map(toRecCard);
 }
 
+// Every idea still growing (dismissed ones live only on their own page), in garden order.
+// ponytail: limit 200 is a range guard (the brief plans for 0–60); page the /garden route if a garden outgrows it.
+export async function getPlants(): Promise<PlantView[]> {
+  const rows = (await db()`
+    select c.id, c.title, c.stage, c.mention_count, c.last_mentioned_at, c.pinned, c.timeline,
+      (c.flagged_at is not null and (c.last_viewed_at is null or c.flagged_at > c.last_viewed_at)) as flagged,
+      exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed
+    from idea_clusters c
+    where c.stage <> 'dismissed' and c.mention_count > 0
+    order by c.last_mentioned_at desc nulls last
+    limit 200`) as PlantRow[];
+  return gardenOrder(rows.map(toPlant));
+}
+
 export async function getGardenView(): Promise<GardenView> {
-  const plants = (await db()`
-    select id, title, stage, mention_count, last_mentioned_at, pinned,
-      (flagged_at is not null and (last_viewed_at is null or flagged_at > last_viewed_at)) as flagged
-    from idea_clusters
-    where stage <> 'dismissed' and mention_count > 0
-    order by pinned desc, last_mentioned_at desc nulls last
-    limit 60`) as PlantRow[];
+  const plants = await getPlants();
   const shelf = await getShelf();
-  return { plants: plants.map(toPlant), shelf, serverTime: new Date().toISOString() };
+  return { plants, shelf, serverTime: new Date().toISOString() };
+}
+
+export interface IdeaDetail {
+  plant: PlantView;
+  firstMentionedAt: string | null;
+  timeline: TimelineEntry[];
+  mentions: MentionRef[];
+  draftMd: string | null;
+  draftFormat: string | null;
+  notionPageId: string | null;
+}
+
+// Owner-only page data. Dismissed ideas are returned (the page shows them greyed); dismissed mentions come back
+// without their excerpt, so it can never reach the page.
+export async function getIdeaDetail(id: number): Promise<IdeaDetail | null> {
+  const sql = db();
+  const [c] = (await sql`
+    select c.id, c.title, c.stage, c.mention_count, c.last_mentioned_at, c.first_mentioned_at, c.pinned, c.timeline,
+      c.draft_md, c.draft_format, c.notion_page_id,
+      (c.flagged_at is not null and (c.last_viewed_at is null or c.flagged_at > c.last_viewed_at)) as flagged,
+      exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed
+    from idea_clusters c where c.id = ${id}`) as Array<PlantRow & Record<string, unknown>>;
+  if (!c) return null;
+  const mentions = (await sql`
+    select id, spoken_at, source, review_status,
+      case when review_status = 'dismissed' then null else excerpt end as excerpt
+    from idea_mentions where cluster_id = ${id}
+    order by spoken_at asc, id asc`) as Array<Record<string, unknown>>;
+  return {
+    plant: toPlant(c),
+    firstMentionedAt: iso(c.first_mentioned_at as string | null),
+    timeline: parseTimeline(c.timeline),
+    mentions: mentions.map((m) => ({
+      id: Number(m.id),
+      spokenAt: iso(m.spoken_at as string)!,
+      excerpt: m.excerpt === null ? null : String(m.excerpt),
+      source: String(m.source),
+      reviewStatus: String(m.review_status),
+    })),
+    draftMd: (c.draft_md as string | null) ?? null,
+    draftFormat: (c.draft_format as string | null) ?? null,
+    notionPageId: (c.notion_page_id as string | null) ?? null,
+  };
+}
+
+// Runs in after() on the idea page: the page is owner-gated, and request APIs are off-limits inside after().
+export async function markIdeaViewed(id: number): Promise<void> {
+  await db()`update idea_clusters set last_viewed_at = now() where id = ${id}`;
 }

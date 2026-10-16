@@ -1,7 +1,7 @@
 import type { RecType } from "@/agent/lib/types";
 
 // One authored line set: 24-unit grid, 1.6 stroke, round caps, currentColor. Decorative: labels carry the meaning.
-const PATHS: Record<RecType | "heart" | "check", string> = {
+const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external", string> = {
   album: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   song: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   artist: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M4.5 20a7.5 7.5 0 0 1 15 0",
@@ -12,6 +12,10 @@ const PATHS: Record<RecType | "heart" | "check", string> = {
   other: "M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M14 3v4h4 M9 12h6 M9 16h4",
   heart: "M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10Z",
   check: "M5 12.5l4.5 4.5L19 7.5",
+  back: "M14.5 5.5 8 12l6.5 6.5",
+  chevron: "M9.5 6.5 15 12l-5.5 5.5",
+  copy: "M9 8.5h9.5a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z M16 8.5V4.5a1 1 0 0 0-1-1H5.5a1 1 0 0 0-1 1V15a1 1 0 0 0 1 1H8",
+  external: "M14 4h6v6 M20 4l-8.5 8.5 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
 };
 
 export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS; size?: number; className?: string }) {
