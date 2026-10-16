@@ -28,6 +28,12 @@ describe("writeTimelineNote hardening", () => {
     expect(await run(gen(raw))).toBe("added a guest");
   });
 
+  it.each([["Studio 54, played the set"], ["Route 66 – a road-trip show"], ["Apollo 11: moon landing special"]])(
+    "leaves a non-date start alone: %j", async (raw) => {
+      expect(await run(gen(raw))).toBe(raw);
+    },
+  );
+
   it("escapes double quotes in the title and excerpt inside the prompt", async () => {
     const g = gen("added a guest");
     await run(g, { clusterTitle: 'The "big" idea', excerpt: 'she said "go"' });
