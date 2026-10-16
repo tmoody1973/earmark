@@ -17,12 +17,20 @@ export function cardVariant(type: RecType): CardVariant {
   return VARIANTS[type];
 }
 
-const isHttp = (v: unknown): v is string => typeof v === "string" && /^https?:\/\//i.test(v);
+/** Only web links survive, and always as https (http is upgraded), so a card never loads mixed content or a script URL. */
+function toHttps(v: unknown): string | null {
+  if (typeof v !== "string" || !/^https?:\/\//i.test(v)) return null;
+  return v.replace(/^https?:\/\//i, "https://");
+}
 
-/** Apple Music artwork URLs are templates containing {w}x{h}; others pass through. Non-http values are dropped. */
+/** Apple Music artwork URLs are templates containing {w}x{h}; others pass through. Non-web values are dropped. */
 export function cardArtworkUrl(url: string | null, px: number): string | null {
-  if (!isHttp(url)) return null;
-  return url.replace("{w}", String(px)).replace("{h}", String(px));
+  return toHttps(url)?.replace("{w}", String(px)).replace("{h}", String(px)) ?? null;
+}
+
+/** An <img> that finished loading with no pixels failed — possibly before React attached its onError handler. */
+export function imageLoadFailed(img: { complete: boolean; naturalWidth: number }): boolean {
+  return img.complete && img.naturalWidth === 0;
 }
 
 /** Stable hue per title so a book spine (or a typographic ground) keeps its colour across renders. */
@@ -80,7 +88,5 @@ export function clampWhy(summary: string | null, max = WHY_MAX_WORDS): string | 
 export function cardLink(links: unknown): string | null {
   if (!links || typeof links !== "object") return null;
   const record = links as Record<string, unknown>;
-  if (isHttp(record.apple_music)) return record.apple_music;
-  if (isHttp(record.url)) return record.url;
-  return Object.values(record).find(isHttp) ?? null;
+  return toHttps(record.apple_music) ?? toHttps(record.url) ?? Object.values(record).map(toHttps).find(Boolean) ?? null;
 }

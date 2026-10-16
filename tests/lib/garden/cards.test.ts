@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cardArtwork, cardArtworkUrl, cardLink, cardVariant, clampWhy, lonLatToTile, osmTileUrl, spineHue,
+  cardArtwork, cardArtworkUrl, cardLink, cardVariant, clampWhy, imageLoadFailed, lonLatToTile, osmTileUrl, spineHue,
 } from "../../../agent/lib/garden/cards";
 
 describe("cardVariant", () => {
@@ -25,6 +25,10 @@ describe("cardArtworkUrl", () => {
     expect(cardArtworkUrl("https://covers.openlibrary.org/b/id/1-M.jpg", 300))
       .toBe("https://covers.openlibrary.org/b/id/1-M.jpg");
     expect(cardArtworkUrl(null, 300)).toBeNull();
+  });
+  it("upgrades http artwork to https so a card never loads mixed content", () => {
+    expect(cardArtworkUrl("http://is1.mzstatic.com/a/{w}x{h}bb.jpg", 300)).toBe("https://is1.mzstatic.com/a/300x300bb.jpg");
+    expect(cardArtworkUrl("HTTP://covers.openlibrary.org/b/id/1-M.jpg", 300)).toBe("https://covers.openlibrary.org/b/id/1-M.jpg");
   });
   it("refuses anything that is not http(s), so a stored value can never become a script or data URL", () => {
     expect(cardArtworkUrl("javascript:alert(1)", 300)).toBeNull();
@@ -108,6 +112,16 @@ describe("cardLink", () => {
     expect(cardLink({ tmdb: "https://www.themoviedb.org/movie/1" }))
       .toBe("https://www.themoviedb.org/movie/1");
     expect(cardLink({ note: "not a link" })).toBeNull();
+    expect(cardLink({ url: "http://a.example/x" })).toBe("https://a.example/x");
+    expect(cardLink({ url: "javascript:alert(1)" })).toBeNull();
     expect(cardLink(null)).toBeNull();
+  });
+});
+
+describe("imageLoadFailed (an image that failed before React hydrated)", () => {
+  it("is true only for a finished load with no pixels", () => {
+    expect(imageLoadFailed({ complete: true, naturalWidth: 0 })).toBe(true);
+    expect(imageLoadFailed({ complete: true, naturalWidth: 600 })).toBe(false);
+    expect(imageLoadFailed({ complete: false, naturalWidth: 0 })).toBe(false); // still loading: onError decides
   });
 });

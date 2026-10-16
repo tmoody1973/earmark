@@ -25,23 +25,25 @@ function TriedTag({ card }: { card: RecCardData }) {
 }
 
 /**
- * One tip on the shelf. Every variant shares this anatomy; only the artwork differs (Artwork.tsx).
- * Art sits above the text, never under it. The whole card opens the item's link when it has one; keep/dismiss
- * are separate targets above that link.
+ * One tip on the shelf. Every variant shares this anatomy; only the artwork differs (Artwork.tsx), and "other"
+ * tips are compact note cards with no artwork box. Art sits above the text, never under it. The whole card
+ * opens the item's link when it has one.
  */
 export function RecCard({ card }: { card: RecCardData }) {
   const unconfirmed = card.status === "needs_review";
+  const note = card.variant === "note";
   // A place's address is its "creator line"; everything else names its maker.
   const subline = card.variant === "map" ? card.yearOrAddress : card.creator;
   const titleId = `rec-${card.id}-title`;
+  const classes = ["rec-card", note && "rec-card--note", unconfirmed && "rec-card--unconfirmed", card.link && "rec-card--linked"];
   return (
     <article
-      className={`rec-card${unconfirmed ? " rec-card--unconfirmed" : ""}${card.link ? " rec-card--linked" : ""}`}
+      className={classes.filter(Boolean).join(" ")}
       data-testid="rec-card"
       data-variant={card.variant}
       aria-labelledby={titleId}
     >
-      <Artwork card={card} />
+      {!note && <Artwork card={card} />}
       <div className="rec-body">
         <p className="rec-type">
           <Icon name={card.type} size={15} />
@@ -55,15 +57,8 @@ export function RecCard({ card }: { card: RecCardData }) {
         <TriedTag card={card} />
         <div className="rec-foot">
           {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
-          {unconfirmed && (
-            <div className="rec-review" role="group" aria-label={`Unconfirmed: keep or dismiss ${card.name}`}>
-              <span className="rec-review-label">Unconfirmed</span>
-              {/* TODO(M3-T10): wire to the rec server actions (app/actions/recs.ts) once they land; until then these
-                  render disabled so the marker is designed but nothing pretends to work. */}
-              <button type="button" className="rec-review-btn" disabled>Keep</button>
-              <button type="button" className="rec-review-btn" disabled>Dismiss</button>
-            </div>
-          )}
+          {/* TODO(M3-T10): Keep / Dismiss buttons go here, wired to app/actions/recs.ts, as separate ≥44px targets. */}
+          {unconfirmed && <span className="rec-unconfirmed">Unconfirmed</span>}
         </div>
       </div>
     </article>

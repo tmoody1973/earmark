@@ -17,17 +17,16 @@ const ALT: Record<RecCardData["variant"], (c: RecCardData) => string> = {
   note: (c) => c.name,
 };
 
-/** The designed no-image state for each variant. Decorative: the title it repeats is read from the card body. */
+const GLYPH = { cover: "album", tile: "podcast", map: "place", note: "other" } as const;
+
+/**
+ * The designed no-image state for each variant. Decorative (the card body carries the title), so it never prints
+ * the title again at equal weight: covers, podcasts and places show their type's glyph on a tinted ground, books
+ * and films a quiet spine or poster, and only the artist card sets the name large (it has no other artwork).
+ */
 function NoImage({ card }: { card: RecCardData }) {
   const { variant, name, creator } = card;
   switch (variant) {
-    case "cover":
-      return (
-        <div className="type-art type-art--sleeve" aria-hidden="true">
-          <span className="type-art-title">{name}</span>
-          {creator && <span className="type-art-sub">{creator}</span>}
-        </div>
-      );
     case "artist":
       return (
         <div className="type-art type-art--artist" aria-hidden="true">
@@ -44,18 +43,10 @@ function NoImage({ card }: { card: RecCardData }) {
           </div>
         </div>
       );
-    case "map":
-    case "tile":
+    default:
       return (
-        <div className="type-art type-art--mark" aria-hidden="true">
-          <Icon name={variant === "map" ? "place" : "podcast"} size={28} />
-          <span className="type-art-title">{name}</span>
-        </div>
-      );
-    case "note":
-      return (
-        <div className="type-art type-art--note" aria-hidden="true">
-          <Icon name="other" size={32} />
+        <div className="type-art type-art--glyph" aria-hidden="true">
+          <Icon name={GLYPH[variant]} size={40} />
         </div>
       );
   }
