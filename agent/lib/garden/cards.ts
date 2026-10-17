@@ -1,6 +1,6 @@
 import type { RecType } from "../types";
 
-export type CardVariant = "cover" | "artist" | "spine" | "map" | "tile" | "poster" | "note";
+export type CardVariant = "cover" | "artist" | "spine" | "map" | "tile" | "poster" | "screen" | "note";
 
 const VARIANTS = {
   album: "cover",
@@ -10,6 +10,7 @@ const VARIANTS = {
   place: "map",
   podcast: "tile",
   film_tv: "poster",
+  video: "screen",
   other: "note",
 } as const satisfies Record<RecType, CardVariant>;
 

@@ -13,6 +13,9 @@ describe("cross-field rule", () => {
     expect(() => parseOverride("k=rec_to_user", neither)).toThrow();
     expect(parseOverride("k=rec_to_user t=book", neither)).toMatchObject({ rec_type: "book" });
   });
+  it("accepts video as a rec type", () => {
+    expect(parseOverride("t=video", p)).toMatchObject({ kind: "rec_to_user", rec_type: "video" });
+  });
   it("normalizes a broken model proposal instead of showing it", () => {
     expect(normalizeProposal({ ...p, kind: "neither", rec_type: "song" }).rec_type).toBe("none");
     expect(normalizeProposal({ ...p, rec_type: "none" }).rec_type).toBe("other");
