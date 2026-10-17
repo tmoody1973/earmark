@@ -172,6 +172,10 @@
 .rec-link:focus-visible::after { outline: 2px solid var(--ink); outline-offset: 2px; }
 .rec-sub { margin: 0.125rem 0 0; font-family: var(--serif); font-size: 0.9375rem; line-height: 1.35; color: var(--ink-2); }
 .rec-why { margin: 0.5rem 0 0; font-family: var(--serif); font-size: 0.9375rem; line-height: 1.45; color: var(--ink-2); hanging-punctuation: first; }
+.rec-about { margin: 0.375rem 0 0; font-size: 0.8125rem; line-height: 1.4; color: var(--ink-3); }
+/* above the card-wide title link (.rec-link::after, z-index 1), like .rec-thank, so the source is its own target */
+.rec-about-src { position: relative; z-index: 2; color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.rec-about-src:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 .rec-tag {
   align-self: flex-start;

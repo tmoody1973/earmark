@@ -10,7 +10,8 @@ const status = vi.hoisted(() => ({
 vi.mock("../../../agent/lib/recs/status", async (orig) => ({ ...(await orig<object>()), ...status }));
 
 import {
-  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipChoice, setTipVerdict, toPlant,
+  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getRecommenderPage, getShelf, setTipChoice,
+  setTipVerdict, toPlant,
   toRecCard,
 } from "../../../agent/lib/garden/queries";
 
@@ -53,6 +54,17 @@ describe("garden queries", () => {
     expect(toRecCard({ ...recRow, context_summary: null }).why).toBeNull();
   });
 
+  it("carries the Wikipedia note apart from the why, only with a Wikipedia https source (M3-T4b)", () => {
+    const about = { about: "Floating Points is an English electronic musician.", about_url: "https://en.wikipedia.org/wiki/Floating_Points" };
+    const card = toRecCard({ ...recRow, ...about });
+    expect(card.about).toEqual({ text: about.about, url: about.about_url });
+    expect(card.why).toBe("play it loud"); // never mixed into the why
+    expect(toRecCard(recRow).about).toBeNull(); // a query that doesn't select it
+    expect(toRecCard({ ...recRow, about: null, about_url: null }).about).toBeNull();
+    expect(toRecCard({ ...recRow, ...about, about_url: "javascript:alert(1)" }).about).toBeNull();
+    expect(toRecCard({ ...recRow, ...about, about_url: "https://evil.example/wiki/x" }).about).toBeNull();
+  });
+
   it("maps a cluster row to a plant with level and flag", () => {
     const plant = toPlant({
       id: 1, title: "AI in public radio", stage: "ready", mention_count: 3,
@@ -90,6 +102,17 @@ describe("garden queries", () => {
     expect(shelf).toHaveLength(1);
     expect(h.mock.calls).toHaveLength(1);
     expect(h.mock.calls[0].text).not.toContain("idea_clusters");
+  });
+
+  it("the shelf and a person's page select the Wikipedia note; the Maybe? row doesn't need it (M3-T4b)", async () => {
+    const note = { about: "Floating Points is an English musician.", about_url: "https://en.wikipedia.org/wiki/Floating_Points" };
+    h.mock.queue.push([{ ...recRow, ...note }]);
+    expect((await getShelf())[0]!.about).toEqual({ text: note.about, url: note.about_url });
+    h.mock = makeMockDb();
+    h.mock.queue.push([{ ...recRow, ...note }]);
+    const page = await getRecommenderPage(3);
+    expect(h.mock.calls[0]!.text).toContain("r.about, r.about_url");
+    expect(page!.recs[0]!.about).toEqual({ text: note.about, url: note.about_url });
   });
 
   it("a Bee todo's link (?rec=<id>) always shows its tip: one extra query adds it when past the newest 60", async () => {
