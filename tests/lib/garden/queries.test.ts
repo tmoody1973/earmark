@@ -3,11 +3,15 @@ import { makeMockDb } from "../../helpers/mock-db";
 
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
-const status = vi.hoisted(() => ({ setRecStatus: vi.fn(async () => ({ changed: true, previous: "needs_review" })) }));
-vi.mock("../../../agent/lib/recs/status", () => status);
+const status = vi.hoisted(() => ({
+  setRecStatus: vi.fn(async () => ({ changed: true, previous: "needs_review" })),
+  setRecRating: vi.fn(async () => ({ changed: true })),
+}));
+vi.mock("../../../agent/lib/recs/status", async (orig) => ({ ...(await orig<object>()), ...status }));
 
 import {
-  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipVerdict, toPlant, toRecCard,
+  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipChoice, setTipVerdict, toPlant,
+  toRecCard,
 } from "../../../agent/lib/garden/queries";
 
 const recRow = {
@@ -216,5 +220,43 @@ describe("setTipVerdict", () => {
     expect(await setTipVerdict(7, "kept")).toBe(false);
     expect(h.mock.calls).toHaveLength(0);
     expect(status.setRecStatus).not.toHaveBeenCalled();
+  });
+});
+
+// FR-22: Try this / Tried / a rating / Dismiss from a shelf card, through the status core with its from-guards.
+describe("setTipChoice", () => {
+  beforeEach(() => { h.mock = makeMockDb(); status.setRecStatus.mockClear(); status.setRecRating.mockClear(); });
+  afterEach(() => { delete process.env.GARDEN_READ_ONLY; });
+  const defer = vi.fn();
+
+  it.each([
+    ["queue", "queued", ["new"]],
+    ["tried", "tried", ["new", "queued"]],
+    ["dismiss", "dismissed", ["new", "queued"]],
+  ] as const)("%s moves the tip to %s, only from a status the shelf shows", async (choice, next, from) => {
+    expect(await setTipChoice(7, choice, { defer })).toBe(true);
+    expect(status.setRecStatus).toHaveBeenCalledWith(7, next, "garden", { from, defer });
+    expect(status.setRecRating).not.toHaveBeenCalled();
+  });
+
+  it.each(["loved", "fine", "not_for_me"] as const)("%s rates the tip through setRecRating", async (rating) => {
+    expect(await setTipChoice(7, rating, { defer })).toBe(true);
+    expect(status.setRecRating).toHaveBeenCalledWith(7, rating, "garden", { defer });
+    expect(status.setRecStatus).not.toHaveBeenCalled();
+  });
+
+  it("is false when nothing changed (the tip moved on elsewhere, or already had that rating)", async () => {
+    status.setRecStatus.mockResolvedValueOnce({ changed: false, previous: null } as never);
+    expect(await setTipChoice(7, "queue")).toBe(false);
+    status.setRecRating.mockResolvedValueOnce({ changed: false });
+    expect(await setTipChoice(7, "loved")).toBe(false);
+  });
+
+  it("writes nothing during a read-only real-data e2e run", async () => {
+    process.env.GARDEN_READ_ONLY = "1";
+    expect(await setTipChoice(7, "dismiss")).toBe(false);
+    expect(await setTipChoice(7, "loved")).toBe(false);
+    expect(status.setRecStatus).not.toHaveBeenCalled();
+    expect(status.setRecRating).not.toHaveBeenCalled();
   });
 });

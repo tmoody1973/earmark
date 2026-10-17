@@ -5,7 +5,9 @@ vi.mock("../../../agent/lib/db", () => ({ db: () => sql }));
 const createTodo = vi.fn();
 vi.mock("../../../agent/lib/sync/bee-todos", () => ({ createEarmarkTodo: (...a: unknown[]) => createTodo(...a) }));
 const setStatus = vi.fn();
-vi.mock("../../../agent/lib/recs/status", () => ({ setRecStatus: (...a: unknown[]) => setStatus(...a) }));
+vi.mock("../../../agent/lib/recs/status", async (orig) => ({
+  ...(await orig<object>()), setRecStatus: (...a: unknown[]) => setStatus(...a),
+}));
 
 import {
   approveReceipt, chicagoLocalToUtc, deferReceipt, draftReceipt, getPublicReceipt, handleReceiptTodoChange,

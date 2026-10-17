@@ -57,7 +57,7 @@ export default async function PersonPage({ params }: Props) {
             {recs.map((c) => (
               <li key={c.id}>
                 {/* On their own page every card is theirs: "from Ann" would only repeat the heading. */}
-                <RecCard card={{ ...c, recommender: null }} />
+                <RecCard card={{ ...c, recommender: null }} actions />
               </li>
             ))}
           </ul>

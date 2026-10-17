@@ -10,7 +10,8 @@ import * as spaces from "@/agent/lib/garden/spaces";
 import { fillNewSpace } from "@/agent/lib/spaces/evaluate";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
-import { getGardenVisit, saveGardenVisit, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
+import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
+import { TIP_CHOICES, type TipChoice } from "@/agent/lib/garden/tip";
 import { nextVisit } from "@/agent/lib/garden/visit";
 
 async function requireOwner(): Promise<void> {
@@ -30,11 +31,15 @@ export async function recordGardenVisit(): Promise<{ started: boolean }> {
   return { started };
 }
 
+function tipId(id: unknown): number {
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw new Error("invalid tip id");
+  return id;
+}
+
 // The Maybe? pile (decision 025). Server actions are public endpoints: check the owner, then the id, before any write.
 async function verdict(id: unknown, v: TipVerdict): Promise<{ changed: boolean }> {
   await requireOwner();
-  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw new Error("invalid tip id");
-  const changed = await setTipVerdict(id, v, { defer: after }); // status effects (Bee) run after the response
+  const changed = await setTipVerdict(tipId(id), v, { defer: after }); // status effects (Bee) run after the response
   revalidatePath("/", "layout"); // Home, Shelf and People all read these tips
   return { changed };
 }
@@ -47,6 +52,19 @@ export async function keepTip(id: number): Promise<{ changed: boolean }> {
 /** Not a tip: the tip is dismissed. A no-op unless it is still a maybe. */
 export async function notATip(id: number): Promise<{ changed: boolean }> {
   return verdict(id, "not_a_tip");
+}
+
+/**
+ * A shelf card's choice (M3-T10, FR-22): Try this (queued; the Bee todo follows only when BEE_TODO_WRITES is on),
+ * Tried it, Loved it / It was fine / Not for me, or Dismiss. A no-op (changed false) when the tip had moved on.
+ */
+export async function chooseTip(id: number, choice: TipChoice): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const valid = tipId(id);
+  if (typeof choice !== "string" || !TIP_CHOICES.includes(choice)) throw new Error("invalid choice");
+  const changed = await setTipChoice(valid, choice, { defer: after }); // a tap never waits on Bee
+  revalidatePath("/", "layout");
+  return { changed };
 }
 
 // ---- backlinks (M4-T6, FR-38) ----
