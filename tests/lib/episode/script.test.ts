@@ -28,7 +28,7 @@ it("retries when the owner's own name appears, and fails closed if it still does
 
   const bad = vi.fn().mockResolvedValue(good(" Odette said so"));
   await expect(writeEpisodeScript(data, "2026-10-18", bad as never, "Odette")).rejects.toThrow(/owner/);
-  expect(bad).toHaveBeenCalledTimes(2);
+  expect(bad).toHaveBeenCalledTimes(3); // first draft plus two retries
 });
 
 it("applies the same checks to the title, and to excerpt length and names in the script", async () => {
@@ -40,5 +40,25 @@ it("applies the same checks to the title, and to excerpt length and names in the
 
   const q = vi.fn().mockResolvedValue({ output: { title: "T", script: `Ann said "${"w ".repeat(30)}" ${"word ".repeat(900)}` } });
   await expect(writeEpisodeScript(data, "2026-10-18", q as never, "Odette")).rejects.toMatchObject({ name: "ScriptRejectedError", message: expect.not.stringContaining("w w") });
-  expect(q).toHaveBeenCalledTimes(2);
+  expect(q).toHaveBeenCalledTimes(3);
+});
+
+it("sends the exact offending phrase back to the model, but never into the error or logs", async () => {
+  const d = { ...data, newInCrate: [{ canonical_name: "Promises", first_name: "Ann" }] };
+  const bad = { output: { title: "T", script: `Ann Smithers suggested it. ${"word ".repeat(900)}` } };
+  const g = vi.fn().mockResolvedValueOnce(bad).mockResolvedValueOnce(good());
+  const seen: unknown[] = [];
+  const out = await writeEpisodeScript(d, "2026-10-18", g as never, "Odette", (i) => seen.push(i));
+  expect(out.title).toBe("Right");
+  expect(g.mock.calls[1][0].prompt).toContain("Ann Smithers");
+  expect(seen).toEqual([{ attempt: 1, reasons: ["surname", "unknown_name"] }, { attempt: 2, reasons: [] }]);
+
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const always = vi.fn().mockResolvedValue(bad);
+  const e = await writeEpisodeScript(d, "2026-10-18", always as never, "Odette").catch((x) => x);
+  expect(e.name).toBe("ScriptRejectedError");
+  expect(JSON.stringify([e.message, e.reasons, err.mock.calls, log.mock.calls])).not.toContain("Smithers");
+  expect(always).toHaveBeenCalledTimes(3);
+  err.mockRestore(); log.mockRestore();
 });
