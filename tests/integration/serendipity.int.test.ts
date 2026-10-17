@@ -54,32 +54,52 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("serendipity on the Neon test br
     expect(await getSerendipity()).toMatchObject({ type: "rec", id: tip, note: expect.stringMatching(/^Heard \d+ days ago$/) });
   });
 
-  it("composts a tip and an idea, and undo brings both back", async () => {
-    const { compostItem, undoCompost } = await lib();
-    const tip = await addRec("new");
-    const plant = await addIdea("sprouting", 2);
-    expect(await compostItem({ type: "rec", id: tip }, noEffects)).toEqual({ changed: true, previous: "new" });
-    expect(await rec(tip)).toMatchObject({ status: "composted", last_surfaced_at: expect.any(Date) });
-    expect(await compostItem({ type: "idea", id: plant })).toEqual({ changed: true, previous: "sprouting" });
-    expect((await idea(plant)).stage).toBe("dismissed");
-    expect(await compostItem({ type: "idea", id: plant })).toEqual({ changed: false, previous: null }); // already gone
-
-    expect(await undoCompost({ type: "rec", id: tip, previous: "new" }, noEffects)).toBe(true);
-    expect((await rec(tip)).status).toBe("new");
-    expect(await undoCompost({ type: "idea", id: plant })).toBe(true);
-    expect((await idea(plant)).stage).toBe("sprouting"); // regrown by the stage rule: 2 mentions
+  it("Not now rests an idea: still growing in the garden, out of Serendipity until the rest is over", async () => {
+    const { getSerendipity, restIdea } = await lib();
+    const plant = await addIdea("sprouting", 2, 13);
+    expect(await getSerendipity()).toMatchObject({ type: "idea", id: plant });
+    expect(await restIdea(plant)).toBe(true);
+    const rested = (await c.query(
+      `select stage, resting_until > now() + interval '59 days' as long_rest from idea_clusters where id = $1`, [plant])).rows[0];
+    expect(rested).toEqual({ stage: "sprouting", long_rest: true }); // never dismissed
+    expect(await getSerendipity()).not.toMatchObject({ type: "idea", id: plant });
+    await c.query(`update idea_clusters set resting_until = now() - interval '1 minute', last_surfaced_at = null where id = $1`, [plant]);
+    expect(await getSerendipity()).toMatchObject({ type: "idea", id: plant }); // the rest is over
+    await c.query(`update idea_clusters set pinned = true where id = $1`, [plant]);
+    expect(await restIdea(plant)).toBe(false); // a pinned idea is not Serendipity's to act on
+    await c.query(`update idea_clusters set pinned = false where id = $1`, [plant]);
   });
 
-  it("never composts a drafted idea or a tried tip, and never revives an idea dismissed some other way", async () => {
-    const { compostItem, undoCompost } = await lib();
+  it("ranks a confirmed or twice-heard idea ahead of an older weak one", async () => {
+    const { getSerendipity } = await lib();
+    await addIdea("compost", 1, 30); // one mention, none accepted: weak, though the oldest
+    const strong = await addIdea("sprouting", 2, 14);
+    expect(await getSerendipity()).toMatchObject({ type: "idea", id: strong });
+  });
+
+  it("composts a tip, and undo brings it back only within the hour and only from Serendipity", async () => {
+    const { compostTip, undoCompostTip } = await lib();
+    const tip = await addRec("new");
+    expect(await compostTip(tip, noEffects)).toEqual({ changed: true, previous: "new" });
+    expect(await rec(tip)).toMatchObject({ status: "composted", last_surfaced_at: expect.any(Date) });
+    expect(await undoCompostTip(tip, "new", noEffects)).toBe(true);
+    expect((await rec(tip)).status).toBe("new");
+
+    expect(await compostTip(tip, noEffects)).toEqual({ changed: true, previous: "new" });
+    await c.query(`update recommendations set last_surfaced_at = now() - interval '2 hours' where id = $1`, [tip]);
+    expect(await undoCompostTip(tip, "new", noEffects)).toBe(false); // past the window
+    const elsewhere = await addRec("composted"); // composted on another surface: no Serendipity stamp
+    expect(await undoCompostTip(elsewhere, "new", noEffects)).toBe(false);
+    expect((await rec(elsewhere)).status).toBe("composted");
+  });
+
+  it("never rests a drafted idea or composts a tried tip", async () => {
+    const { compostTip, restIdea } = await lib();
     const drafted = await addIdea("drafted", 3);
     const tried = await addRec("tried");
-    const dismissedElsewhere = await addIdea("dismissed", 1);
-    expect(await compostItem({ type: "idea", id: drafted })).toEqual({ changed: false, previous: null });
+    expect(await restIdea(drafted)).toBe(false);
     expect((await idea(drafted)).stage).toBe("drafted");
-    expect(await compostItem({ type: "rec", id: tried }, noEffects)).toEqual({ changed: false, previous: null });
+    expect(await compostTip(tried, noEffects)).toEqual({ changed: false, previous: null });
     expect((await rec(tried)).status).toBe("tried");
-    expect(await undoCompost({ type: "idea", id: dismissedElsewhere })).toBe(false); // no Serendipity stamp
-    expect((await idea(dismissedElsewhere)).stage).toBe("dismissed");
   });
 });

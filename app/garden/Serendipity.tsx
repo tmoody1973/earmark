@@ -1,22 +1,20 @@
 "use client";
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import type { SerendipityPick } from "@/agent/lib/garden/serendipity";
-import type { RecStatus } from "@/agent/lib/types";
-import { compostSerendipity, keepSerendipity, undoCompostSerendipity } from "./actions";
+import { compostSerendipity, keepSerendipity, notNowSerendipity, undoCompostSerendipity } from "./actions";
 import { IdeaPlant } from "./IdeaPlant";
 import { RecCard } from "./cards/RecCard";
 import { Icon } from "./cards/icons";
 import "./cards/cards.css";
 
 /*
- * Serendipity (M4-T8, FR-34, decision 029): one forgotten tip or stalled idea, shown as its own card or plant, with
- * Keep it / Let it compost. A tap hides it at once (optimistic) and the server sends the next one. Composting says so
- * and offers Undo. Nothing visible when nothing has gone quiet; the live region stays mounted (as in MaybeRow) so a
+ * Serendipity (M4-T8, FR-34, decision 029): one forgotten tip or stalled idea, shown as its own card or plant. A tip:
+ * Keep it / Let it compost (with Undo). An idea: Keep it / Not now (rests it; it stays in the garden). A tap hides it at
+ * once (optimistic) and the server sends the next one. Nothing visible when nothing has gone quiet; the live region stays mounted (as in MaybeRow) so a
  * message is read even when the last item leaves. No orange: the accent means only new and bloomed.
  */
 
-type UndoRef = { type: "rec"; id: number; previous: RecStatus } | { type: "idea"; id: number };
-type Composted = { ref: UndoRef; title: string };
+type Composted = { id: number; previous: "new" | "queued"; title: string };
 
 export function Serendipity({ pick }: { pick: SerendipityPick | null }) {
   const [shown, hide] = useOptimistic(pick, () => null);
@@ -49,16 +47,22 @@ export function Serendipity({ pick }: { pick: SerendipityPick | null }) {
     return changed ? `Kept “${p.title}”. It stays where it is.` : `“${p.title}” had already changed.`;
   });
 
-  const compost = (p: SerendipityPick) => act("compost", async () => {
-    const { changed, previous } = await compostSerendipity({ type: p.type, id: p.id });
-    if (!changed) return `“${p.title}” had already changed.`;
-    const ref: UndoRef = p.type === "rec" ? { type: "rec", id: p.id, previous: previous as RecStatus } : { type: "idea", id: p.id };
-    setUndoable({ ref, title: p.title });
-    return `“${p.title}” went back to the compost.`;
+  // An idea is never dismissed from here: Not now rests it (Tarik's "Rest it" ruling, decision 029).
+  const notNow = (id: number, title: string) => act("not-now", async () => {
+    const { changed } = await notNowSerendipity(id);
+    return changed ? "Resting — it’ll come back around in a couple of months." : `“${title}” had already changed.`;
+  });
+
+  // A tip's compost is a real verdict (status composted, Bee todo cleared), so it gets an Undo.
+  const compost = (id: number, title: string) => act("compost", async () => {
+    const { changed, previous } = await compostSerendipity(id);
+    if (!changed) return `“${title}” had already changed.`;
+    setUndoable({ id, previous: previous as Composted["previous"], title });
+    return `“${title}” went back to the compost.`;
   });
 
   const undo = (c: Composted) => act("undo", async () => {
-    const { changed } = await undoCompostSerendipity(c.ref);
+    const { changed } = await undoCompostSerendipity({ id: c.id, previous: c.previous });
     return changed ? `“${c.title}” is back.` : `“${c.title}” can’t come back from here now.`;
   }, false);
 
@@ -96,9 +100,15 @@ export function Serendipity({ pick }: { pick: SerendipityPick | null }) {
                     <Icon name="check" size={16} />
                     Keep it
                   </button>
-                  <button type="button" className="link-btn" aria-describedby={titleId} onClick={() => compost(shown)}>
-                    Let it compost
-                  </button>
+                  {shown.type === "rec" ? (
+                    <button type="button" className="link-btn" aria-describedby={titleId} onClick={() => compost(shown.id, shown.title)}>
+                      Let it compost
+                    </button>
+                  ) : (
+                    <button type="button" className="link-btn" aria-describedby={titleId} onClick={() => notNow(shown.id, shown.title)}>
+                      Not now
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
