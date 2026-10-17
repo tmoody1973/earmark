@@ -74,19 +74,19 @@ export function forwardedSenderName(text: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-// The one mailbox in a From value, lowercased, or null when it is not exactly one plain mailbox. The address is the LAST
-// angle-bracket group, at the end: a quoted display name can itself contain "<owner@...>", so the first group is
-// attacker-controlled. A comma/semicolon list or stray brackets outside quotes means more than one mailbox: null.
-const MAILBOX = /^[^\s,;<>"]+@[^\s,;<>"]+$/;
+// The sender's address, lowercased, or null. NOT an RFC 5322 parser (those are easy to confuse: a comment, quote or
+// group can make a parser and a mail server disagree about who the sender is). An allowlist of the plain shapes
+// Gmail writes; anything else is null, which counts as "not the owner" (fail closed):
+//   address                   a strict bare address
+//   Name <address>            display name of letters, digits, spaces and . ' -
+//   "Name" <address>          one quoted name without < > @ ( ) \ " ; , :
+const ADDRESS = String.raw`[A-Za-z0-9%+_-]+(?:\.[A-Za-z0-9%+_-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}`;
+const BARE = new RegExp(`^${ADDRESS}$`);
+const NAMED = new RegExp(String.raw`^(?:"[^<>@()\\";,:]*"|[\p{L}\p{N} .'-]*) ?<(${ADDRESS})>$`, "u");
 export function addressOf(from: string): string | null {
   const v = from.trim();
-  if (!/[<>]/.test(v)) return MAILBOX.test(v) ? v.toLowerCase() : null;
-  const m = v.match(/<([^<>]+)>\s*$/);
-  if (!m) return null;
-  const head = v.slice(0, m.index).replace(/"(?:[^"\\]|\\.)*"/g, "");
-  if (/[<>,;]/.test(head)) return null;
-  const addr = m[1]!.trim();
-  return MAILBOX.test(addr) ? addr.toLowerCase() : null;
+  const m = BARE.test(v) ? [v, v] : NAMED.exec(v);
+  return m ? m[1]!.toLowerCase() : null;
 }
 
 // Resend exposes no structured SPF/DKIM field on a received email, only the raw headers. If those carry an
