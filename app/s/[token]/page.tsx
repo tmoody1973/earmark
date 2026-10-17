@@ -55,14 +55,14 @@ export default async function PublishedSpacePage({ params }: Props) {
         <p className="empty pub-empty">Nothing here yet</p>
       ) : (
         <>
-        <h2 className="visually-hidden">Picks</h2>
-        <ul className="shelf-grid">
-          {space.tips.map((tip) => (
-            <li key={tip.id} className="space-item">
-              <RecCard card={tip} />
-            </li>
-          ))}
-        </ul>
+          <h2 className="visually-hidden">Picks</h2>
+          <ul className="shelf-grid">
+            {space.tips.map((tip) => (
+              <li key={tip.id} className="space-item">
+                <RecCard card={tip} />
+              </li>
+            ))}
+          </ul>
         </>
       )}
     </main>

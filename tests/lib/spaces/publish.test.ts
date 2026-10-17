@@ -27,11 +27,17 @@ describe("publishSpace / unpublishSpace", () => {
     expect(await unpublishSpace(1)).toBe(true);
     expect(text(0)).toContain("published_token = null");
   });
-  it("consent off clears the timestamp, for someone with a public tip in this Space", async () => {
+  it("granting consent stamps the time, for someone with a public tip in this Space", async () => {
     sql.mockResolvedValueOnce([tip({ recommender_id: 7 })]).mockResolvedValueOnce([{ id: 7 }]);
-    expect(await setNameConsent(1, 7, false)).toBe(true);
+    expect(await setNameConsent(1, 7, true)).toBe(true);
     expect(text(1)).toContain("public_name_consent_at");
-    expect(sql.mock.calls[1].slice(1)).toEqual([null, 7]);
+    expect(sql.mock.calls[1].slice(1)).toEqual([expect.any(String), 7]);
+  });
+  it("revoking always works, even with no public tip left in this Space", async () => {
+    sql.mockResolvedValueOnce([{ id: 99 }]);
+    expect(await setNameConsent(1, 99, false)).toBe(true);
+    expect(sql).toHaveBeenCalledTimes(1); // no membership read
+    expect(sql.mock.calls[0].slice(1)).toEqual([null, 99]);
   });
   it("refuses consent for someone with no public tip in this Space", async () => {
     sql.mockResolvedValueOnce([tip({ recommender_id: 7 })]);
