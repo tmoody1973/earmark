@@ -19,6 +19,13 @@ const EnvSchema = z.object({
   RESEND_API_KEY: blankIsUnset(z.string().min(1).optional()),
   RESEND_WEBHOOK_SECRET: blankIsUnset(z.string().min(1).optional()),
   EARMARK_OWNER_EMAIL: blankIsUnset(z.string().email().optional()), // only forwards from this address are accepted
+  // Weekly episode (M5-T11). Polly credentials use EARMARK_-prefixed names: Vercel may reserve plain AWS_* names
+  // on Functions, so these are passed to PollyClient explicitly. Blank is unset; voicing refuses until both keys are set.
+  EARMARK_AWS_ACCESS_KEY_ID: blankIsUnset(z.string().min(1).optional()),
+  EARMARK_AWS_SECRET_ACCESS_KEY: blankIsUnset(z.string().min(1).optional()),
+  EARMARK_AWS_REGION: blankIsUnset(z.string().default("us-east-1")), // generative voices live in us-east-1
+  POLLY_VOICE: blankIsUnset(z.string().default("Ruth")),
+  EARMARK_FEED_TOKEN: blankIsUnset(z.string().min(32).optional()), // path secret of /feed/<token>; the route 404s while unset
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender

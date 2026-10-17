@@ -1,0 +1,31 @@
+import { describe, expect, it, vi } from "vitest";
+import { forgetPersonInEpisodes } from "../../agent/lib/privacy/forget-m5";
+
+const rows = [
+  { id: "1", script_md: "Title\n\nAnn suggested a ramen spot.", audio_url: "https://blob.test/1.mp3" },
+  { id: "2", script_md: "Title\n\nNobody here, just Joanna and Annabel.", audio_url: "https://blob.test/2.mp3" },
+  { id: "3", script_md: "Title\n\nNo audio yet, but ann is named.", audio_url: null },
+];
+
+describe("forgetPersonInEpisodes", () => {
+  it("deletes Blob audio and rows only for episodes naming the person (whole word, any case)", async () => {
+    const sql = vi.fn().mockResolvedValueOnce(rows).mockResolvedValue([]);
+    const del = vi.fn(async () => {});
+    const out = await forgetPersonInEpisodes("Ann", { sql: sql as never, del });
+    expect(out).toEqual({ episodesDeleted: 2 });
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith("https://blob.test/1.mp3");
+    expect(sql).toHaveBeenCalledTimes(3); // one select, two deletes
+  });
+  it("keeps the row when the Blob delete fails, so the forget can be retried", async () => {
+    const sql = vi.fn().mockResolvedValueOnce(rows);
+    const del = vi.fn(async () => { throw new Error("blob down"); });
+    await expect(forgetPersonInEpisodes("Ann", { sql: sql as never, del })).rejects.toThrow();
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+  it("ignores a blank name", async () => {
+    const sql = vi.fn();
+    expect(await forgetPersonInEpisodes("  ", { sql: sql as never, del: vi.fn() })).toEqual({ episodesDeleted: 0 });
+    expect(sql).not.toHaveBeenCalled();
+  });
+});

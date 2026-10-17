@@ -88,6 +88,20 @@ Forward an email in which a friend recommends something to your Earmark address,
 
 Setup: in Resend, Webhooks, add an endpoint `https://<production-host>/api/email/inbound` for the `email.received` event and copy its signing secret; create an API key. Then set these in `.env.local` and in the Vercel project (the route refuses everything while any is blank): `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `EARMARK_OWNER_EMAIL` (your own address). The From address can be forged, so keep the receiving address private (decision 030).
 
+## Weekly episode
+
+Once a week Earmark writes a short spoken recap (about 5 to 7 minutes: what is growing, ready to harvest, new in the crate, what to remember, thank-yous owed), voices it with Amazon Polly (generative voice, `Ruth` by default), stores the MP3 in Vercel Blob and lists it in a private podcast feed. The recap describes things only: no music, previews or clips. It uses first names and excerpts of 25 words or fewer, never the owner's name.
+
+Setup: create an IAM user whose only permission is `polly:SynthesizeSpeech`, make an access key, and set these in `.env.local` and in the Vercel project (the plain `AWS_*` names are avoided on purpose: Vercel may reserve them on Functions, so the keys are passed to Polly explicitly):
+
+- `EARMARK_AWS_ACCESS_KEY_ID`, `EARMARK_AWS_SECRET_ACCESS_KEY`, `EARMARK_AWS_REGION` (`us-east-1`; generative voices are not in every region)
+- `POLLY_VOICE` (default `Ruth`)
+- `EARMARK_FEED_TOKEN`: the secret in the feed address. Make one with `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` (min 32 characters). The feed route returns 404 while it is unset.
+
+Feed address to add in a podcast app (Follow a Show by URL): `https://<production-host>/feed/<EARMARK_FEED_TOKEN>`. It lists only approved episodes, newest first. Anyone with the address can listen, so treat it like a password (decision 035); rotate by changing the token and re-subscribing.
+
+Approval: a new episode is saved unpublished. Once the gardeners screen lands (M5-T12) the episode appears there as a pending run; approving it sets `published_at` and it shows up in the feed. Until then nothing reaches the feed. One episode per Chicago week: running it again for the same week does nothing and costs nothing.
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).
