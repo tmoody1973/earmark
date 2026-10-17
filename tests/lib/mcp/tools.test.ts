@@ -6,7 +6,7 @@ const search = vi.fn();
 vi.mock("../../../agent/lib/search/memory-cue", () => ({ searchEarmarks: (...a: unknown[]) => search(...a) }));
 const addToPlaylist = vi.fn();
 vi.mock("../../../agent/lib/mcp/playlist-seam", () => ({ addRecToPlaylist: (...a: unknown[]) => addToPlaylist(...a) }));
-import { addToEarmarkedPlaylist, latestEpisode, readyIdeas, searchEarmarksTool, whatDidTheyRecommend } from "../../../agent/lib/mcp/tools";
+import { addToEarmarkedPlaylist, latestEpisode, readyIdeas, searchEarmarksTool, spokenOpening, whatDidTheyRecommend } from "../../../agent/lib/mcp/tools";
 
 const rec = (name: string, first: string | null) => ({ id: 1, name, recommender: first ? { id: 2, firstName: first } : null });
 const found = (recs: unknown[], ideas: unknown[] = []) => ({ recs, ideas, neuralMatches: 0, neuralFailed: false });
@@ -80,12 +80,29 @@ describe("MCP tools", () => {
       expect((await addToEarmarkedPlaylist({ item: "promises" })).text).toMatch(re);
     }
   });
-  it("latest_episode returns the opening and never the audio address", async () => {
-    sql.mockResolvedValueOnce([{ week_of: "2026-10-12", opening: "This week Ann pointed you at ramen." }]);
+  it("latest_episode speaks the week as a date, skips the title, and never returns the audio address", async () => {
+    sql.mockResolvedValueOnce([{ week_of: "2026-10-12", script: "# Ann sent you to ramen\n\nThis week **Ann** pointed you at ramen." }]);
     const out = await latestEpisode();
-    expect(out.text).toBe("This week's Earmark episode (week of 2026-10-12) starts: This week Ann pointed you at ramen.");
+    expect(out.text).toBe("This week's Earmark episode (the week of October 12) starts: This week Ann pointed you at ramen.");
     expect(out).not.toHaveProperty("audioUrl");
+    const strings = sql.mock.calls[0][0] as string[];
+    expect(strings.join("?")).toContain("week_of::text");
     sql.mockResolvedValueOnce([]);
     expect((await latestEpisode()).text).toMatch(/no published episode/);
+  });
+  it("latest_episode never speaks a raw Date, even if the driver returned one", async () => {
+    sql.mockResolvedValueOnce([{ week_of: new Date("2026-10-12T00:00:00Z"), script: "Title\nHello there." }]);
+    const { text } = await latestEpisode();
+    expect(text).not.toMatch(/GMT|00:00:00/);
+    expect(text).toContain("October 12");
+  });
+  it("spokenOpening cuts long scripts on a sentence, else a word, within 300 chars", () => {
+    const sentences = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} is here.`).join(" ");
+    const a = spokenOpening(`Title\n${sentences}`);
+    expect(a.length).toBeLessThanOrEqual(300);
+    expect(a.endsWith(".")).toBe(true);
+    const b = spokenOpening(`Title\n${"word ".repeat(100)}`);
+    expect(b.length).toBeLessThanOrEqual(301);
+    expect(b.endsWith("word\u2026")).toBe(true);
   });
 });
