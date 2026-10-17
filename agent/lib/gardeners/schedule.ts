@@ -6,6 +6,9 @@ export const GardenerScheduleSchema = z.discriminatedUnion("every", [
 ]);
 export type GardenerSchedule = z.infer<typeof GardenerScheduleSchema>;
 
+/** An attempt this recent is treated as still running (run.ts claim; pnpm forget refuses while one is live). */
+export const GARDENER_LEASE_MS = 5 * 60_000;
+
 /** Today's slot if today matches and the hour has passed. ponytail: a slot missed for a whole day is skipped, not caught up. */
 export function dueSlot(s: GardenerSchedule, now: Date): Date | null {
   const matches = s.every === "week" ? now.getUTCDay() === s.weekday : now.getUTCDate() === s.day;

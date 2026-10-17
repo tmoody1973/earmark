@@ -97,6 +97,7 @@ const plan: ForgetPlan = {
   updates: {},
   refs: { beeTodoIds: [10, 11], beeFactIds: [5], notionPageIds: ["pg1"], blobUrls: ["https://blob.test/maria-thumb.jpg"] },
   recommender: { id: 9, firstName: "Maria", removed: true },
+  savedAt: null,
   notes: [],
 };
 

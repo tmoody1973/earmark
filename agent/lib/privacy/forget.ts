@@ -27,8 +27,15 @@ export interface ExternalDeps {
 export interface ForgetDeps extends ExternalDeps { deleteRows(target: ForgetTarget): Promise<void> }
 // Other lanes' forgetters (lane C: M5 episodes, gardener runs), listed in forget-hooks.ts. They run inside the forget
 // transaction: use `c` for every query so a failure rolls everything back. `run` returns one line of ids/counts.
-export interface ForgetHookContext { c: PoolClient; target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean }
-export interface ForgetHook { name: string; run(ctx: ForgetHookContext): Promise<string> }
+export interface ForgetHookContext {
+  c: PoolClient; target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean;
+  savedAt: Date | null; // when the forgotten item first entered Earmark (read before its rows were deleted)
+}
+export interface ForgetHook {
+  name: string;
+  run(ctx: ForgetHookContext): Promise<string>;
+  preview?(ctx: ForgetHookContext): Promise<string>; // the dry run: read-only, one line of counts/dates
+}
 export interface ForgetResult { plan: ForgetPlan; lines: string[]; incomplete: number; aborted: boolean } // aborted = Postgres untouched
 
 // An outside step failed (or its service is not configured): nothing in Postgres was touched. `lines` = what was done
@@ -50,6 +57,14 @@ export class ForgetDraftInFlightError extends Error {
   override name = "ForgetDraftInFlightError";
   constructor(ideaId: number) {
     super(`idea ${ideaId}: a draft is being written, retry in a few minutes`);
+  }
+}
+// A gardener (or weekly episode) run holds its claim: it may already have read the item and would save its output after
+// the forget commits. Refused in the outside pass and again under the lock. Nothing outside or in Postgres was touched.
+export class ForgetGardenerInFlightError extends Error {
+  override name = "ForgetGardenerInFlightError";
+  constructor() {
+    super("a gardener run is in progress, retry in a few minutes");
   }
 }
 // The idea was merged into another and the merge can still be undone (M4-T6, decision 027): forgetting it alone would
@@ -178,6 +193,24 @@ export function formatPlan(plan: ForgetPlan, done = false): string[] {
 
 const sameTarget = (a: ForgetTarget, b: ForgetTarget) => a.type === b.type && a.id === b.id;
 
+const hookContext = (c: PoolClient, p: ForgetPlan): ForgetHookContext => ({
+  c, target: p.resolved, recommenderFirstName: p.recommender?.firstName ?? null, recommenderRemoved: p.recommender?.removed ?? false,
+  savedAt: p.savedAt,
+});
+
+async function previewHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): Promise<string[]> {
+  const lines: string[] = [];
+  for (const h of hooks) {
+    if (!h.preview) continue;
+    try {
+      lines.push(`hook ${h.name}: ${await h.preview(ctx)}`);
+    } catch (err) {
+      throw new ForgetHookError(`hook ${h.name} preview failed error=${errName(err)}`, { cause: err });
+    }
+  }
+  return lines;
+}
+
 async function runHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): Promise<string[]> {
   const lines: string[] = [];
   for (const h of hooks) {
@@ -195,9 +228,14 @@ async function runHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): P
 export async function forget(
   c: PoolClient, target: ForgetTarget, opts: { yes: boolean; deps?: ExternalDeps; hooks?: readonly ForgetHook[] },
 ): Promise<ForgetResult> {
-  const plan = await inTransaction(c, true, async () => ({ value: await readPlan(c, target, false), commit: false }));
-  if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0, aborted: false };
+  const [plan, preview] = await inTransaction(c, true, async () => {
+    const p = await readPlan(c, target, false);
+    const lines = !opts.yes && p.exists ? await previewHooks(opts.hooks ?? [], hookContext(c, p)) : [];
+    return { value: [p, lines] as [ForgetPlan, string[]], commit: false };
+  });
+  if (!opts.yes || !plan.exists) return { plan, lines: preview, incomplete: 0, aborted: false };
   if (plan.draftInFlight !== undefined) throw new ForgetDraftInFlightError(plan.draftInFlight);
+  if (plan.gardenerInFlight) throw new ForgetGardenerInFlightError();
   if (plan.mergedInto !== undefined) throw new ForgetMergedError(plan.resolved.id, plan.mergedInto);
   let committed = plan;
   let txLines: string[] = [];
@@ -207,13 +245,12 @@ export async function forget(
       if (!p.exists) return { value: [p, []] as [ForgetPlan, string[]], commit: false };
       if (p.draftInFlight !== undefined) throw new ForgetDraftInFlightError(p.draftInFlight);
       if (p.mergedInto !== undefined) throw new ForgetMergedError(p.resolved.id, p.mergedInto);
+      if (p.gardenerInFlight) throw new ForgetGardenerInFlightError();
       if (!sameTarget(p.resolved, plan.resolved) || !covered(p.refs, plan.refs)) {
         throw new ForgetRefsChangedError("the item changed since the outside deletes (new outside copy, or the mention became its idea's last); re-run");
       }
       const rowLines = await deleteRows(c, p);
-      const hookLines = await runHooks(opts.hooks ?? [], {
-        c, target: p.resolved, recommenderFirstName: p.recommender?.firstName ?? null, recommenderRemoved: p.recommender?.removed ?? false,
-      });
+      const hookLines = await runHooks(opts.hooks ?? [], hookContext(c, p));
       return { value: [p, [...rowLines, ...hookLines]] as [ForgetPlan, string[]], commit: true };
     });
   };

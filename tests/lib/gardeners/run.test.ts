@@ -10,7 +10,7 @@ const custom: GardenerRow = {
   schedule: { every: "week", weekday: 5, hourUtc: 14 }, sources: ["ideas"], needs_approval: true, last_run_at: null, last_attempt_at: null, fail_count: 0,
 };
 const CLAIM = [{ id: 1 }];
-const gen = (text: string) => vi.fn(async (opts: { prompt: string }) => ({ text, prompt: opts.prompt }));
+const gen = (text: string) => vi.fn(async (opts: { prompt: string; abortSignal?: AbortSignal }) => ({ text, prompt: opts.prompt }));
 
 beforeEach(() => { sql.mockReset(); vi.restoreAllMocks(); process.env.EARMARK_OWNER_FIRST_NAME = "Tarik"; });
 
@@ -22,6 +22,7 @@ describe("runGardener (custom)", () => {
     const generateImpl = gen("## Pitch\nAI in public radio, in short.");
     expect(await runGardener(custom, { generateImpl: generateImpl as never })).toBe(31);
     const prompt = generateImpl.mock.calls[0][0].prompt;
+    expect(generateImpl.mock.calls[0][0].abortSignal).toBeInstanceOf(AbortSignal); // capped inside the 5-minute claim lease
     expect(prompt).toContain("AI in public radio");
     expect(prompt).not.toContain("recommenders");
     expect(sql).toHaveBeenCalledTimes(4); // claim, read, insert, stamp
