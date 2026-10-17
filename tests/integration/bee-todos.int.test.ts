@@ -64,7 +64,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
     expect(await drain(bee, [a])).toMatchObject({ status: "done", created: 1 });
     const { bee_todo_id } = await rec(a);
     const text = bee.todos.get(Number(bee_todo_id))!.text;
-    expect(text).toBe(`Earmark · Listen: IT Alpha, IT Band (Oct 12) https://earmark.test/shelf#rec-${a}`);
+    expect(text).toBe(`Earmark · Listen: IT Alpha, IT Band (Oct 12) https://earmark.test/shelf?rec=${a}#rec-${a}`);
     expect(text).not.toContain("SECRET");
     expect(await sync(a)).toEqual({ bee_id: bee_todo_id, last_written_state: { text, completed: false } });
 
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
   it("crash between create and save: the next run adopts the todo with the same text instead of creating a twin", async () => {
     const a = await addRec("queued", "IT Crash");
     const bee = fakeBee();
-    const orphan = bee.add({ text: `Earmark · Listen: IT Crash, IT Band (Oct 12) https://earmark.test/shelf#rec-${a}`, completed: false });
+    const orphan = bee.add({ text: `Earmark · Listen: IT Crash, IT Band (Oct 12) https://earmark.test/shelf?rec=${a}#rec-${a}`, completed: false });
     expect(await drain(bee, [a])).toMatchObject({ created: 0, adopted: 1 });
     expect(bee.createTodo).not.toHaveBeenCalled();
     expect(Number((await rec(a)).bee_todo_id)).toBe(orphan);
@@ -151,6 +151,72 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
     expect(Number((await rec(a)).bee_todo_id)).toBe(first);
     expect(bee.todos.get(first)!.completed).toBe(false);
     expect(bee.createTodo).toHaveBeenCalledTimes(1);
+  });
+
+  it("an Earmark todo Tarik edited in Bee (prefix gone) still counts toward the cap: it is ours by id", async () => {
+    const holder = await addRec("queued");
+    const recs = [await addRec("queued"), await addRec("queued")];
+    const bee = fakeBee(Array.from({ length: 9 }, (_, i) => ({ text: `Earmark · Listen: old ${i}`, completed: false })));
+    const edited = bee.add({ text: "listen to the IT band thing", completed: false });
+    await c.query(`update recommendations set bee_todo_id = $2 where id = $1`, [holder, edited]);
+    expect(await drain(bee, recs)).toMatchObject({ open: 10, created: 0 });
+    expect(bee.createTodo).not.toHaveBeenCalled();
+  });
+
+  it("a queued tip whose own todo is still open in Bee is re-linked without a write and isn't counted as created", async () => {
+    const a = await addRec("queued");
+    const bee = fakeBee();
+    await drain(bee, [a]);
+    const first = Number((await rec(a)).bee_todo_id);
+    await c.query(`update recommendations set bee_todo_id = null where id = $1`, [a]); // e.g. a crash mid saveLeft
+    expect(await drain(bee, [a])).toMatchObject({ created: 0, adopted: 1 });
+    expect(bee.updateTodo).not.toHaveBeenCalled();
+    expect(Number((await rec(a)).bee_todo_id)).toBe(first);
+  });
+
+  it("keeps one write of headroom so a create can always be undone inside the per-run cap", async () => {
+    const { MAX_WRITES_PER_RUN } = await mod();
+    const bee = fakeBee();
+    const leaving = await Promise.all(Array.from({ length: MAX_WRITES_PER_RUN - 1 }, () => addRec("queued")));
+    for (const id of leaving) {
+      const todo = bee.add({ text: "Earmark · Listen: tracked", completed: false });
+      await c.query(`update recommendations set bee_todo_id = $2, status = 'dismissed' where id = $1`, [id, todo]);
+    }
+    const q = await addRec("queued");
+    expect(await drain(bee, [...leaving, q])).toMatchObject({ removed: MAX_WRITES_PER_RUN - 1, created: 0 });
+    expect(await drain(bee, [...leaving, q])).toMatchObject({ created: 1 });
+  });
+
+  describe("createEarmarkTodo (M5 nudges and receipts)", () => {
+    const entityType = "it_test_nudge";
+    const entityId = 900_000_000 + Math.floor(Math.random() * 1_000_000);
+    const create = async (bee: ReturnType<typeof fakeBee>, id = entityId, text = "Earmark · You're near IT Place") =>
+      (await mod()).createEarmarkTodo({ entityType, entityId: id, text, alarmAt: "2026-10-20T15:00:00.000Z" }, { bee, env });
+    const row = async (id: number) => (await c.query(
+      `select bee_id, last_written_state from bee_sync where entity_type = $1 and entity_id = $2 and bee_object = 'todo'`,
+      [entityType, id])).rows[0];
+    afterAll(async () => { await c.query(`delete from bee_sync where entity_type = $1`, [entityType]); });
+
+    it("creates the todo with its alarm, stores bee_sync under the given entity type, and a retry returns the same todo", async () => {
+      const bee = fakeBee();
+      const out = await create(bee);
+      expect(out).toEqual({ todoId: expect.any(Number) });
+      const todoId = (out as { todoId: number }).todoId;
+      expect(bee.createTodo).toHaveBeenCalledWith({ text: "Earmark · You're near IT Place", alarmAt: "2026-10-20T15:00:00.000Z" });
+      const saved = await row(entityId);
+      expect(Number(saved.bee_id)).toBe(todoId);
+      expect(saved.last_written_state).toEqual({ text: "Earmark · You're near IT Place", completed: false });
+      expect(await create(bee)).toEqual({ todoId });
+      expect(bee.createTodo).toHaveBeenCalledTimes(1);
+    });
+
+    it("adds the prefix when missing, and returns { skipped: 'cap' } when 10 Earmark todos are open", async () => {
+      const bee = fakeBee(Array.from({ length: 9 }, (_, i) => ({ text: `Earmark · Listen: old ${i}`, completed: false })));
+      expect(await create(bee, entityId + 1, "Thank Ann for the tip")).toMatchObject({ todoId: expect.any(Number) });
+      expect(bee.createTodo.mock.calls[0]![0].text).toBe("Earmark · Thank Ann for the tip");
+      expect(await create(bee, entityId + 2)).toEqual({ skipped: "cap" });
+      expect(bee.createTodo).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("never makes more than MAX_WRITES_PER_RUN Bee writes in one run", async () => {

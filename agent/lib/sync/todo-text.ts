@@ -14,8 +14,9 @@ const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", t
 
 export const slotsAvailable = (open: number) => Math.max(0, MAX_OPEN_TODOS - open);
 
-// The Shelf lists every tip; RecCard's article id is `rec-<id>`. ponytail: no per-tip page yet, the anchor is it.
-export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/shelf#rec-${recId}`;
+// The Shelf shows the newest 60 tips plus the one named by ?rec= (getShelf), and RecCard's article id is `rec-<id>`,
+// so the link always lands on the tip. ponytail: no per-tip page exists; add one and point this at it if one lands.
+export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/shelf?rec=${recId}#rec-${recId}`;
 
 export function formatTodoText(
   rec: Pick<RecRow, "id" | "type" | "canonical_name" | "creator" | "recommender_first_name" | "said_at">,

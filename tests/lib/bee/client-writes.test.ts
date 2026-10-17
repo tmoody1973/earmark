@@ -22,6 +22,14 @@ describe("Bee todo writes (M3-T7)", () => {
     expect(await client(reply({ id: 13, text: "t", surprise: true })).createTodo({ text: "t" })).toMatchObject({ id: 13 });
   });
 
+  it("sends alarm_at as given (ISO 8601 in, per the Bee API doc) only when alarmAt is set", async () => {
+    const f = reply({ id: 14 });
+    await client(f).createTodo({ text: "Earmark · y", alarmAt: "2026-10-20T15:00:00.000Z" });
+    await client(f).createTodo({ text: "Earmark · z", alarmAt: null });
+    expect(JSON.parse(String(f.mock.calls[0]![1]?.body))).toEqual({ text: "Earmark · y", alarm_at: "2026-10-20T15:00:00.000Z" });
+    expect(JSON.parse(String(f.mock.calls[1]![1]?.body))).toEqual({ text: "Earmark · z" });
+  });
+
   it("updates with only the given fields", async () => {
     const f = reply("");
     await client(f).updateTodo(12, { completed: true });
