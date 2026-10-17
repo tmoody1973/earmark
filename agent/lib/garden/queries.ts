@@ -2,7 +2,7 @@ import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import { firstNameOnly } from "../pipeline/attribution";
-import { setRecStatus } from "../recs/status";
+import { setRecStatus, type SetStatusOptions } from "../recs/status";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
@@ -170,9 +170,11 @@ const VERDICT_STATUS: Record<TipVerdict, RecStatus> = { kept: "new", not_a_tip: 
  * Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. Goes through
  * the status core (M3-T2) so the change gets its side effects; status and verdict are still one statement.
  */
-export async function setTipVerdict(id: number, verdict: TipVerdict): Promise<boolean> {
+export async function setTipVerdict(
+  id: number, verdict: TipVerdict, opts: Pick<SetStatusOptions, "defer"> = {},
+): Promise<boolean> {
   if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
-  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict });
+  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict, ...opts });
   return changed;
 }
 

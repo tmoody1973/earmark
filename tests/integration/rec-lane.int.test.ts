@@ -12,7 +12,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   let pool: Pool;
   let c: PoolClient;
   const ids: number[] = [];
-  const lane = () => import("../../agent/lib/recs/lane");
+  // Summaries, Bee and embeddings are fakes in every sweep here unless a test passes its own (M3-T5).
+  const quiet = { summarize: vi.fn(async () => null), beeSummary: vi.fn(async () => null), embedRecs: vi.fn(async () => 0) };
+  const lane = async () => {
+    const m = await import("../../agent/lib/recs/lane");
+    return { ...m, sweepRecLane: (d: Parameters<typeof m.sweepRecLane>[0] = {}) => m.sweepRecLane({ ...quiet, ...d }) };
+  };
 
   const addRec = async (o: { type?: string; status?: string; name?: string; image?: string | null; links?: object } = {}) => {
     const { rows } = await c.query(
@@ -158,12 +163,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   });
 
   it("caps Jev calls and recs per run", async () => {
-    const { sweepRecLane, MAX_JEV_CALLS_PER_RUN, MAX_RECS_PER_RUN } = await lane();
+    const { sweepRecLane, MAX_JEV_CALLS_PER_RUN, MAX_RECS_PER_RUN, MAX_SUMMARIES_PER_RUN } = await lane();
     const batch: number[] = [];
     for (let i = 0; i < MAX_RECS_PER_RUN + 1; i++) batch.push(await addRec());
 
-    const viaJev = await sweepRecLane({ enrich: viaPick(() => null), pick, env: {}, onlyIds: batch });
+    const summarize = vi.fn(async () => null);
+    const viaJev = await sweepRecLane({ enrich: viaPick(() => null), pick, env: {}, onlyIds: batch, summarize });
     expect(viaJev).toMatchObject({ tried: MAX_JEV_CALLS_PER_RUN, jevCalls: MAX_JEV_CALLS_PER_RUN });
+    expect(summarize).toHaveBeenCalledTimes(Math.min(MAX_SUMMARIES_PER_RUN, batch.length)); // its own cap, apart from Jev's
 
     await c.query(`update recommendations set enrichment_status = 'pending', enrich_next_at = now() where id = any($1::bigint[])`, [batch]);
     const noJev = vi.fn(async () => null) as unknown as Enrich; // e.g. no candidates: no Jev call
@@ -217,6 +224,112 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(await row(failed)).toMatchObject({ art_retry_mbid: null, art_retries: MAX_ART_TRIES });
     expect(coverArt.mock.calls.filter(([rg]) => rg === `rg-${failed}`)).toHaveLength(MAX_ART_TRIES);
     expect(enrich).toHaveBeenCalledTimes(2); // the tail never re-runs MusicBrainz or Jev
+  });
+
+  const vec = (id: number) => c.query(`update recommendations set embedding = array_fill(0.1::real, array[1536])::vector where id = $1`, [id]);
+  const hasVec = async (id: number) => (await c.query(`select embedding is not null as v from recommendations where id = $1`, [id])).rows[0].v;
+  const why = async (id: number) => (await c.query(`select context_summary, summarized_at is not null as done from recommendations where id = $1`, [id])).rows[0];
+
+  it("writes each tip's why once (visible before maybes), null when there is none, and re-embeds what changed", async () => {
+    const { sweepRecLane, MAX_EMBEDS_PER_RUN } = await lane();
+    const seeded = await addRec({ name: "seeded" });
+    const maybe = await addRec({ name: "maybe", status: "needs_review" });
+    const plain = await addRec({ name: "no why" });
+    const told = await addRec({ name: "told" });
+    const dismissed = await addRec({ name: "gone", status: "dismissed" });
+    const all = [seeded, maybe, plain, told, dismissed];
+    await c.query(`update recommendations set enrichment_status = 'matched' where id = any($1::bigint[])`, [all]);
+    await c.query(`update recommendations set context_summary = 'Hand-written why.', summarized_at = now() where id = $1`, [seeded]);
+    await c.query(`update recommendations set bee_conversation_id = 4242 where id = $1`, [told]);
+    for (const id of [told, plain]) await vec(id);
+    const summarize = vi.fn(async (i: { name: string }) => (i.name === "no why" ? null : `Why for ${i.name}.`));
+    const beeSummary = vi.fn(async () => "Lunch about noodles");
+    const embedRecs = vi.fn(async () => 2);
+
+    const res = await sweepRecLane({ enrich: vi.fn(async () => null) as unknown as Enrich, pick, env: {}, onlyIds: all, summarize, beeSummary, embedRecs });
+    expect(res).toMatchObject({ summarized: 3, summaryFailed: 0, embedded: 2 });
+    expect(summarize.mock.calls.map(([i]) => i.name)).toEqual(["told", "no why", "maybe"]); // newest visible first, maybes last
+    expect(beeSummary).toHaveBeenCalledExactlyOnceWith(4242);
+    expect(summarize.mock.calls[0]![0]).toMatchObject({ excerpt: "it lane", beeSummary: "Lunch about noodles", recommender: null });
+    expect(embedRecs).toHaveBeenCalledWith(MAX_EMBEDS_PER_RUN);
+
+    expect(await why(told)).toEqual({ context_summary: "Why for told.", done: true });
+    expect(await hasVec(told)).toBe(false); // the why changed: embedded again from the new text
+    expect(await why(plain)).toEqual({ context_summary: null, done: true }); // null, never filler, and not asked again
+    expect(await hasVec(plain)).toBe(true); // nothing changed: the embedding stands
+    expect(await why(seeded)).toEqual({ context_summary: "Hand-written why.", done: true });
+    expect(await why(dismissed)).toEqual({ context_summary: null, done: false });
+
+    summarize.mockClear();
+    await sweepRecLane({ enrich: vi.fn(async () => null) as unknown as Enrich, pick, env: {}, onlyIds: all, summarize, beeSummary, embedRecs });
+    expect(summarize).not.toHaveBeenCalled(); // each tip is asked once
+  });
+
+  it("a failed summary call is retried next run; Bee being down only drops its context", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec({ name: "flaky" });
+    await c.query(`update recommendations set enrichment_status = 'matched', bee_conversation_id = 4243 where id = $1`, [id]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const down = vi.fn(async () => { throw Object.assign(new Error("x"), { name: "TimeoutError" }); });
+    const beeDown = vi.fn(async () => { throw Object.assign(new Error("x"), { name: "BeeApiError" }); });
+    const failing = vi.fn(async () => { throw Object.assign(new Error("x"), { name: "AI_APICallError" }); });
+    expect(await sweepRecLane({ env: {}, onlyIds: [id], summarize: failing, beeSummary: down, embedRecs: down }))
+      .toMatchObject({ summarized: 0, summaryFailed: 1, embedded: 0 }); // the embed failure is logged, not thrown
+    expect(await why(id)).toEqual({ context_summary: null, done: false });
+
+    const ok = vi.fn<(i: { beeSummary: string | null }) => Promise<string>>(async () => "The noodles are hand-pulled.");
+    await sweepRecLane({ env: {}, onlyIds: [id], summarize: ok, beeSummary: beeDown });
+    expect(ok.mock.calls[0]![0]).toMatchObject({ beeSummary: null });
+    expect(await why(id)).toEqual({ context_summary: "The noodles are hand-pulled.", done: true });
+  });
+
+  it("tips whose call always fails go to the back, never block older tips, and give up after 3 attempts", async () => {
+    const { sweepRecLane, MAX_SUMMARY_ATTEMPTS } = await lane();
+    const older = await addRec({ name: "older" });
+    const bad = [await addRec({ name: "bad" }), await addRec({ name: "bad" }), await addRec({ name: "bad" })]; // newest first in line
+    const all = [older, ...bad];
+    await c.query(`update recommendations set enrichment_status = 'matched' where id = any($1::bigint[])`, [all]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const summarize = vi.fn(async (i: { name: string }) => {
+      if (i.name === "bad") throw Object.assign(new Error("x"), { name: "AI_APICallError" });
+      return "Worth the drive for the view.";
+    });
+    const run = () => sweepRecLane({ env: {}, onlyIds: all, summarize });
+
+    expect(await run()).toMatchObject({ summarized: 0, summaryFailed: 3 }); // 3 in a row: the run stops asking
+    expect(await why(older)).toEqual({ context_summary: null, done: false });
+    expect(await run()).toMatchObject({ summarized: 1 }); // the least-tried tip goes first
+    expect(await why(older)).toEqual({ context_summary: "Worth the drive for the view.", done: true });
+
+    for (let i = 2; i < MAX_SUMMARY_ATTEMPTS; i++) await run();
+    expect(await run()).toMatchObject({ summarized: 0 }); // nothing left to ask
+    const gaveUp = await c.query(`select context_summary, summarized_at is not null as done, summary_attempts
+      from recommendations where id = any($1::bigint[])`, [bad]);
+    expect(gaveUp.rows).toEqual(bad.map(() => ({ context_summary: null, done: true, summary_attempts: MAX_SUMMARY_ATTEMPTS })));
+    expect(summarize.mock.calls.filter(([i]) => i.name === "bad")).toHaveLength(bad.length * MAX_SUMMARY_ATTEMPTS);
+  });
+
+  it("a crash in the why step is logged and the sweep still embeds and finishes", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec({ name: "crashy" });
+    await c.query(`update recommendations set enrichment_status = 'matched', bee_conversation_id = 4244 where id = $1`, [id]);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const beeSummary = () => { throw Object.assign(new Error("x"), { name: "TypeError" }); }; // throws before any promise
+    const embedRecs = vi.fn(async () => 0);
+    expect(await sweepRecLane({ env: {}, onlyIds: [id], beeSummary: beeSummary as never, embedRecs })).toMatchObject({ status: "done" });
+    expect(embedRecs).toHaveBeenCalled();
+    expect(err.mock.calls.flat().join(" ")).toMatch(/rec-lane whys failed.*error=TypeError/);
+  });
+
+  it("a match that renames a tip drops its embedding; a match that changes nothing keeps it", async () => {
+    const { sweepRecLane } = await lane();
+    const renamed = await addRec({ name: "night garden" });
+    const same = await addRec({ name: "Night Garden" });
+    await c.query(`update recommendations set creator = 'Mara Vell' where id = $1`, [same]);
+    for (const id of [renamed, same]) await vec(id);
+    await sweepRecLane({ enrich: vi.fn(async () => match()) as unknown as Enrich, pick, env: {}, onlyIds: [renamed, same] });
+    expect(await hasVec(renamed)).toBe(false);
+    expect(await hasVec(same)).toBe(true);
   });
 
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {

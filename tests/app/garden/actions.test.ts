@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("../../../agent/lib/garden/queries", () => ({
   getGardenVisit: vi.fn(async () => null),
   saveGardenVisit: vi.fn(async () => {}),
@@ -12,6 +13,7 @@ vi.mock("../../../agent/lib/garden/merge", () => ({ mergeClusters: vi.fn(async (
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { getGardenVisit, saveGardenVisit, setTipVerdict } from "../../../agent/lib/garden/queries";
 import { setLinkStatus } from "../../../agent/lib/garden/backlinks";
 import { mergeClusters, undoMerge } from "../../../agent/lib/garden/merge";
@@ -69,7 +71,7 @@ describe.each([["keepTip", keepTip, "kept"], ["notATip", notATip, "not_a_tip"]] 
   it(`records "${verdict}" and refreshes the garden's pages`, async () => {
     signedInAs("user_owner");
     expect(await action(7)).toEqual({ changed: true });
-    expect(setTipVerdict).toHaveBeenCalledWith(7, verdict);
+    expect(setTipVerdict).toHaveBeenCalledWith(7, verdict, { defer: after }); // Bee never holds up the tap
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 

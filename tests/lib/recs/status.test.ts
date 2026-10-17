@@ -113,6 +113,34 @@ describe("setRecStatus", () => {
     expect(line).not.toContain("secret transcript text");
   });
 
+  it("with a defer, the tap returns before the effects run (the recount still runs first, awaited)", async () => {
+    h.mock.queue.push([{ previous: "new", recommender_id: 3 }], []);
+    const fx = effect("bee-todos");
+    const deferred: Array<() => Promise<void>> = [];
+    expect(await setRecStatus(7, "queued", "garden", { effects: [fx], defer: (fn) => { deferred.push(fn); } }))
+      .toEqual({ changed: true, previous: "new" });
+    expect(h.mock.calls).toHaveLength(2); // the status change and the recount
+    expect(fx.run).not.toHaveBeenCalled();
+    await deferred[0]!();
+    expect(fx.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("without a defer, the effects are awaited before it returns", async () => {
+    h.mock.queue.push([{ previous: "new", recommender_id: null }]);
+    const fx = effect("bee-todos");
+    await setRecStatus(7, "queued", "garden", { effects: [fx] });
+    expect(fx.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("a deferred effect that throws is still logged, never thrown", async () => {
+    h.mock.queue.push([{ previous: "new", recommender_id: null }]);
+    const boom = effect("bee-todos", vi.fn(async () => { throw Object.assign(new Error("x"), { name: "BeeApiError" }); }));
+    const deferred: Array<() => Promise<void>> = [];
+    await setRecStatus(7, "queued", "garden", { effects: [boom], defer: (fn) => { deferred.push(fn); } });
+    await expect(deferred[0]!()).resolves.toBeUndefined();
+    expect(err.mock.calls.map((c: unknown[]) => c.join(" ")).join("\n")).toContain("effect=bee-todos rec=7 error=BeeApiError");
+  });
+
   it("records Tarik's Maybe? verdict in the same statement", async () => {
     h.mock.queue.push([{ previous: "needs_review", recommender_id: null }]);
     await setRecStatus(7, "new", "garden", { from: ["needs_review"], verdict: "kept", effects: [] });
