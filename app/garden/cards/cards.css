@@ -359,3 +359,25 @@
   .rec-card { transition: none; }
   .rec-card--linked:hover { transform: none; }
 }
+
+/* ---- Serendipity (Serendipity.tsx, decision 029): one quiet item, its own card beside a note and two actions.
+   Pill buttons from ideas.css .link-btn. Never orange. ---- */
+.serendipity .zone-head { margin-bottom: 0.125rem; }
+.serendipity .zone-head h2 { font-size: 1.1875rem; outline-offset: 4px; }
+.serendipity-lede { margin: 0 0 1rem; font-size: 0.9375rem; color: var(--ink-2); }
+.serendipity-said { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 0 0 1rem; }
+.serendipity-said p { margin: 0; font-size: 0.9375rem; color: var(--ink); }
+/* a tip: cover-sized card at the left, the note and actions beside it; an idea: its card, then the note and actions */
+.serendipity-item { display: grid; gap: 0.875rem 1rem; align-items: end; max-width: 46rem; }
+.serendipity-item--rec { grid-template-columns: minmax(0, 10.5rem) minmax(0, 1fr); }
+.serendipity-item--idea { grid-template-columns: minmax(0, 1fr); }
+.serendipity-item .idea-card { height: auto; }
+.serendipity-note { margin: 0 0 0.75rem; font-size: 0.9375rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.serendipity-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.serendipity-item--rec .serendipity-actions { flex-direction: column; align-items: stretch; }
+.serendipity-actions .link-btn { justify-content: center; white-space: nowrap; }
+@media (min-width: 40rem) {
+  .serendipity-item--rec { grid-template-columns: 13rem minmax(0, 1fr); gap: 1.25rem; }
+  .serendipity-item--rec .serendipity-actions { flex-direction: row; align-items: center; }
+  .serendipity-item--idea { grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); gap: 1.25rem; }
+}

@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { isOwner } from "@/agent/lib/owner";
 import { getGardenView, getGardenVisit, getMaybeTips } from "@/agent/lib/garden/queries";
+import { getSerendipity } from "@/agent/lib/garden/serendipity";
 import { nextVisit } from "@/agent/lib/garden/visit";
 import { Icon } from "./garden/cards/icons";
 import { IdeaBed } from "./garden/IdeaPlant";
@@ -10,6 +11,7 @@ import { GardenLive } from "./garden/live";
 import { MaybeRow } from "./garden/MaybeRow";
 import { NewRow } from "./garden/NewRow";
 import { SearchField } from "./garden/SearchField";
+import { Serendipity } from "./garden/Serendipity";
 import { Shelf } from "./garden/Shelf";
 import { TabBar } from "./garden/TabBar";
 import "./garden/shell.css";
@@ -39,6 +41,12 @@ export default async function Garden() {
   const [view, maybe] = await Promise.all([getGardenView(since), getMaybeTips()]);
   const plants = view.plants.slice(0, IDEAS_ON_HOME);
   const shelf = view.shelf.slice(0, SHELF_ON_HOME);
+  // After the garden read, so Serendipity never repeats a card already on this page.
+  // ponytail: one extra round trip (two indexed reads) after the Promise.all; fold it in if Home ever feels slow.
+  const pick = await getSerendipity(new Date(), [
+    ...plants.map((p) => ({ type: "idea" as const, id: p.id })),
+    ...shelf.map((c) => ({ type: "rec" as const, id: c.id })),
+  ]);
   const maybes = maybe.tips.slice(0, MAYBE_ON_HOME);
   const index = [
     ...plants.map((p) => ({ key: `idea-${p.id}`, fields: [p.title] })),
@@ -97,6 +105,9 @@ export default async function Garden() {
             moreHref="/shelf#maybe"
             emptyFocusId="shelf-h"
           />
+
+          {/* Last and quiet: one thing that has gone unheard for a while (decision 029). Hidden when there is none. */}
+          <Serendipity pick={pick} />
         </GardenLive>
       </main>
     </>
