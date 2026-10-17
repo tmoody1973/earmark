@@ -26,6 +26,11 @@ const EnvSchema = z.object({
   EARMARK_AWS_REGION: blankIsUnset(z.string().default("us-east-1")), // generative voices live in us-east-1
   POLLY_VOICE: blankIsUnset(z.string().default("Ruth")),
   EARMARK_FEED_TOKEN: blankIsUnset(z.string().min(32).optional()), // path secret of /feed/<token>; the route 404s while unset
+  // MCP server (M5-T9): service-level OAuth client credentials. Blank is unset; the MCP routes fail closed (503) until all four are set.
+  EARMARK_PUBLIC_BASE_URL: blankIsUnset(z.string().url().optional()), // production origin; token issuer + MCP resource base
+  EARMARK_MCP_CLIENT_ID: blankIsUnset(z.string().min(8).optional()),
+  EARMARK_MCP_CLIENT_SECRET: blankIsUnset(z.string().min(32).optional()),
+  EARMARK_MCP_JWT_SECRET: blankIsUnset(z.string().min(32).optional()),
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender
@@ -38,6 +43,14 @@ export function getEnv(source: Record<string, string | undefined> = process.env)
   const parsed = EnvSchema.parse(source);
   if (source === process.env) cached = parsed;
   return parsed;
+}
+
+export function requireEnv<K extends keyof Env>(key: K): NonNullable<Env[K]> {
+  const value = getEnv()[key];
+  if (value === undefined || value === null || value === "") {
+    throw new Error(`${String(key)} is not set (see .env.example)`);
+  }
+  return value as NonNullable<Env[K]>;
 }
 
 // Call-site read for the pipeline: tolerant of a partial env (unlike getEnv, which needs the full schema).
