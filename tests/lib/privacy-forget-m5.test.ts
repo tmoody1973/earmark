@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { forgetPersonInEpisodes } from "../../agent/lib/privacy/forget-m5";
+import { forgetPersonInEpisodes, forgetPersonInGardenerRuns } from "../../agent/lib/privacy/forget-m5";
 
 const rows = [
   { id: "1", script_md: "Title\n\nAnn suggested a ramen spot.", audio_url: "https://blob.test/1.mp3" },
@@ -26,6 +26,24 @@ describe("forgetPersonInEpisodes", () => {
   it("ignores a blank name", async () => {
     const sql = vi.fn();
     expect(await forgetPersonInEpisodes("  ", { sql: sql as never, del: vi.fn() })).toEqual({ episodesDeleted: 0 });
+    expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+describe("forgetPersonInGardenerRuns", () => {
+  const runs = [
+    { id: "1", output_md: "## Pitch\nAnn's ramen tip." },
+    { id: "2", output_md: "Nobody named here, only Annabel." },
+    { id: "3", output_md: "ann again" },
+  ];
+  it("deletes drafts that name the person (whole word, any case) and keeps the rest", async () => {
+    const sql = vi.fn().mockResolvedValueOnce(runs).mockResolvedValue([]);
+    expect(await forgetPersonInGardenerRuns("Ann", { sql: sql as never })).toEqual({ runsDeleted: 2 });
+    expect(sql).toHaveBeenCalledTimes(3); // one select, two deletes
+  });
+  it("ignores a blank name", async () => {
+    const sql = vi.fn();
+    expect(await forgetPersonInGardenerRuns(" ", { sql: sql as never })).toEqual({ runsDeleted: 0 });
     expect(sql).not.toHaveBeenCalled();
   });
 });
