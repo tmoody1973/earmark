@@ -408,6 +408,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect((await c.query(`select count(*)::int as n from recommendations where id = $1`, [noted])).rows[0].n).toBe(0);
   });
 
+  it("video tips (add-on, migration 015): the type is allowed; a spoken title gets a search link, an emailed URL its oEmbed", async () => {
+    const { sweepRecLane } = await lane();
+    const { enrichRec } = await import("../../agent/lib/enrich/enrich");
+    await expect(addRec({ type: "bogus" })).rejects.toThrow(/recommendations_type_check/);
+    const spoken = await addRec({ type: "video", name: "Veritasium" });
+    const url = "https://www.youtube.com/watch?v=6avJHaC3C2U";
+    const emailed = await addRec({ type: "video", name: "the art of code talk", links: { urls: ["https://example.com/x", url] } });
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ title: "The Art of Code - Dylan Beattie",
+      author_name: "NDC Conferences", thumbnail_url: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg" }), { status: 200 }));
+    const enrich: Enrich = (r, deps) => enrichRec(r, { ...deps, fetchImpl: fetchImpl as never });
+
+    const res = await sweepRecLane({ enrich, pick, env: {}, onlyIds: [spoken, emailed] });
+    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, noMatch: 1, jevCalls: 0 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // only the tip that carries a URL; a spoken title runs no search
+    // link only (nothing identified): no_match, so it reaches review (M3-T9), but the search link is kept for the card
+    expect(await row(spoken)).toMatchObject({ enrichment_status: "no_match", review_reason: "no_match", image_url: null,
+      canonical_name: "Veritasium", links: { primary: "https://www.youtube.com/results?search_query=Veritasium" } });
+    const e = await row(emailed);
+    expect(e).toMatchObject({ enrichment_status: "matched", canonical_name: "The Art of Code - Dylan Beattie",
+      creator: "NDC Conferences", image_url: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg" });
+    expect(e.links).toEqual({ youtube: url, urls: ["https://example.com/x", url] });
+  });
+
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {
     const { runRecLane } = await lane();
     const id = await addRec();

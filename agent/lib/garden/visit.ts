@@ -45,7 +45,7 @@ export type NewChip =
 export interface BloomSince { clusterId: number; title: string; mentionCount: number; at: string }
 
 const TYPE_WORD: Record<RecType, string> = {
-  album: "album", song: "song", artist: "artist", book: "book", place: "place", podcast: "podcast", film_tv: "film / TV", other: "tip",
+  album: "album", song: "song", artist: "artist", book: "book", place: "place", podcast: "podcast", film_tv: "film / TV", video: "video", other: "tip",
 };
 
 export const bloomMeta = (mentionCount: number) => `Bloomed · ${mentionCount} ${mentionCount === 1 ? "mention" : "mentions"}`;

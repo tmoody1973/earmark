@@ -9,7 +9,7 @@ import "./cards.css";
 
 export const TYPE_LABEL: Record<RecType, string> = {
   album: "Album", song: "Song", artist: "Artist", book: "Book",
-  place: "Place", podcast: "Podcast", film_tv: "Film / TV", other: "Other",
+  place: "Place", podcast: "Podcast", film_tv: "Film / TV", video: "Video", other: "Other",
 };
 
 /** A place's address is its "creator line"; everything else names its maker. */

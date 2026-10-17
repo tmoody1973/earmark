@@ -75,6 +75,20 @@ describe("triageWindow", () => {
     for (const k of [...Object.keys(KIND_CRITERIA), ...Object.keys(REC_TYPE_CRITERIA)]) expect(k).not.toMatch(/^\d+$/);
   });
 
+  it("offers video as a rec type with its boundary cases, and no longer files YouTube under other", () => {
+    expect(REC_TYPE_CRITERIA.video).toMatch(/YouTube/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/TikTok/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/film_tv/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/podcast/);
+    expect(REC_TYPE_CRITERIA.film_tv).toMatch(/is video, not this/);
+    expect(REC_TYPE_CRITERIA.other).not.toMatch(/YouTube/);
+    // tie-break: a full-length documentary or film is film_tv even on YouTube; a clip, vlog or video essay is video
+    expect(REC_TYPE_CRITERIA.video).toMatch(/full-length documentary or film is film_tv, even on YouTube/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/clip, vlog or video essay is video/);
+    // eval 2026-10-17: one neither-labeled window was typed video in every run (both models): mentioned, not a tip
+    expect(REC_TYPE_CRITERIA.video).toMatch(/a video the speaker made, or one merely mentioned, is not a tip/i);
+  });
+
   it("lists neither first so position bias favours dropping", () => {
     expect(Object.keys(KIND_CRITERIA)[0]).toBe("neither");
   });
