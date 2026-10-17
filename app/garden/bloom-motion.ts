@@ -12,6 +12,8 @@
 
 const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 export const BLOOM_MS = 1700;
+/** When the petals start to open: the card's words and the bloom dot change here, not at t=0. */
+export const FLOWER_OPENS_MS = 1000;
 
 export function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -42,7 +44,7 @@ export async function playBloom(svg: SVGSVGElement): Promise<void> {
     const turn = [...el.parentElement!.parentElement!.children].indexOf(el.parentElement!); // which of the five petals
     anims.push(el.animate(
       [{ transform: "scale(0.25)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }],
-      { duration: 460, delay: 1000 + turn * 60, easing: EASE, fill: "backwards" },
+      { duration: 460, delay: FLOWER_OPENS_MS + turn * 60, easing: EASE, fill: "backwards" },
     ));
   });
   for (const el of now.querySelectorAll<SVGElement>(".plant-flower .flower-eye, .plant-flower .stamen, .plant-flower .anther")) {

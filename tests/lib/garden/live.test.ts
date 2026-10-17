@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  BLOOM_POLL_MS, emptyLive, parseBloomsResponse, pollDelay, reduceFeed, settleBloom, type FeedEvent,
+  BLOOM_POLL_MS, emptyLive, isBlooming, parseBloomsResponse, pollDelay, reduceFeed, settleBloom, stableOrder,
+  type DrawnPlant, type FeedEvent,
 } from "../../../agent/lib/garden/live";
 import type { PlantLevel } from "../../../agent/lib/garden/plant";
 
@@ -9,7 +10,9 @@ const ev = (id: number, kind: "mention" | "bloom", clusterId: number, over: Part
   id, kind, clusterId, title: `Idea ${clusterId}`, stage: kind === "bloom" ? "ready" : "sprouting", mentionCount: kind === "bloom" ? 3 : 2,
   createdAt: now, ...over,
 });
-const onPage = (entries: Array<[number, PlantLevel]>) => new Map(entries);
+const STAGE: Record<PlantLevel, DrawnPlant["stage"]> = { seed: "compost", sprout: "sprouting", bloom: "ready", fruit: "drafted", harvested: "used" };
+const drawn = (level: PlantLevel, mentionCount = level === "seed" ? 1 : 2): DrawnPlant => ({ level, stage: STAGE[level], mentionCount });
+const onPage = (entries: Array<[number, PlantLevel]>) => new Map(entries.map(([id, l]) => [id, drawn(l)] as const));
 
 describe("parseBloomsResponse", () => {
   it("accepts the M2-T6 shape", () => {
@@ -29,11 +32,11 @@ describe("pollDelay", () => {
 });
 
 describe("reduceFeed", () => {
-  it("a bloom on a visible sprout: plant patched to bloom from its old level, chip and announcement, no refresh", () => {
+  it("a bloom on a visible sprout: plant patched to bloom, remembering how it was drawn; chip and announcement, no refresh", () => {
     const { state, refresh } = reduceFeed(emptyLive(), [ev(1, "mention", 4, { stage: "ready", mentionCount: 3 }), ev(2, "bloom", 4, { title: "Station crates" })], onPage([[4, "sprout"]]));
-    expect(state.patches[4]).toEqual({ stage: "ready", level: "bloom", mentionCount: 3, bloomFrom: "sprout" });
+    expect(state.patches[4]).toEqual({ stage: "ready", level: "bloom", mentionCount: 3, bloomFrom: { level: "sprout", stage: "sprouting", mentionCount: 2 } });
     expect(state.chips).toEqual([
-      { key: "idea-4", kind: "bloom", title: "Station crates", meta: "Bloomed · 3 mentions", at: now, href: "/ideas/4" },
+      { key: "idea-4", kind: "bloom", title: "Station crates", from: null, meta: "Bloomed · 3 mentions", at: now, href: "/ideas/4" },
     ]);
     expect(state.announcement).toBe("Station crates bloomed — mentioned 3 times.");
     expect(refresh).toBe(false); // the plant blooms in place; re-sorting the bed mid-animation would move it
@@ -45,6 +48,12 @@ describe("reduceFeed", () => {
     expect(state.chips).toEqual([]);
     expect(state.announcement).toBe("");
     expect(refresh).toBe(true);
+  });
+
+  it("a bloom after an earlier live mention remembers the patched drawing, not the server's", () => {
+    const a = reduceFeed(emptyLive(), [ev(5, "mention", 4)], onPage([[4, "seed"]]));
+    const b = reduceFeed(a.state, [ev(6, "bloom", 4)], onPage([[4, "seed"]]));
+    expect(b.state.patches[4]!.bloomFrom).toEqual({ level: "sprout", stage: "sprouting", mentionCount: 2 });
   });
 
   it("events seen before are ignored (the route re-sends a 10 s overlap on purpose)", () => {
@@ -83,10 +92,23 @@ describe("reduceFeed", () => {
   });
 });
 
-describe("settleBloom", () => {
+describe("settleBloom / isBlooming", () => {
   it("clears the animation marker once the bloom has played, keeping the new state", () => {
     const { state } = reduceFeed(emptyLive(), [ev(2, "bloom", 4)], onPage([[4, "sprout"]]));
-    expect(settleBloom(state, 4).patches[4]).toEqual({ stage: "ready", level: "bloom", mentionCount: 3, bloomFrom: null });
-    expect(state.patches[4]!.bloomFrom).toBe("sprout");
+    expect(isBlooming(state)).toBe(true);
+    const settled = settleBloom(state, 4);
+    expect(settled.patches[4]).toEqual({ stage: "ready", level: "bloom", mentionCount: 3, bloomFrom: null });
+    expect(isBlooming(settled)).toBe(false);
+    expect(state.patches[4]!.bloomFrom).not.toBeNull();
+  });
+});
+
+describe("stableOrder (no re-sort under his thumb until the next visit)", () => {
+  it("ids already shown keep their places; ids new to the page come first, in the server's order", () => {
+    expect(stableOrder([3, 9, 1, 2], [1, 2, 3])).toEqual([9, 1, 2, 3]);
+  });
+  it("an id that left the page is simply gone; nothing remembered means the server's order", () => {
+    expect(stableOrder([2, 1], [1, 5, 2])).toEqual([1, 2]);
+    expect(stableOrder([2, 1], [])).toEqual([2, 1]);
   });
 });

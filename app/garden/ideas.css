@@ -114,7 +114,8 @@
 .plant[data-bloom-from] .plant-now .vein { stroke-width: calc(0.75px / var(--draw-scale, 1)); }
 .plant[data-bloom-from] .plant-flower :is(.petal, .petal-vein) { transform-origin: 0 0; }
 @keyframes bloom-dot-in { from { opacity: 0; transform: scale(0.4); } }
-.idea-card--blooming .bloom-dot { animation: bloom-dot-in 220ms var(--ease-out) 1000ms both; }
+/* the dot (and the words) arrive with the petals: IdeaPlant reveals them at FLOWER_OPENS_MS */
+.idea-card--blooming .bloom-dot { animation: bloom-dot-in 220ms var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) {
   .plant[data-bloom-from] .plant-was { display: none; }
   .idea-card--blooming .bloom-dot { animation: none; }

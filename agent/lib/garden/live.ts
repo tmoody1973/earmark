@@ -35,8 +35,12 @@ export function pollDelay(failures: number): number {
   return Math.min(BLOOM_POLL_MS * 2 ** failures, MAX_BACKOFF_MS);
 }
 
-/** A plant's live state. `bloomFrom` is set while it should play the bloom, from the level it was drawn at. */
-export interface PlantPatch { stage: IdeaStage; level: PlantLevel; mentionCount: number; bloomFrom: PlantLevel | null }
+/** How a plant is drawn on the page right now: its level and what its card says. */
+export interface DrawnPlant { level: PlantLevel; stage: IdeaStage; mentionCount: number }
+
+/** A plant's live state. `bloomFrom` is set while it should play the bloom: how it was drawn before (the card keeps
+ *  saying that until the flower starts to open). */
+export interface PlantPatch { stage: IdeaStage; level: PlantLevel; mentionCount: number; bloomFrom: DrawnPlant | null }
 
 export interface LiveState {
   seen: ReadonlySet<number>;
@@ -58,7 +62,7 @@ const UNOPENED: ReadonlySet<PlantLevel> = new Set(["seed", "sprout"]);
 export function reduceFeed(
   state: LiveState,
   events: readonly FeedEvent[],
-  onPage: ReadonlyMap<number, PlantLevel>,
+  onPage: ReadonlyMap<number, DrawnPlant>,
 ): { state: LiveState; refresh: boolean } {
   const fresh = events.filter((e) => !state.seen.has(e.id));
   if (fresh.length === 0) return { state, refresh: false };
@@ -71,10 +75,13 @@ export function reduceFeed(
   for (const e of fresh) {
     const level = plantLevel(e.stage);
     const prev = patches[e.clusterId];
-    // The level on screen before this poll: the bloom's own mention event (same save, same poll) must not count.
-    const drawnAt = state.patches[e.clusterId]?.level ?? onPage.get(e.clusterId);
+    // The plant on screen before this poll: the bloom's own mention event (same save, same poll) must not count.
+    const before = state.patches[e.clusterId];
+    const drawn: DrawnPlant | undefined = before
+      ? { level: before.level, stage: before.stage, mentionCount: before.mentionCount }
+      : onPage.get(e.clusterId);
     if (level) {
-      const bloomFrom = e.kind === "bloom" && drawnAt && UNOPENED.has(drawnAt) ? drawnAt : (prev?.bloomFrom ?? null);
+      const bloomFrom = e.kind === "bloom" && drawn && UNOPENED.has(drawn.level) ? drawn : (prev?.bloomFrom ?? null);
       patches[e.clusterId] = { stage: e.stage, level, mentionCount: e.mentionCount, bloomFrom };
     }
     if (e.kind === "bloom") {
@@ -92,6 +99,23 @@ export function reduceFeed(
     state: { seen, patches, chips, announcement: lines.length ? lines.join(" ") : state.announcement },
     refresh,
   };
+}
+
+/** True while any plant is still playing its bloom (refreshes wait for it: no re-sort mid-bloom). */
+export function isBlooming(state: LiveState): boolean {
+  return Object.values(state.patches).some((p) => p.bloomFrom !== null);
+}
+
+/**
+ * The bed in a stable order: ids already shown keep their relative places; ids new to the page go first, in the
+ * server's order. GardenLive remembers the shown order until the next real visit, so a live refresh never re-sorts
+ * the cards under his thumb.
+ */
+export function stableOrder(serverIds: readonly number[], shown: readonly number[]): number[] {
+  const at = new Map(shown.map((id, i) => [id, i]));
+  const fresh = serverIds.filter((id) => !at.has(id));
+  const kept = serverIds.filter((id) => at.has(id)).sort((a, b) => at.get(a)! - at.get(b)!);
+  return [...fresh, ...kept];
 }
 
 /** The bloom has played: keep the new state, drop the marker so a later re-render never replays it. */

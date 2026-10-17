@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Figtree, Literata } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   description: "The ideas you keep saying and the tips people give you.",
   robots: { index: false, follow: false },
 };
+
+// Edge to edge on a notched phone: the page pads itself with env(safe-area-inset-*) (globals.css, shell.css).
+export const viewport: Viewport = { viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
