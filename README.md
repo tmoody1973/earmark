@@ -37,7 +37,7 @@ CI: every PR and push to `main` runs typecheck, unit tests, lint, build and a gi
 - Stop: Ctrl-C in each terminal. If started in the background: `pkill -f relay/run.sh; lsof -ti :2000 | xargs kill`
 - Backfill now: `curl -X POST http://localhost:2000/eve/v1/dev/schedules/nightly-backfill`
 - Tests: `pnpm test`; sign-in and owner-gate checks with screenshots: `pnpm test:e2e` (needs the Clerk keys and `pnpm exec playwright install chromium`). Screenshots go to the git-ignored `test-results/screens/`. Never commit real-data screenshots: the three PNGs in `docs/design/screens/` are empty-state captures only.
-- Live-bloom e2e (`e2e/bloom.spec.ts`) writes to the Neon `test` branch, so the dev server must read that branch too: start it with `DATABASE_URL` set to the `TEST_DATABASE_URL` value (Next does not override a variable already in the environment), on its own port, then `E2E_PORT=<port> pnpm test:e2e e2e/bloom.spec.ts`. `E2E_PORT` (default 3100) keeps Playwright from reusing another checkout's dev server.
+- e2e never writes production. `pnpm e2e` (same as `pnpm test:e2e`) starts its own dev server on the Neon `test` branch (`DATABASE_URL` = `TEST_DATABASE_URL`, required) and never reuses a running server; pick the port with `E2E_PORT` (default 3100). Real data is opt-in and read-only: `E2E_REAL=1 pnpm e2e e2e/garden.spec.ts` sets `GARDEN_READ_ONLY=1`, which turns garden writes (visit record, idea viewed) into no-ops, and `e2e/bloom.spec.ts` skips. A server started with `EARMARK_E2E=1` refuses to start on any other database unless it is read-only (`instrumentation.ts`).
 - Database tests: `pnpm test:int` runs against the Neon `test` branch (`TEST_DATABASE_URL` in `.env.local`), never production; `pnpm migrate:test` migrates that branch.
 
 ## Deploy

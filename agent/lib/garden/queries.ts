@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
@@ -163,6 +164,7 @@ export async function getGardenVisit(): Promise<VisitState | null> {
   return parseVisit(r ? String(r.cursor) : null);
 }
 export async function saveGardenVisit(v: VisitState): Promise<void> {
+  if (gardenReadOnly()) return; // a real-data e2e run browses read-only (e2e-guard.ts)
   await db()`insert into sync_cursors (name, cursor) values (${GARDEN_VISIT}, ${JSON.stringify(v)})
              on conflict (name) do update set cursor = excluded.cursor, updated_at = now()`;
 }
@@ -212,5 +214,6 @@ export async function getIdeaDetail(id: number): Promise<IdeaDetail | null> {
 
 // Runs in after() on the idea page: the page is owner-gated, and request APIs are off-limits inside after().
 export async function markIdeaViewed(id: number): Promise<void> {
+  if (gardenReadOnly()) return; // a real-data e2e run browses read-only (e2e-guard.ts)
   await db()`update idea_clusters set last_viewed_at = now() where id = ${id}`;
 }
