@@ -1,33 +1,33 @@
-// Read-only: runs music enrichment for existing recs and prints ids + match ids/urls. Writes nothing.
-// usage: tsx --env-file=.env.local scripts/enrich-preview.ts <recId> [recId...]
-// Calls MusicBrainz, the Cover Art Archive and Jev (via the Gateway). Never prints names, excerpts or payloads.
+// Read-only: runs enrichment for existing tips and prints ids, type, provider, outcome and whether art was found.
+// Writes nothing (SELECT only). Never prints names, excerpts, links or payloads.
+// usage: tsx --env-file=.env.local scripts/enrich-preview.ts [recId...]   (no ids: up to 8 visible tips, mixed types)
+// Calls the providers (MusicBrainz serially, 1 req/s) and Jev via the Gateway, like one sweep would.
 import { db } from "../agent/lib/db";
-import { enrichMusic } from "../agent/lib/enrich/music";
+import { enrichRec, type RecToEnrich } from "../agent/lib/enrich/enrich";
+import { providerFor } from "../agent/lib/enrich/registry";
 import { ProviderHttpError } from "../agent/lib/enrich/types";
-import type { RecType } from "../agent/lib/types";
+import { HIDDEN_TIP_STATUSES } from "../agent/lib/garden/queries";
 
 const ids = process.argv.slice(2).map(Number).filter(Number.isSafeInteger);
-if (ids.length === 0) {
-  console.error("usage: enrich-preview.ts <recId> [recId...]");
-  process.exit(1);
-}
-const rows = (await db()`select id, type, canonical_name, creator, excerpt from recommendations
-  where id = any(${ids}) and type in ('album','song','artist') order by id`) as
-  { id: number; type: RecType; canonical_name: string; creator: string | null; excerpt: string }[];
+const rows = (ids.length
+  ? await db()`select id, type, canonical_name, creator, excerpt, lat, lng from recommendations where id = any(${ids}) order by id`
+  : await db()`select id, type, canonical_name, creator, excerpt, lat, lng from recommendations
+      where status <> all(${HIDDEN_TIP_STATUSES}::text[])
+      order by row_number() over (partition by type order by id desc), id desc limit 8`) as RecToEnrich[];
 
 for (const r of rows) {
+  const id = Number(r.id); // bigserial arrives as a string
+  const provider = providerFor(r.type)?.name;
+  const head = `rec=${id} type=${r.type} provider=${provider ?? "none (key not set)"}`;
+  if (!provider) {
+    console.log(`${head} waiting`);
+    continue;
+  }
   try {
-    const m = await enrichMusic({
-      recId: r.id, query: { type: r.type, name: r.canonical_name, creator: r.creator, lat: null, lng: null },
-      described: r.creator ? `${r.canonical_name} by ${r.creator}` : r.canonical_name, excerpt: r.excerpt,
-    });
-    console.log(m
-      ? `rec=${r.id} type=${r.type} matched p=${m.matchConfidence.toFixed(2)} mbid=${m.mbid} link=${m.links.musicbrainz} art=${m.imageUrl ?? "-"} apple=${m.appleMusicId ?? "-"}`
-      : `rec=${r.id} type=${r.type} none`);
+    const m = await enrichRec({ ...r, id });
+    console.log(m ? `${head} matched p=${m.matchConfidence.toFixed(2)} art=${m.imageUrl ? "yes" : "no"}` : `${head} none`);
   } catch (err) {
     const status = err instanceof ProviderHttpError ? ` status=${err.status}` : "";
-    console.log(`rec=${r.id} type=${r.type} error=${err instanceof Error ? err.name : "unknown"}${status}`);
+    console.log(`${head} error=${err instanceof Error ? err.name : "unknown"}${status}`);
   }
 }
-const missing = ids.filter((id) => !rows.some((r) => Number(r.id) === id)); // bigserial arrives as a string
-if (missing.length) console.log(`not music or not found: ${missing.join(",")}`);
