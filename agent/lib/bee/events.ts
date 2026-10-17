@@ -22,9 +22,9 @@ export const BeeEventSchema = z.discriminatedUnion("event", [
     }),
     conversation_uuid: z.string(),
   })),
-  env("new-conversation", z.object({
-    conversation: z.object({ id: z.number(), uuid: z.string(), state: z.string().optional(), title: z.string().nullable().optional() }),
-  })),
+  // Documented: {conversation:{id,uuid,...}}. The live payload differed from the docs (400s in prod, 2026-10-16), so any object
+  // is accepted and conversationRef() digs the id/uuid out of whichever shape arrives. See docs/research/bee-api.md.
+  env("new-conversation", z.record(z.string(), z.unknown())),
   env("update-conversation", z.object({
     conversation: z.object({ id: z.number(), state: z.string().optional(), title: z.string().nullable().optional(), short_summary: z.string().nullable().optional() }),
   })),
@@ -47,6 +47,28 @@ export const BeeEventSchema = z.discriminatedUnion("event", [
 const COMPLETE_STATES = new Set(["processed", "ready", "completed"]);
 export function isJournalComplete(state: string | null | undefined): boolean {
   return typeof state === "string" && COMPLETE_STATES.has(state.toLowerCase());
+}
+
+const asId = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) ? n : null;
+};
+const asUuid = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+const obj = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+/**
+ * The uuid and numeric id of a new conversation. Both must come from the SAME level (never mixed): `conversation.{uuid,id}`
+ * (documented), then `{conversation_uuid,conversation_id}`, then `{uuid,id}`. Null when no level has both.
+ */
+export function conversationRef(data: Record<string, unknown>): { uuid: string; id: number } | null {
+  const c = obj(data.conversation);
+  const levels: Array<[unknown, unknown]> = [[c.uuid, c.id], [data.conversation_uuid, data.conversation_id], [data.uuid, data.id]];
+  for (const [u, i] of levels) {
+    const uuid = asUuid(u);
+    const id = asId(i);
+    if (uuid && id !== null) return { uuid, id };
+  }
+  return null;
 }
 
 export type BeeEvent = z.infer<typeof BeeEventSchema>;

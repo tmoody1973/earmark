@@ -28,3 +28,6 @@ docs/design/inspiration/*.png
 docs/design/screens/
 playwright/.clerk/
 playwright-report/
+
+# M2-T8: real speech windows for labeling, local only. Delete after Oct 23.
+evals/triage/data/

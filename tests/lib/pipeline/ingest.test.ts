@@ -62,6 +62,19 @@ describe("handleBeeEvent", () => {
     expect(rememberConversationUuid).toHaveBeenCalledWith("u1", 12);
   });
 
+  it("maps flat and variant new-conversation shapes; skips (without throwing) when id or uuid is absent", async () => {
+    await handleBeeEvent(evt("new-conversation", { conversation_uuid: "u2", conversation_id: 7 }));
+    expect(rememberConversationUuid).toHaveBeenCalledWith("u2", 7);
+    await handleBeeEvent(evt("new-conversation", { conversation: { uuid: "u3", id: "9" } }));
+    expect(rememberConversationUuid).toHaveBeenCalledWith("u3", 9);
+    vi.mocked(rememberConversationUuid).mockClear();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await handleBeeEvent(evt("new-conversation", { conversation_uuid: "only-uuid" }));
+    expect(rememberConversationUuid).not.toHaveBeenCalled();
+    expect(warn.mock.calls.join(" ")).not.toContain("only-uuid");
+    warn.mockRestore();
+  });
+
   it("processes a conversation when its summary arrives, passing deps through", async () => {
     await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12, short_summary: "s" }));
     expect(processConversation).toHaveBeenCalledWith(12, {});

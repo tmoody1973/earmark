@@ -3,7 +3,7 @@ import { toDate, type BeeClient } from "../bee/client";
 import { getEnv, ownerFirstName } from "../env";
 import { distanceMeters, type LatLng } from "../geo";
 import { toWindows } from "../pipeline/windows";
-import { utterancesOf } from "../pipeline/utterances";
+import { utterancesOf } from "../pipeline/process-conversation";
 import { extractRecommendation } from "../pipeline/extract";
 import { chooseRecommender } from "../pipeline/attribution";
 import { clampExcerpt } from "../pipeline/excerpt";

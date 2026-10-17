@@ -78,3 +78,18 @@ describe("isJournalComplete", () => {
     for (const s of ["PREPARING", "ANALYZING", "", "mystery", null, undefined]) expect(isJournalComplete(s)).toBe(false);
   });
 });
+
+describe("conversationRef", () => {
+  it("returns the pair from one level, in priority order", async () => {
+    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    expect(conversationRef({ conversation: { uuid: "u", id: 1 }, conversation_uuid: "x", conversation_id: 2 })).toEqual({ uuid: "u", id: 1 });
+    expect(conversationRef({ conversation_uuid: "u", conversation_id: 2 })).toEqual({ uuid: "u", id: 2 });
+    expect(conversationRef({ uuid: "u", id: "3" })).toEqual({ uuid: "u", id: 3 });
+  });
+  it("never mixes levels, and rejects unsafe ids", async () => {
+    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    expect(conversationRef({ conversation: { uuid: "u" }, conversation_id: 5 })).toBeNull();
+    expect(conversationRef({ conversation_uuid: "u", id: 5 })).toBeNull();
+    expect(conversationRef({ conversation: { uuid: "u", id: "99999999999999999999" } })).toBeNull();
+  });
+});
