@@ -11,6 +11,9 @@ export const DEFAULT_BUDGET_MS = 240_000; // same function budget as the nightly
 const STOP_CLAIMING_AT = 0.7; // past this share of the budget no NEW item is started
 const PENDING_TTL_MS = 48 * 3_600_000; // same window as the nightly backfill, which is the backstop after this
 const CONVERSATION_DEADLINE_AT = 0.9; // a conversation still running here stops, saves nothing, releases its claim
+export const MAX_CHANGE_ATTEMPTS = 5; // a todo/fact change that throws this many runs in a row is dropped (logged once)
+
+type Retries = { todo: Map<number, number>; fact: Map<number, number> }; // id → failed attempts so far
 
 export interface NormalizedChanges {
   conversations: number[];
@@ -88,17 +91,24 @@ export async function runBeeChangesSync(deps: Partial<ChangesDeps> = {}): Promis
   const [cursor, stored] = await Promise.all([getCursor(BEE_CHANGES_CURSOR), getPending()]);
   const pendC = new Map(stored.conversations.map((p) => [p.id, p.firstSeen]));
   const pendJ = new Map(stored.journals.map((p) => [p.id, p.firstSeen]));
+  // ?? []: a pending list saved before M3-T8 has no todos/facts (getPending defaults them; mocks may not).
+  const retries: Retries = {
+    todo: new Map((stored.todos ?? []).map((p) => [p.id, p.attempts])),
+    fact: new Map((stored.facts ?? []).map((p) => [p.id, p.attempts])),
+  };
   const snapshot = (): Pending => ({
     conversations: [...pendC].map(([id, firstSeen]) => ({ id, firstSeen })),
     journals: [...pendJ].map(([id, firstSeen]) => ({ id, firstSeen })),
+    todos: [...retries.todo].map(([id, attempts]) => ({ id, attempts })),
+    facts: [...retries.fact].map(([id, attempts]) => ({ id, attempts })),
   });
   const before = JSON.stringify(snapshot());
 
   const result: ChangesResult = { conversations: 0, journals: 0, todos: 0, facts: 0, failed: 0, gone: 0, pending: 0, cursorSaved: false };
   try {
-    await syncOnce(d, cursor, startedAt, pendC, pendJ, result);
+    await syncOnce(d, cursor, startedAt, pendC, pendJ, retries, result);
   } finally {
-    result.pending = pendC.size + pendJ.size;
+    result.pending = pendC.size + pendJ.size + retries.todo.size + retries.fact.size;
     // Saved on every exit (success, held cursor, or throw) so a not-ready item is never forgotten.
     if (JSON.stringify(snapshot()) !== before) {
       await savePending(snapshot()).catch((err: unknown) =>
@@ -110,7 +120,7 @@ export async function runBeeChangesSync(deps: Partial<ChangesDeps> = {}): Promis
 
 async function syncOnce(
   d: ChangesDeps, cursor: string | null, startedAt: number,
-  pendC: Map<number, string>, pendJ: Map<string, string>, result: ChangesResult,
+  pendC: Map<number, string>, pendJ: Map<string, string>, retries: Retries, result: ChangesResult,
 ): Promise<void> {
   let unfinished = false; // stopped early or a conversation hit its deadline: some listed item was not processed
   const outOfTime = () => d.now().getTime() - startedAt >= d.budgetMs * STOP_CLAIMING_AT;
@@ -195,10 +205,36 @@ async function syncOnce(
   }
   if (unfinished) { console.error("[bee-changes] out of time; cursor not advanced"); return; }
 
-  // Todo/fact handlers are M3/M5 hooks and idempotent: a throw here leaves the cursor so the batch replays.
-  for (const id of c.todos) { await d.handleTodoChange(id); result.todos++; }
-  for (const id of c.facts) { await d.handleFactChange(id); result.facts++; }
+  // 3. Todo/fact changes: earlier failures first, then the feed's, each id once per run. Handlers are idempotent and
+  // re-read Bee, so a retry by id is the whole change. One that throws goes on the retry list and the cursor still
+  // advances (a poison todo can't freeze the feed); it is dropped after MAX_CHANGE_ATTEMPTS with one log line.
+  await runChanges("todo", [...retries.todo.keys(), ...c.todos], d.handleTodoChange, retries.todo, result);
+  await runChanges("fact", [...retries.fact.keys(), ...c.facts], d.handleFactChange, retries.fact, result);
 
   await saveCursor(BEE_CHANGES_CURSOR, c.nextCursor);
   result.cursorSaved = true;
+}
+
+async function runChanges(
+  kind: "todo" | "fact", ids: number[], handle: (id: number) => Promise<void>, retry: Map<number, number>,
+  result: ChangesResult,
+): Promise<void> {
+  for (const id of new Set(ids)) {
+    try {
+      await handle(id);
+      retry.delete(id);
+      result[kind === "todo" ? "todos" : "facts"]++;
+    } catch (err) {
+      const attempts = (retry.get(id) ?? 0) + 1;
+      const name = err instanceof Error ? err.name : "unknown";
+      result.failed++;
+      if (attempts >= MAX_CHANGE_ATTEMPTS) {
+        retry.delete(id);
+        console.error(`[bee-changes] ${kind} gave up id=${id} attempts=${attempts} error=${name}`);
+      } else {
+        retry.set(id, attempts);
+        console.error(`[bee-changes] ${kind} failed id=${id} attempts=${attempts} error=${name}`);
+      }
+    }
+  }
 }

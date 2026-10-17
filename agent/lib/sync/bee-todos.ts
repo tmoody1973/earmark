@@ -39,11 +39,12 @@ function writesOn(env: Record<string, string | undefined>): boolean {
   return false;
 }
 
-// One Bee todo writer at a time (schedule, status nudges, M5), else two could each create the same todo.
-async function withLease<T>(work: () => Promise<T>): Promise<T | "locked"> {
+// One Bee todo writer at a time (schedule, status nudges, M5, inbound changes in todo-handlers.ts), else two could each
+// create the same todo or one could undo the other's link. `name`: integration tests use their own (shared TEST branch).
+export async function withLease<T>(work: () => Promise<T>, name = BEE_TODOS_LEASE): Promise<T | "locked"> {
   const token = randomUUID();
   const took = await db()`
-    insert into sync_cursors (name, cursor) values (${BEE_TODOS_LEASE}, ${token})
+    insert into sync_cursors (name, cursor) values (${name}, ${token})
     on conflict (name) do update set cursor = excluded.cursor, updated_at = now()
       where sync_cursors.updated_at < now() - ${CLAIM_LEASE}::interval
     returning cursor`;
@@ -51,7 +52,7 @@ async function withLease<T>(work: () => Promise<T>): Promise<T | "locked"> {
   try {
     return await work();
   } finally {
-    await db()`delete from sync_cursors where name = ${BEE_TODOS_LEASE} and cursor = ${token}`;
+    await db()`delete from sync_cursors where name = ${name} and cursor = ${token}`;
   }
 }
 
@@ -248,7 +249,7 @@ export async function createEarmarkTodo(
 
 // Upsert the entity's bee_sync row. For a tip (onlyQueuedRec) it is one statement with the guarded rec update: saved
 // only while the tip is still queued without a todo, so the rec and bee_sync never disagree.
-async function saveTodo(entityType: string, entityId: number, beeId: number, text: string, onlyQueuedRec: boolean): Promise<boolean> {
+export async function saveTodo(entityType: string, entityId: number, beeId: number, text: string, onlyQueuedRec: boolean): Promise<boolean> {
   const state = JSON.stringify({ text, completed: false });
   const rows = onlyQueuedRec
     ? await db()`
@@ -271,7 +272,7 @@ async function saveTodo(entityType: string, entityId: number, beeId: number, tex
 
 // kept = Bee still holds the todo, completed: its bee_sync row stays (forget deletes it from Bee; a re-queue reopens
 // it). Otherwise the todo is gone and so is the row. Either way the tip no longer has an open todo.
-async function saveLeft(recId: number, beeId: number, kept: boolean): Promise<void> {
+export async function saveLeft(recId: number, beeId: number, kept: boolean): Promise<void> {
   if (kept) {
     await db()`
       with r as (update recommendations set bee_todo_id = null where id = ${recId} and bee_todo_id = ${beeId} returning id)

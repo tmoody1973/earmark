@@ -104,11 +104,51 @@ describe("runBeeChangesSync", () => {
     expect(cursors.saveCursor).not.toHaveBeenCalled();
   });
 
-  it("a failing todo/fact handler (thrown out of the loop) does not save the cursor", async () => {
-    const d = deps(changes({ conversations: [123], todos: [10] }));
-    d.handleTodoChange.mockRejectedValueOnce(new Error("bee 500"));
-    await expect(runBeeChangesSync(d as never)).rejects.toThrow("bee 500");
-    expect(cursors.saveCursor).not.toHaveBeenCalled();
+  // M3-T8: per-entry isolation. A poison todo/fact (persistent Bee 5xx, schema drift) must not freeze the feed.
+  describe("todo/fact changes that fail", () => {
+    const saved = () => cursors.savePending.mock.calls.at(-1)![0];
+
+    it("one always-failing todo does not stop the next change in the batch, and the cursor advances", async () => {
+      const d = deps(changes({ conversations: [123], todos: [10, 11], facts: [7, 8] }));
+      d.handleTodoChange.mockImplementation(async (id: number) => { if (id === 10) throw new Error("bee 500 with todo text"); });
+      d.handleFactChange.mockImplementation(async (id: number) => {
+        if (id === 7) throw Object.assign(new Error("schema"), { name: "ZodError" });
+      });
+      const r = await runBeeChangesSync(d as never);
+      expect(d.handleTodoChange).toHaveBeenCalledWith(11);
+      expect(d.handleFactChange).toHaveBeenCalledWith(8);
+      expect(r).toMatchObject({ conversations: 1, todos: 1, facts: 1, failed: 2, pending: 2, cursorSaved: true });
+      expect(cursors.saveCursor).toHaveBeenCalledWith(BEE_CHANGES_CURSOR, "v1-200");
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [{ id: 10, attempts: 1 }], facts: [{ id: 7, attempts: 1 }] });
+      const logged = errSpy.mock.calls.flat().join(" ");
+      expect(logged).toContain("todo failed id=10 attempts=1 error=Error");
+      expect(logged).toContain("fact failed id=7 attempts=1 error=ZodError");
+      expect(logged).not.toContain("todo text");
+    });
+
+    it("retries them on later runs, once per run even when the feed lists them again, and drops them on success", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 10, attempts: 2 }], facts: [{ id: 7, attempts: 1 }] });
+      const d = deps(changes({ todos: [10] }));
+      const r = await runBeeChangesSync(d as never);
+      expect(d.handleTodoChange).toHaveBeenCalledTimes(1);
+      expect(d.handleTodoChange).toHaveBeenCalledWith(10);
+      expect(d.handleFactChange).toHaveBeenCalledWith(7);
+      expect(r).toMatchObject({ todos: 1, facts: 1, failed: 0, pending: 0, cursorSaved: true });
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
+    });
+
+    it("counts up on each failure and gives up after 5 attempts with one log line", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 10, attempts: 3 }], facts: [{ id: 7, attempts: 4 }] });
+      const d = deps(changes());
+      d.handleTodoChange.mockRejectedValue(new Error("bee 500"));
+      d.handleFactChange.mockRejectedValue(new Error("bee 500"));
+      const r = await runBeeChangesSync(d as never);
+      expect(r).toMatchObject({ failed: 2, pending: 1, cursorSaved: true });
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [{ id: 10, attempts: 4 }], facts: [] });
+      const lines = errSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(lines.filter((l: string) => l.includes("fact gave up id=7 attempts=5"))).toHaveLength(1);
+      expect(lines.some((l: string) => l.includes("todo gave up"))).toBe(false);
+    });
   });
 
   it("does not save the cursor when the feed fetch fails", async () => {
@@ -205,7 +245,7 @@ describe("pending list", () => {
     const d = deps(changes({ conversations: [7] }));
     d.processConversation.mockResolvedValueOnce({ ...convResult, skipped: true, reason: "capturing" } as never);
     const r = await runBeeChangesSync(d as never);
-    expect(saved()).toEqual({ conversations: [{ id: 7, firstSeen: new Date(NOW).toISOString() }], journals: [] });
+    expect(saved()).toEqual({ conversations: [{ id: 7, firstSeen: new Date(NOW).toISOString() }], journals: [], todos: [], facts: [] });
     expect(r).toMatchObject({ pending: 1, cursorSaved: true, conversations: 0 });
   });
 
@@ -219,7 +259,7 @@ describe("pending list", () => {
     expect(order).toEqual(["pc7", "feed"]);
     expect(d.bee.getJournal).toHaveBeenCalledWith("j1");
     expect(d.processJournal).toHaveBeenCalledTimes(1);
-    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     expect(r).toMatchObject({ conversations: 1, journals: 1, pending: 0 });
   });
 
@@ -239,7 +279,7 @@ describe("pending list", () => {
     await runBeeChangesSync(d as never);
     expect(d.processConversation).not.toHaveBeenCalled();
     expect(d.bee.getJournal).not.toHaveBeenCalled();
-    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     const logged = errSpy.mock.calls.flat().join(" ");
     expect(logged).toContain("expired id=8");
     expect(logged).toContain("expired id=old");
@@ -250,7 +290,7 @@ describe("pending list", () => {
     const d = deps(changes());
     d.processConversation.mockRejectedValueOnce(Object.assign(new Error("nf"), { status: 404 }));
     const r = await runBeeChangesSync(d as never);
-    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     expect(r.gone).toBe(1);
   });
 
@@ -269,7 +309,7 @@ describe("pending list", () => {
     d.processConversation.mockResolvedValueOnce({ ...convResult } as never);
     d.bee.changes.mockRejectedValueOnce(new Error("bee 503"));
     await expect(runBeeChangesSync(d as never)).rejects.toThrow("bee 503");
-    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     expect(cursors.saveCursor).not.toHaveBeenCalled();
   });
 
@@ -294,7 +334,7 @@ describe("pending list", () => {
     const d = deps(changes());
     await runBeeChangesSync(d as never);
     expect(d.processConversation).not.toHaveBeenCalled();
-    expect(saved()).toEqual({ conversations: [], journals: [] });
+    expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     expect(errSpy.mock.calls.flat().join(" ")).toContain("expired id=5");
   });
 });
