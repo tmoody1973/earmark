@@ -1,0 +1,24 @@
+# 027 — Merging two ideas asks first and can be undone
+
+**Decision:** When Jev thinks two ideas are the same idea, the idea page offers "Same idea?" with **Merge here** and **Not the same**. Merge asks once, inline ("Move its 2 mentions here? You can undo it."), then moves the other idea's mentions into this one. Every merge is recorded, and **Undo merge** puts both ideas back exactly as they were. Nothing is deleted.
+
+**Why this came up:** A merge rewrites two ideas at once: their mention counts, their stage (a merge can make an idea bloom), their timelines, their pins. Tarik's ruling: merging is destructive-ish, so it must be reversible, or at least confirm first and keep the merged idea's mentions. Getting this wrong means a mis-tap silently loses the history of an idea, which is the one thing Earmark exists to keep.
+
+**Options:**
+1. **Merge without a record; confirm only.** Simplest. Cost: a wrong merge can only be fixed by hand in the database.
+2. **Never move anything; just link the two ideas as "same".** Safe. Cost: the idea never gets its combined count, so it never blooms from the merge, which is the point of merging.
+3. **Confirm, merge, and record enough to undo** (chosen). Cost: a new table (`idea_merges`) and a more careful set of database statements.
+
+**What we chose and why:** Option 3, Claude's call within Tarik's ruling. The merge is one database transaction (all of it happens or none of it does). It first writes a record of which mentions move and what both ideas looked like (stage, count, pin), and only then moves anything; if either idea was already dismissed or merged, or changed since the merge was planned, the record is not written and nothing changes, so a double tap is harmless. The merged idea is kept, greyed, and its page says "Merged into …" with an Undo button; the kept idea lists it under "Merged in", also with Undo.
+
+Earmark counts a moment once per idea. A mention carrying the very same conversation or voice-note id as one the kept idea has cannot move (the database allows one per idea) and stays with the merged idea. A mention that is the same moment by the save path's own rule (for example the live-stream copy and the completed copy of one conversation, which carry different ids) moves, but is marked dismissed, so the moment counts once; the record keeps its earlier status and undo restores it exactly.
+
+Each line in "How it grew" now carries the id of the mention it belongs to (`mention_id`, written by the save path from this change on), and merge, undo and `pnpm forget` move or drop lines by that id, never by date or words: two mentions can share a moment, and two lines can share their words. Older lines have only a date; for those the date decides only when exactly one line in the idea has that moment, otherwise merge, undo and forget refuse ("two timeline lines share this moment; can't tell which is this mention") rather than guess. No backfill: old rows keep working while their moments are unique. The record holds ids, stages, counts and pins only, no idea text. A merge that brings an idea to its third mention blooms it, exactly as a third mention would, and the one-pager is drafted; the confirm step says so ("Merging may make this idea bloom and start a one-pager"). Undo takes that bloom back with what grew from it: if the kept idea was below bloom before the merge, its summary and one-pager are cleared and its stage follows its count again, the way forget recomputes an idea. Undo also marks the "same idea?" suggestion removed, so it is not offered again.
+
+**With `pnpm forget`:** any forget that touches a merge (a moved mention, or either idea) deletes the merge record, which ends that merge's undo, so nothing forgotten can come back through it. Forget refuses a merged idea on its own while its merge can still be undone ("merged into N: undo the merge or forget N"). Undo refuses if any moved mention no longer exists.
+
+**What we gave up:** An idea that was already in bloom before the merge keeps its stage and one-pager through an undo, even though the one-pager may have been rewritten with the merged mentions in between. A one-pager cleared by an undo is gone (the draft job writes a new one at the next bloom). If the kept idea was itself merged into a third idea afterwards, that later merge has to be undone first (Undo refuses until then). The Notion copy of the merged idea follows on the next sync, not instantly.
+
+**How we'll know if this was right:** Count merges and undos in `idea_merges` over the first two weeks. Undos above about one in five mean the "same idea" question (or `MERGE_MIN`, 0.8) is too loose. No merges at all while Tarik keeps seeing duplicate ideas in the garden means it is too strict, or the offer is too easy to miss on the page.
+
+**What actually happened:**
