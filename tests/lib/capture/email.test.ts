@@ -33,9 +33,32 @@ describe("parsers", () => {
     expect(addressOf("Tarik Moody <Owner@Example.org>")).toBe("owner@example.org");
     expect(addressOf("owner@example.org")).toBe("owner@example.org");
   });
-  it("takes the real sender, not an address smuggled into a quoted display name", () => {
-    expect(addressOf('"owner@example.org <owner@example.org>" <attacker@evil.test>')).toBe("attacker@evil.test");
-    expect(addressOf('"Tarik <owner@example.org>" <attacker@evil.test>')).toBe("attacker@evil.test");
+  it("rejects an address smuggled into a quoted display name", () => {
+    expect(addressOf('"owner@example.org <owner@example.org>" <attacker@evil.test>')).toBeNull();
+    expect(addressOf('"Tarik <owner@example.org>" <attacker@evil.test>')).toBeNull();
+  });
+  it("accepts only plain sender lines", () => {
+    for (const from of ["Tarik Moody <owner@example.org>", '"Tarik Moody" <owner@example.org>', "owner@example.org", "OWNER@Example.org", "Tárik Moody <owner@example.org>", "<owner@example.org>", "  Tarik <owner@example.org>\r\n"]) {
+      expect(addressOf(from), from).toBe("owner@example.org");
+    }
+  });
+  it("rejects every known parser-confusion bypass", () => {
+    for (const from of [
+      "attacker@evil.test <owner@example.org>",
+      "attacker@evil.test<owner@example.org>",
+      '(") <attacker@evil.test> (") <owner@example.org>',
+      '\\"<attacker@evil.test>,"<owner@example.org>',
+      "Tarik (owner@example.org) <attacker@evil.test>",
+      "=?utf-8?q?Tarik?= <owner@example.org>",
+      "Group: owner@example.org;",
+      "Tarik <owner@example.org> (comment)",
+      "owner@example.org.",
+      ".owner@example.org",
+      "owner@example",
+      "owner@@example.org",
+    ]) {
+      expect(addressOf(from), from).toBeNull();
+    }
   });
   it("rejects a From that is not exactly one mailbox", () => {
     expect(addressOf("Ann <ann@example.com>, Tarik <owner@example.org>")).toBeNull();
