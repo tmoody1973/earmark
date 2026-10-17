@@ -44,13 +44,15 @@ export async function draftReceipt(recId: number, generateImpl: typeof generateT
   if (rec.rating !== "loved") throw new ReceiptError("receipts are only drafted for loved recs");
   const who = credit({ recommender_id: rec.recommender_id as never, first_name: rec.first_name });
   if (!who) throw new ReceiptError("rec has no recommender to thank"); // also the owner: never credited
-  const item = rec.creator ? `${rec.canonical_name} by ${rec.creator}` : rec.canonical_name;
+  const cap = (t: string) => t.slice(0, 120); // names come from enrichment: keep the prompt small
+  const name = cap(rec.canonical_name);
+  const item = rec.creator ? `${name} by ${cap(rec.creator)}` : name;
   const me = ownerFirstName() ?? "the writer";
   const { output } = await generateImpl({
     model: getEnv().WRITE_MODEL,
     output: Output.object({ schema: NoteSchema }),
     // Privacy: the prompt never includes the conversation excerpt, so the card cannot quote it.
-    prompt: `Write a short, warm thank-you text from ${me} to ${who.firstName}, who recommended ${item} (${rec.type}). ${me} tried it and loved it. One or two sentences, first person, plain words, no hashtags, no emoji, under 280 characters. Do not invent details about the conversation.`,
+    prompt: `Write a short, warm thank-you text from ${me} to ${who.firstName}, who recommended ${item} (${cap(rec.type)}). ${me} tried it and loved it. One or two sentences, first person, plain words, no hashtags, no emoji, under 280 characters. Do not invent details about the conversation.`,
   });
   const [row] = (await db()`
     insert into rec_receipts (recommendation_id, message, share_token)
@@ -59,26 +61,30 @@ export async function draftReceipt(recId: number, generateImpl: typeof generateT
   return { receiptId: Number(row.id), token: row.share_token };
 }
 
-export async function approveReceipt(receiptId: number, message: string): Promise<string> {
+/** The public link for a receipt's share token. */
+export const receiptUrl = (token: string) => `${requireEnv("EARMARK_PUBLIC_BASE_URL")}/r/${token}`;
+
+export async function approveReceipt(recId: number, receiptId: number, message: string): Promise<string> {
   const clean = message.trim().slice(0, 280);
   if (!clean) throw new ReceiptError("The note is empty; write something first");
   const [row] = (await db()`
     update rec_receipts set message = ${clean}, approved_at = now(), sent_via = 'link'
-    where id = ${receiptId} returning share_token, recommendation_id`) as { share_token: string; recommendation_id: number | string }[];
+    where id = ${receiptId} and recommendation_id = ${recId} returning share_token, recommendation_id`) as { share_token: string; recommendation_id: number | string }[];
   if (!row) throw new ReceiptError(`receipt ${receiptId} not found`);
   await setRecStatus(Number(row.recommendation_id), "thanked", "garden");
-  return `${requireEnv("EARMARK_PUBLIC_BASE_URL")}/r/${row.share_token}`;
+  return receiptUrl(row.share_token);
 }
 
-export async function deferReceipt(receiptId: number, alarmAt: Date): Promise<void> {
+export async function deferReceipt(receiptId: number, alarmAt: Date, now: Date = new Date()): Promise<void> {
   const [r] = (await db()`
-    select rr.id, r.canonical_name, r.recommender_id, rc.first_name
+    select rr.id, rr.bee_todo_id, r.canonical_name, r.recommender_id, rc.first_name
     from rec_receipts rr join recommendations r on r.id = rr.recommendation_id
     left join recommenders rc on rc.id = r.recommender_id where rr.id = ${receiptId}`) as {
-    canonical_name: string; recommender_id: number | string | null; first_name: string | null;
+    canonical_name: string; bee_todo_id: number | string | null; recommender_id: number | string | null; first_name: string | null;
   }[];
   const who = r && credit({ recommender_id: r.recommender_id as never, first_name: r.first_name });
   if (!r || !who) throw new ReceiptError(`receipt ${receiptId} has no recommender`);
+  if (!(alarmAt.getTime() > now.getTime())) throw new ReceiptError("Pick a time in the future");
   const result = await createEarmarkTodo({
     entityType: "rec_receipt",
     entityId: receiptId,
@@ -86,6 +92,8 @@ export async function deferReceipt(receiptId: number, alarmAt: Date): Promise<vo
     alarmAt: alarmAt.toISOString(),
   });
   if ("skipped" in result) throw new ReceiptError(SKIPPED[result.skipped]);
+  // createEarmarkTodo reuses a todo that is still open; its alarm is the old one, so don't claim the new time
+  if (r.bee_todo_id != null && Number(r.bee_todo_id) === result.todoId) throw new ReceiptError("A Bee reminder for this thank-you is already open");
   await db()`update rec_receipts set bee_todo_id = ${result.todoId}, alarm_at = ${alarmAt.toISOString()} where id = ${receiptId}`;
 }
 
@@ -93,6 +101,8 @@ export async function deferReceipt(receiptId: number, alarmAt: Date): Promise<vo
 export function chicagoLocalToUtc(local: string): Date {
   if (!LOCAL_RE.test(local)) throw new ReceiptError("Pick a date and time for the reminder");
   const guess = new Date(`${local}:00Z`);
+  // V8 rolls Feb 30 into March, so compare the round trip as well as NaN
+  if (Number.isNaN(guess.getTime()) || guess.toISOString().slice(0, 16) !== local) throw new ReceiptError("That date and time don't exist");
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Chicago", hourCycle: "h23",
@@ -103,10 +113,10 @@ export function chicagoLocalToUtc(local: string): Date {
   return new Date(guess.getTime() + (guess.getTime() - chicagoAsUtc)); // independent of the server's own zone
 }
 
-/** Idempotent: the reminder was checked off in Bee, so the note counts as sent and the tip as thanked. */
+/** Idempotent: the reminder was checked off in Bee, so the note counts as sent and the tip as thanked. Never sets approved_at: an unreviewed draft must not become public. */
 export async function markReceiptSentFromTodo(receiptId: number): Promise<void> {
   const [row] = (await db()`
-    update rec_receipts set approved_at = coalesce(approved_at, now()), sent_via = coalesce(sent_via, 'text')
+    update rec_receipts set sent_via = coalesce(sent_via, 'text')
     where id = ${receiptId} returning recommendation_id`) as { recommendation_id: number | string }[];
   if (row) await setRecStatus(Number(row.recommendation_id), "thanked", "bee");
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/agent/lib/db";
+import { receiptUrl } from "@/agent/lib/recs/receipts";
 import { credit } from "@/agent/lib/garden/queries";
 import { requireOwner } from "@/app/gardeners/owner";
 import { DeferForm, DraftForm } from "./forms";
@@ -29,8 +30,8 @@ export default async function ReceiptPage({ params }: { params: Promise<{ recId:
   const canThank = rec.rating === "loved" && !!who;
   const [receipt] = canThank
     ? ((await db()`
-        select id, message, approved_at, alarm_at from rec_receipts where recommendation_id = ${recId} order by id desc limit 1`) as {
-        id: number | string; message: string; approved_at: string | null; alarm_at: string | null;
+        select id, message, share_token, approved_at, alarm_at from rec_receipts where recommendation_id = ${recId} order by id desc limit 1`) as {
+        id: number | string; message: string; share_token: string; approved_at: string | null; alarm_at: string | null;
       }[])
     : [];
   const at = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", dateStyle: "medium", timeStyle: "short" });
@@ -49,7 +50,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ recId:
         <>
           <section aria-labelledby="r-note">
             <h2 id="r-note">The note</h2>
-            <ShareButton recId={recId} receiptId={Number(receipt.id)} initial={receipt.message} name={who.firstName} />
+            <ShareButton recId={recId} receiptId={Number(receipt.id)} initial={receipt.message} name={who.firstName} initialUrl={receipt.approved_at ? receiptUrl(receipt.share_token) : null} />
             {receipt.approved_at && <p className="r-meta">Approved {at(receipt.approved_at)}.</p>}
           </section>
           <section aria-labelledby="r-later">
