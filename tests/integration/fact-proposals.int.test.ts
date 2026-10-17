@@ -54,9 +54,9 @@ const cleanup = async () => {
 };
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)("fact proposals (real Neon, fake Bee)", () => {
-  beforeAll(cleanup);
+  beforeAll(async () => { vi.stubEnv("BEE_TODO_WRITES", "on"); await cleanup(); }); // the fake Bee stands in for writes
   beforeEach(cleanup);
-  afterAll(cleanup);
+  afterAll(async () => { vi.unstubAllEnvs(); await cleanup(); });
 
   it("a post that succeeds but whose DB record throws is never repeated: the next run reconciles", async () => {
     const id = await insertProposal(`${MARK} Loves spiritual jazz`);
