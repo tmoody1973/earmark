@@ -33,8 +33,9 @@ export const MAX_SUMMARIES_PER_RUN = 10;
 export const MAX_SUMMARY_FAILURES_IN_A_ROW = 3; // the gateway is down: stop asking until the next run
 export const MAX_SUMMARY_ATTEMPTS = 3; // a tip whose call fails 3 times is done: summarized_at set, why null
 export const MAX_EMBEDS_PER_RUN = 20;
-// M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary), once per tip (about_at).
+// M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary; music adds one Wikidata ASK).
 export const MAX_ABOUTS_PER_RUN = 10;
+export const MAX_ABOUT_TRIES = 3; // errors/timeouts (not 503/429): then done, no note
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
@@ -236,30 +237,31 @@ async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Prom
   }
 }
 
-// The Wikipedia note (M3-T4b, decision 017): matched, visible tips (maybes too), each looked up once, newest first.
-// One try: found, unsure or failed, about_at is set and the tip is never asked again. A 503/429 stops this step for
-// the run and leaves the rest for the next one. No model call.
+// The Wikipedia note (M3-T4b, decision 017): matched, visible tips (maybes too), least-tried first, then newest.
+// A note or "unsure" is final (about_at). A thrown error or timeout counts a try and leaves the tip for the next run;
+// MAX_ABOUT_TRIES ends it with no note. A 503/429 changes nothing and stops this step for the run. No model call.
 async function writeAbouts(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
   const rows = (await db()`
-    select id, type, canonical_name, creator from recommendations
+    select id, type, canonical_name, creator, year_or_address, links from recommendations
     where enrichment_status = 'matched' and about_at is null and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
-    order by id desc limit ${MAX_ABOUTS_PER_RUN}`) as (AboutRec & { id: number | string })[];
+    order by about_tries, id desc limit ${MAX_ABOUTS_PER_RUN}`) as (AboutRec & { id: number | string })[];
   for (const row of rows) {
     if (overBudget()) break;
     const id = Number(row.id);
-    let about: About | null = null;
-    let busy = false;
     try {
-      about = await d.about({ type: row.type, canonical_name: row.canonical_name, creator: row.creator });
+      const about = await d.about({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
+        year_or_address: row.year_or_address, links: row.links });
+      await db()`update recommendations set about = ${about?.text ?? null}, about_url = ${about?.url ?? null}, about_at = now()
+        where id = ${id} and about_at is null`;
+      if (about) r.abouts++;
     } catch (err) {
       logEnrichError("rec-lane about", { rec: id }, err);
-      busy = isBackOffSignal(err);
+      if (isBackOffSignal(err)) break; // the service is busy: not this tip's fault, nothing counted
+      await db()`update recommendations set about_tries = about_tries + 1,
+          about_at = case when about_tries + 1 >= ${MAX_ABOUT_TRIES} then now() end
+        where id = ${id} and about_at is null`;
     }
-    await db()`update recommendations set about = ${about?.text ?? null}, about_url = ${about?.url ?? null}, about_at = now()
-      where id = ${id} and about_at is null`;
-    if (about) r.abouts++;
-    if (busy) break;
   }
 }
 

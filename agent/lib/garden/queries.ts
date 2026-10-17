@@ -58,7 +58,7 @@ export type GardenRecRow = {
   said_at: Date | string; created_at?: Date | string; status: string; rating: string | null;
   lat: number | null; lng: number | null; links: unknown;
   recommender_id: number | null; first_name: string | null;
-  about?: string | null; about_url?: string | null; // only the shelf selects these
+  about?: string | null; about_url?: string | null; // the owner's views select these (shelf, People, Spaces); never /s/
 };
 
 export type PlantRow = {
@@ -324,7 +324,7 @@ export interface RecommenderPage { person: LedgerPerson; recs: RecCardData[] }
 export async function getRecommenderPage(id: number): Promise<RecommenderPage | null> {
   const recs = ((await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
       p.id as recommender_id, p.first_name
     from recommendations r join recommenders p on p.id = r.recommender_id
     where r.recommender_id = ${id} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])

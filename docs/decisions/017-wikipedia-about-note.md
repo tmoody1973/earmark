@@ -9,18 +9,23 @@
 2. **Search first with a hint of the kind of thing ("SAULT music", "Richard Powers writer"), pick only a page that clearly fits, then fetch that page's summary** (chosen). Cost: two requests per tip instead of one, plus a handful of word lists that decide what "fits".
 3. **Ask a language model whether the page is the right one.** Cost: a paid model call per tip for something plain rules can mostly decide, and one more thing that can be confidently wrong.
 
-**What we chose and why:** Option 2, built by Claude to the controller's rules (one try, an 8-second timeout, no model call, nothing when unsure). A page is used only when all of these hold:
+**What we chose and why:** Option 2, built by Claude to the controller's rules (8-second timeout, no model call, nothing when unsure). A first review found that "the title matches and the description fits" still let namesakes through: a restaurant called "Rome" got the city, a band could get a same-named band. So the rules were made stricter. A page is used only when all of these hold:
 - its title, minus a qualifier like "(band)", is the subject's name, ignoring case and accents ("Sault (band)" fits "SAULT"; "Sault Ste. Marie" does not);
-- its one-line Wikipedia description fits the kind of thing: a music word for music tips, a writing word for authors, "podcast" for podcasts, a screen word for film and TV, and nothing that reads like a person (a birth year, "singer", "politician") for places;
-- it is not a disambiguation page, and exactly one page passes (two plausible bands called "Low" → no note);
-- the summary that comes back is a normal page with that same title.
+- its one-line Wikipedia description fits the kind of thing, matched as whole words: "martial artist", "film producer" or "talk show host" never count as music or TV, and for places, podcasts and screen, nothing that reads like a person ("born", "presenter", "politician");
+- it is not a disambiguation page, and exactly one search result passes;
+- the summary is a normal page with that same title;
+- and it is this tip's subject, not a namesake:
+  - **music:** Wikidata (the structured database behind Wikipedia) must link the page to the exact MusicBrainz entry the tip was matched to. For an artist that is the MusicBrainz artist id (property P434). For an album or song, the page must be the performer of that MusicBrainz release group or recording (P436 or P4404, with P175 "performer"). This is one free query. A music tip with no MusicBrainz match gets no note and makes no calls;
+  - **book:** the author's page (summary or search snippet) must mention the book's title;
+  - **film/TV and podcast:** the year or the maker (host, creator) must appear on the page. If we know neither, there is no note;
+  - **place:** the description must name a kind of venue (restaurant, bar, café, museum, shop, park…), or the summary must mention the tip's own town from its address.
 
 The stored sentence is the summary's first sentence with bracketed asides (pronunciations, birth dates) removed, cut to 25 words.
 
-**Limits:** at most 10 tips per sweep, 2 requests each. Each tip is looked up once (`about_at`), whether it found a note, found nothing, or failed. If Wikipedia answers 503 or 429 ("slow down"), the step stops for that run. The note lives in columns on the tip's own row (migration 014), so forgetting a tip deletes it too.
+**Limits:** at most 10 tips per sweep, 2 requests each (3 for music). A note, or a clear "unsure", is final (`about_at`). A thrown error or timeout counts a try (`about_tries`), and the tip is asked again on a later run, least-tried first. After 3 tries it is done with no note. If Wikipedia or Wikidata answers 503 or 429 ("slow down"), nothing is counted and the step stops for that run. The note lives in columns on the tip's own row (migration 014), so forgetting a tip deletes it too. It shows on Tarik's own views (shelf, People, private Spaces), never on a public shared page.
 
-**What we gave up:** A timeout or a Wikipedia hiccup means that tip never gets a note (one try, by design). The word lists will miss some real matches. A band whose description says only "American rock outfit", or a TV show without a "film" or "series" word, gets no note. Film and place searches use no hint, so common titles will often come back unsure. Some notes describe the artist rather than the album itself. That is the spec: the note is about the subject, not the item.
+**What we gave up:** More real matches are missed now. Plenty of albums and songs aren't linked in Wikidata. Many author pages don't name every book. Film and place searches use no hint, so common titles (The Bear) usually come back unsure. Some notes describe the artist rather than the album, which is the spec: the note is about the subject, not the item.
 
-**How we'll know if this was right:** Once the backlog clears, count matched tips that have a note and those that don't. Then read 20 notes against their tips: none should describe a different person, place or show. If fewer than about a third of music and book tips get a note, look at which descriptions failed the word lists and widen them.
+**How we'll know if this was right:** Once the backlog clears, count matched tips that have a note and those that don't, by type. Then read 20 notes against their tips: none should describe a different person, place or show. If music notes are rare, check how many matched release groups have a Wikidata entry before loosening anything.
 
 **What actually happened:**
