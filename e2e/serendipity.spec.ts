@@ -15,7 +15,7 @@ async function signInAs(page: Page, emailAddress: string) {
   await clerk.signIn({ page, emailAddress });
 }
 
-test("Serendipity: one forgotten thing at a time; keep it, let it compost, undo", async ({ page }, info) => {
+test("Serendipity: one forgotten thing at a time; an idea rests, a tip composts, undo", async ({ page }, info) => {
   test.skip(process.env.E2E_REAL === "1", "writes: test branch only");
   const sql = neon(process.env.TEST_DATABASE_URL!);
   const width = info.project.name === "phone" ? 390 : 1440;
@@ -55,13 +55,13 @@ test("Serendipity: one forgotten thing at a time; keep it, let it compost, undo"
     await section.scrollIntoViewIfNeeded();
     await section.screenshot({ path: `${DIR}/m4-serendipity-idea-${width}.png` });
 
-    // Keep it: it stays a sprouting idea, and Serendipity moves on to the tip
-    await section.getByRole("button", { name: "Keep it" }).click();
-    await expect(status).toHaveText(/Kept “Sample serendipity: a radio hour/);
+    // An idea is never composted from here: Not now rests it, still sprouting in the garden; Serendipity moves on to the tip
+    await expect(section.getByRole("button", { name: "Let it compost" })).toHaveCount(0);
+    await section.getByRole("button", { name: "Not now" }).click();
+    await expect(status).toHaveText("Resting — it’ll come back around in a couple of months.");
     await expect(item.getByRole("heading", { name: /The Field Recordings Reader/ })).toBeVisible();
-    const [kept] = await sql`select stage, last_surfaced_at from idea_clusters where id = ${plant.id}`;
-    expect(kept.stage).toBe("sprouting");
-    expect(kept.last_surfaced_at).not.toBeNull();
+    const [rested] = await sql`select stage, resting_until > now() + interval '59 days' as long_rest from idea_clusters where id = ${plant.id}`;
+    expect(rested).toEqual({ stage: "sprouting", long_rest: true });
     await noOverflow();
     await section.screenshot({ path: `${DIR}/m4-serendipity-tip-${width}.png` });
 
