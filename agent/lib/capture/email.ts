@@ -74,9 +74,19 @@ export function forwardedSenderName(text: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-export function addressOf(from: string): string {
-  const m = from.match(/<([^>]+)>/);
-  return (m ? m[1]! : from).trim().toLowerCase();
+// The one mailbox in a From value, lowercased, or null when it is not exactly one plain mailbox. The address is the LAST
+// angle-bracket group, at the end: a quoted display name can itself contain "<owner@...>", so the first group is
+// attacker-controlled. A comma/semicolon list or stray brackets outside quotes means more than one mailbox: null.
+const MAILBOX = /^[^\s,;<>"]+@[^\s,;<>"]+$/;
+export function addressOf(from: string): string | null {
+  const v = from.trim();
+  if (!/[<>]/.test(v)) return MAILBOX.test(v) ? v.toLowerCase() : null;
+  const m = v.match(/<([^<>]+)>\s*$/);
+  if (!m) return null;
+  const head = v.slice(0, m.index).replace(/"(?:[^"\\]|\\.)*"/g, "");
+  if (/[<>,;]/.test(head)) return null;
+  const addr = m[1]!.trim();
+  return MAILBOX.test(addr) ? addr.toLowerCase() : null;
 }
 
 // Resend exposes no structured SPF/DKIM field on a received email, only the raw headers. If those carry an
@@ -102,8 +112,10 @@ type Outcome = { outcome: "ignored" } | { outcome: "saved" | "duplicate"; id: nu
 async function processEmail(emailId: string, ownerEmail: string, deps: EmailDeps): Promise<Outcome> {
   const email = await deps.fetchEmail(emailId);
   // The From address can be forged: the webhook signature proves the mail came through Resend, not who sent it.
-  if (addressOf(email.from) !== ownerEmail || hasAuthFailure(email.headers)) return { outcome: "ignored" };
-  const text = (email.text ?? (email.html ? stripHtml(email.html) : "")).trim().slice(0, 4000);
+  // Exact match on purpose: "owner+tag@..." is NOT the owner (plus-addressing is refused; decision 030).
+  const sender = addressOf(email.from);
+  if (sender === null || sender !== ownerEmail || hasAuthFailure(email.headers)) return { outcome: "ignored" };
+  const text = (email.text || (email.html ? stripHtml(email.html) : "")).trim().slice(0, 4000);
   const subject = (email.subject ?? "").trim();
   const body = `${subject}\n${text}`.trim().slice(0, 2000);
   if (!text && !subject) return { outcome: "ignored" };
@@ -141,11 +153,14 @@ async function processEmail(emailId: string, ownerEmail: string, deps: EmailDeps
 
 export async function handleInboundEmail(req: Request, overrides: Partial<EmailDeps> = {}): Promise<Response> {
   const cfg = emailConfig();
-  if (!cfg) return Response.json({ error: "email-in not configured" }, { status: 500 });
+  if (!cfg) return Response.json({ error: "unavailable" }, { status: 503 }); // generic to unsigned callers; the log names the keys
   const deps = { ...defaultDeps(cfg), ...overrides };
 
-  const raw = await req.text(); // raw body first: re-serialized JSON breaks the signature
-  if (raw.length > MAX_BODY_BYTES) return Response.json({ error: "body too large" }, { status: 413 });
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return Response.json({ error: "body too large" }, { status: 413 });
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  if (bytes.byteLength > MAX_BODY_BYTES) return Response.json({ error: "body too large" }, { status: 413 });
+  const raw = new TextDecoder().decode(bytes); // raw body, not re-serialized JSON: that would break the signature
   let evt: ReturnType<EmailDeps["verify"]>;
   try {
     evt = deps.verify(raw, {
