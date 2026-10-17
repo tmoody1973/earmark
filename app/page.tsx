@@ -76,7 +76,7 @@ export default async function Garden() {
           {/* Zone 1 — the garden of ideas: bloomed and newly grown first (gardenOrder). */}
           <section className="zone" aria-labelledby="ideas-h">
             <div className="zone-head">
-              <h2 id="ideas-h">Ideas</h2>
+              <h2 id="ideas-h">Garden</h2>
               {view.plants.length > IDEAS_ON_HOME && <SeeAll href="/garden" />}
             </div>
             {plants.length === 0 ? (
