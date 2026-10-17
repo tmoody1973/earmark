@@ -97,8 +97,8 @@ const plan: ForgetPlan = {
   updates: {},
   refs: { beeTodoIds: [10, 11], beeFactIds: [5], notionPageIds: ["pg1"], blobUrls: ["https://blob.test/maria-thumb.jpg"] },
   recommender: { id: 9, firstName: "Maria", removed: true },
+  notes: [],
 };
-
 
 describe("formatPlan", () => {
   it("prints ids and table counts only: no recommender name, no thumbnail URL", () => {
@@ -117,6 +117,11 @@ describe("formatPlan", () => {
   it("names the idea when a mention is its idea's last", () => {
     const out = formatPlan({ ...plan, target: { type: "mention", id: 8 }, resolved: { type: "idea", id: 3 }, recommender: null });
     expect(out[0]).toContain("mention 8 is the last mention of idea 3");
+  });
+
+  it("prints the plan's notes", () => {
+    const out = formatPlan({ ...plan, notes: ["title came from this mention: forget the whole idea, or it will be retitled"] });
+    expect(out).toContain("  note: title came from this mention: forget the whole idea, or it will be retitled");
   });
 
   it("says when there is nothing to forget", () => {
@@ -139,6 +144,21 @@ describe("trashNotionPage", () => {
     const fetchImpl = vi.fn(async () => new Response("gone", { status: 404 }));
     const err = await trashNotionPage("pg1", { token: "t", fetchImpl: fetchImpl as unknown as typeof fetch }).catch((e) => e);
     expect(err).toMatchObject({ name: "NotionApiError", status: 404 });
+  });
+
+  it("an already-trashed page is done: 200, or the 400 validation_error Notion sends for an archived page", async () => {
+    const archived = { object: "error", status: 400, code: "validation_error", message: "Can't edit block that is archived. You must unarchive the block before editing." };
+    for (const res of [new Response(JSON.stringify({ object: "page", in_trash: true }), { status: 200 }), new Response(JSON.stringify(archived), { status: 400 })]) {
+      const fetchImpl = vi.fn(async () => res);
+      await expect(trashNotionPage("pg1", { token: "t", fetchImpl: fetchImpl as unknown as typeof fetch })).resolves.toBeUndefined();
+    }
+  });
+
+  it("any other 400 is a real failure", async () => {
+    const other = { object: "error", status: 400, code: "validation_error", message: "body failed validation" };
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(other), { status: 400 }));
+    const err = await trashNotionPage("pg1", { token: "t", fetchImpl: fetchImpl as unknown as typeof fetch }).catch((e) => e);
+    expect(err).toMatchObject({ name: "NotionApiError", status: 400 });
   });
 });
 
