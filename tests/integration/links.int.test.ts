@@ -162,29 +162,41 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     expect(bl.fits).toEqual([]);
   });
 
-  it("merge moves mentions (not ones from a shared conversation), recounts, blooms, and undo restores both ideas", async () => {
+  it("merge moves mentions (not ones from a shared conversation) and their timeline lines, recounts, blooms; undo restores both ideas", async () => {
     const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
-    const keep = await addCluster({ title: "merge keep", axis: 5, count: 2, stage: "sprouting", timeline: [{ date: AT, line: "Oct 1: first heard" }] });
+    const OCT5_K = "2026-10-05T18:00:00.000Z";
+    const OCT5_M = "2026-10-05T15:00:00.000Z";
+    // Identical lines on purpose: the kept idea's first line equals the merged idea's line for its shared-conversation
+    // mention, and both have an "Oct 5: added a host" line. Lines move by their mention, never by their text.
+    const keep = await addCluster({ title: "merge keep", axis: 5, count: 2, stage: "sprouting",
+      timeline: [{ date: AT, line: "Oct 1: first heard" }, { date: OCT5_K, line: "Oct 5: added a host" }] });
     const other = await addCluster({ title: "merge other", axis: 5, count: 2, stage: "sprouting", pinned: true,
-      timeline: [{ date: "2026-10-05T15:00:00Z", line: "Oct 5: added a host" }] });
+      timeline: [{ date: OCT5_M, line: "Oct 5: added a host" }, { date: AT, line: "Oct 1: first heard" }] });
     await addMention(keep, { axis: 5, conv: 9_000_001 });
-    await addMention(keep, { axis: 5, conv: 9_000_002 });
-    const moved = await addMention(other, { axis: 5, conv: 9_000_003, at: "2026-10-05T15:00:00Z" });
+    await addMention(keep, { axis: 5, conv: 9_000_002, at: OCT5_K });
+    const moved = await addMention(other, { axis: 5, conv: 9_000_003, at: OCT5_M });
     const shared = await addMention(other, { axis: 5, conv: 9_000_001 }); // same conversation as one of keep's: stays put
     await addLink(["idea", Math.min(keep, other)], ["idea", Math.max(keep, other)], "merge_suggestion", 0.9);
     const keepBefore = await cluster(keep);
     const otherBefore = await cluster(other);
+    const dates = (t: Array<{ date: string }>) => t.map((e) => new Date(e.date).toISOString()).sort();
 
     const mergeId = await mergeClusters(keep, other);
     expect(mergeId).toEqual(expect.any(Number));
     const k = await cluster(keep);
     expect(k).toMatchObject({ stage: "ready", mention_count: 3, pinned: true, has_centroid: true });
-    expect(k.timeline.map((e: { line: string }) => e.line)).toEqual(["Oct 1: first heard", "Oct 5: added a host"]);
+    expect(dates(k.timeline)).toEqual([AT, OCT5_M, OCT5_K].map((d) => new Date(d).toISOString()).sort());
+    const o = await cluster(other);
+    expect(o).toMatchObject({ stage: "dismissed", mention_count: 1 });
+    expect(o.timeline).toEqual([{ date: AT, line: "Oct 1: first heard" }]); // moved, not copied
     expect(await mentionsOf(keep)).toContain(moved);
     expect(await mentionsOf(other)).toEqual([shared]);
-    expect(await cluster(other)).toMatchObject({ stage: "dismissed", mention_count: 1 });
     expect((await c.query(`select kind from garden_events where cluster_id = $1 order by id desc limit 1`, [keep])).rows[0].kind).toBe("bloom");
     expect((await link(["idea", Math.min(keep, other)], ["idea", Math.max(keep, other)], "merge_suggestion")).status).toBe("accepted");
+    // the merge record holds ids and stage/count/pin only: no idea text
+    const rec = (await c.query(`select keep_before, merged_before from idea_merges where id = $1`, [mergeId])).rows[0];
+    expect(Object.keys(rec.keep_before).sort()).toEqual(["mention_count", "pinned", "stage"]);
+    expect(Object.keys(rec.merged_before).sort()).toEqual(["mention_count", "pinned", "stage"]);
 
     // a second merge of the same pair (double click) changes nothing
     expect(await mergeClusters(keep, other)).toBeNull();
@@ -199,11 +211,43 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     const k2 = await cluster(keep);
     const o2 = await cluster(other);
     expect(k2).toMatchObject({ stage: keepBefore.stage, mention_count: keepBefore.mention_count, pinned: false });
-    expect(k2.timeline).toEqual(keepBefore.timeline);
+    expect(k2.timeline).toEqual(keepBefore.timeline); // its own identical lines stay
     expect(o2).toMatchObject({ stage: otherBefore.stage, mention_count: otherBefore.mention_count, pinned: true });
+    expect(dates(o2.timeline)).toEqual(dates(otherBefore.timeline));
     expect((await mentionsOf(other)).sort()).toEqual([moved, shared].sort());
     expect((await link(["idea", Math.min(keep, other)], ["idea", Math.max(keep, other)], "merge_suggestion")).status).toBe("removed");
     expect((await getBacklinks(other)).mergedInto).toBeNull();
+  });
+
+  it("undo refuses when a moved mention no longer exists", async () => {
+    const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
+    const keep = await addCluster({ title: "gone keep", axis: 7, timeline: [{ date: AT, line: "Oct 1: first heard" }] });
+    const other = await addCluster({ title: "gone other", axis: 7, timeline: [{ date: "2026-10-02T15:00:00.000Z", line: "Oct 2: first heard" }] });
+    await addMention(keep, { axis: 7, conv: 9_100_001 });
+    const moved = await addMention(other, { axis: 7, conv: 9_100_002, at: "2026-10-02T15:00:00.000Z" });
+    const mergeId = await mergeClusters(keep, other);
+    await c.query(`delete from idea_mentions where id = $1`, [moved]);
+    expect(await undoMerge(mergeId!)).toBe(false);
+    expect((await c.query(`select undone_at from idea_merges where id = $1`, [mergeId])).rows[0].undone_at).toBeNull();
+    expect(await cluster(other)).toMatchObject({ stage: "dismissed" });
+  });
+
+  it("undo after the merged idea bloomed and drafted takes the draft back with the bloom", async () => {
+    const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
+    const keep = await addCluster({ title: "draft keep", axis: 8, count: 2, stage: "sprouting",
+      timeline: [{ date: AT, line: "Oct 1: first heard" }, { date: "2026-10-02T15:00:00.000Z", line: "Oct 2: again" }] });
+    const other = await addCluster({ title: "draft other", axis: 8, timeline: [{ date: "2026-10-03T15:00:00.000Z", line: "Oct 3: first heard" }] });
+    await addMention(keep, { axis: 8, conv: 9_200_001 });
+    await addMention(keep, { axis: 8, conv: 9_200_002, at: "2026-10-02T15:00:00.000Z" });
+    await addMention(other, { axis: 8, conv: 9_200_003, at: "2026-10-03T15:00:00.000Z" });
+    const mergeId = await mergeClusters(keep, other);
+    expect(await cluster(keep)).toMatchObject({ stage: "ready" });
+    // the draft job wrote a one-pager from all three mentions
+    await c.query(`update idea_clusters set stage = 'drafted', summary = 's', draft_md = 'd', draft_format = 'product_brief',
+                   draft_claimed_at = now() where id = $1`, [keep]);
+    expect(await undoMerge(mergeId!)).toBe(true);
+    const k = (await c.query(`select stage, mention_count, summary, draft_md, draft_format, draft_claimed_at from idea_clusters where id = $1`, [keep])).rows[0];
+    expect(k).toEqual({ stage: "sprouting", mention_count: 2, summary: null, draft_md: null, draft_format: null, draft_claimed_at: null });
   });
 
   it("refuses to merge into or from a dismissed idea", async () => {

@@ -314,10 +314,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const cid = await addCluster();
     await addMention(cid, A);
     const pid = await addProposal("idea", [cid], beeId(10));
+    // lane C maps a proposal's Bee fact in bee_sync (entity_type 'fact_proposal'): it goes with the proposal
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('fact_proposal', $1, 'fact', $2)`, [pid, beeId(10)]);
     const d = fakeDeps();
     await forget(c, { type: "idea", id: cid }, { yes: true, deps: d as ExternalDeps });
     expect(d.deleteFact.mock.calls).toEqual([[beeId(10)]]);
     expect(await count(`fact_proposals where id = $1`, [pid])).toBe(0);
+    expect(await count(`bee_sync where entity_type = 'fact_proposal' and entity_id = $1`, [pid])).toBe(0);
   });
 
   it("refuses when the mention became its idea's last between the outside pass and the transaction", async () => {
@@ -384,5 +387,57 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(dry.plan).toMatchObject({ resolved: { type: "idea", id: cid }, deletes: { idea_clusters: 1, idea_mentions: 2 } });
     await forget(c, { type: "mention", id: live }, { yes: true, deps: fakeDeps() as ExternalDeps });
     expect(await count(`idea_mentions where cluster_id = $1`, [cid])).toBe(0);
+  });
+  // Merges (M4-T6, decision 027): a forget that touches a merge ends its undo, and leaves no text behind anywhere.
+  const MOVED_AT = "2026-10-04T15:00:00.000Z";
+  const mergedPair = async () => {
+    const keep = await addCluster();
+    await addMention(keep, A);
+    await addMention(keep, B);
+    const other = Number((await one(
+      `insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, timeline)
+       values ('IT forget merged', 'compost', 1, $1, $1, $2::jsonb) returning id`,
+      [MOVED_AT, JSON.stringify([{ date: MOVED_AT, line: `Oct 4: it-forget-moved-${RUN}` }])])).id);
+    clusterIds.push(other);
+    const moved = await addMention(other, MOVED_AT);
+    const { mergeClusters } = await import("../../agent/lib/garden/merge");
+    const mergeId = (await mergeClusters(keep, other))!;
+    return { keep, other, moved, mergeId };
+  };
+  const textLeft = async (keep: number, other: number) =>
+    count(`idea_clusters where id in ($1, $2) and timeline::text like $3`, [keep, other, `%it-forget-moved-${RUN}%`]);
+
+  it("forgetting a moved mention after a merge removes it and its line everywhere, and ends the merge's undo", async () => {
+    const { forget } = await mod();
+    const { undoMerge } = await import("../../agent/lib/garden/merge");
+    const { keep, other, moved, mergeId } = await mergedPair();
+    expect(await textLeft(keep, other)).toBe(1); // the line moved to the kept idea
+    const dry = await forget(c, { type: "mention", id: moved }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(dry.plan.deletes).toMatchObject({ idea_mentions: 1, idea_merges: 1 });
+    await forget(c, { type: "mention", id: moved }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect(await count(`idea_mentions where id = $1`, [moved])).toBe(0);
+    expect(await textLeft(keep, other)).toBe(0);
+    expect(await count(`idea_merges where id = $1`, [mergeId])).toBe(0);
+    expect(await undoMerge(mergeId)).toBe(false);
+    expect(await count(`idea_clusters where id = $1 and mention_count = 2`, [keep])).toBe(1);
+  });
+
+  it("refuses to forget a merged idea while its merge can be undone; forgetting the kept idea ends the merge", async () => {
+    const { forget } = await mod();
+    const { keep, other, mergeId } = await mergedPair();
+    const dry = await forget(c, { type: "idea", id: other }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(dry.plan.notes.join(" ")).toContain(`merged into ${keep}`);
+    await expect(forget(c, { type: "idea", id: other }, { yes: true, deps: fakeDeps() as ExternalDeps }))
+      .rejects.toMatchObject({ name: "ForgetMergedError", message: expect.stringContaining(`merged into ${keep}: undo the merge or forget ${keep}`) });
+    expect(await count(`idea_clusters where id = $1`, [other])).toBe(1);
+
+    const dryKeep = await forget(c, { type: "idea", id: keep }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(dryKeep.plan.deletes).toMatchObject({ idea_clusters: 1, idea_mentions: 3, idea_merges: 1 });
+    await forget(c, { type: "idea", id: keep }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect(await count(`idea_merges where id = $1`, [mergeId])).toBe(0);
+    expect(await textLeft(keep, other)).toBe(0);
+    // with its merge gone, the merged idea can be forgotten too
+    await forget(c, { type: "idea", id: other }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect(await count(`idea_clusters where id = $1`, [other])).toBe(0);
   });
 });

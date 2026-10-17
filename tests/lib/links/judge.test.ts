@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FITS, RELATED, SAME_IDEA } from "../../../agent/lib/links/criteria";
-import { ideaText, judgeIdeaPair, judgeRecFit, recText } from "../../../agent/lib/links/judge";
+import { ideaText, judgeIdeaPair, judgeRecFit } from "../../../agent/lib/links/judge";
 
 // Synthetic examples only: no real transcript text in code or tests.
 describe("judge", () => {
@@ -8,10 +8,6 @@ describe("judge", () => {
     expect(ideaText({ title: "Station crates", summary: "Hosts share weekly picks", notes: [] })).toBe("Station crates. Hosts share weekly picks");
     expect(ideaText({ title: "Station crates", summary: null, notes: ["Oct 6: first heard", "Oct 9: added a guest host"] }))
       .toBe("Station crates. Notes: first heard; added a guest host");
-    expect(recText({ type: "album", name: "Promises", creator: "Floating Points", contextSummary: null }))
-      .toBe("album: Promises by Floating Points");
-    expect(recText({ type: "film_tv", name: "A film", creator: null, contextSummary: "Watch it for the score." }))
-      .toBe("film or TV: A film. Watch it for the score.");
   });
 
   it("clips the state to 80 words: Jev reads short state best", () => {

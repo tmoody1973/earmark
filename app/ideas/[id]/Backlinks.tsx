@@ -28,7 +28,8 @@ function reduce(view: Links, op: Op): Links {
 
 const mentions = (n: number) => `${n} mention${n === 1 ? "" : "s"}`;
 
-export function Backlinks({ ideaId, links }: { ideaId: number; links: Links }) {
+/** `idea`: this page's idea, for the merge warning (a merge that reaches the third mention blooms it). */
+export function Backlinks({ ideaId, idea, links }: { ideaId: number; idea: { mentionCount: number; bloomed: boolean }; links: Links }) {
   const [view, apply] = useOptimistic(links, reduce);
   const [, startTransition] = useTransition();
   const [said, setSaid] = useState("");
@@ -88,7 +89,13 @@ export function Backlinks({ ideaId, links }: { ideaId: number; links: Links }) {
                     <IdeaMain link={l} />
                     {confirming === l.plant.id ? (
                       <div className="link-confirm" role="group" aria-label={`Merge “${l.plant.title}” into this idea?`}>
-                        <p>Move its {mentions(l.plant.mentionCount)} here? You can undo it.</p>
+                        {/* not a count: a mention from a conversation this idea already has stays behind (decision 027) */}
+                        <p>
+                          Move its mentions here? You can undo it.
+                          {!idea.bloomed && idea.mentionCount + l.plant.mentionCount >= 3 && (
+                            <> Merging may make this idea bloom and start a one-pager.</>
+                          )}
+                        </p>
                         <div className="link-actions">
                           <button type="button" className="link-btn link-btn--keep" onClick={() => merge(l)}>Merge</button>
                           <button type="button" className="link-btn" onClick={() => setConfirming(null)}>Cancel</button>

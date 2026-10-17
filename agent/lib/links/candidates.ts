@@ -5,7 +5,8 @@ import { HIDDEN_TIP_STATUSES } from "../garden/queries";
 import { parseTimeline } from "../garden/timeline";
 import { EMBED_DIMENSIONS, toVectorLiteral } from "../ideas/embed";
 import { IDEA_PAIR_MAX_DISTANCE, NEIGHBOURS_PER_ITEM, REC_IDEA_MAX_DISTANCE } from "./criteria";
-import { recText, type IdeaText, type RecText } from "./judge";
+import { recEmbedText } from "../recs/embed-text";
+import type { IdeaText, RecText } from "./judge";
 
 export type IdeaRef = IdeaText & { id: number };
 export type RecRef = RecText & { id: number };
@@ -31,7 +32,7 @@ export async function ensureRecEmbeddings(limit: number): Promise<number> {
     where embedding is null and status <> all(${HIDDEN_TIP_STATUSES}::text[])
     order by id limit ${limit}`) as Array<{ id: number; type: string; canonical_name: string; creator: string | null; context_summary: string | null }>;
   if (rows.length === 0) return 0;
-  const values = rows.map((r) => recText({ type: r.type, name: r.canonical_name, creator: r.creator, contextSummary: r.context_summary }));
+  const values = rows.map((r) => recEmbedText({ type: r.type, name: r.canonical_name, creator: r.creator, contextSummary: r.context_summary }));
   const { embeddings } = await embedMany({ model: getEnv().EMBED_MODEL, values });
   if (embeddings.length !== rows.length || embeddings.some((e) => e.length !== EMBED_DIMENSIONS)) {
     throw new Error(`ensureRecEmbeddings: expected ${rows.length} × ${EMBED_DIMENSIONS}-dim embeddings`);
