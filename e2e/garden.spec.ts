@@ -35,7 +35,7 @@ test("the owner sees the garden", async ({ page }, info) => {
   await signInAs(page, OWNER_EMAIL);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Earmark" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ideas" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Garden", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Shelf" })).toBeVisible();
 
   // phone-first: nothing may push the page wider than the viewport
@@ -193,7 +193,7 @@ test("a signed-in non-owner is refused and sees no data", async ({ page }, info)
   const res = await page.goto("/");
   expect(res?.status()).toBe(403);
   await expect(page.getByRole("heading", { name: "This isn't your garden" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ideas" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Garden", exact: true })).toHaveCount(0);
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   await loadImages(page);
   if (info.project.name === "desktop") await page.screenshot({ path: `${SHOTS}/m1-not-owner.png`, fullPage: true });

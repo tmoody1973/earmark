@@ -56,8 +56,8 @@ export default async function PersonPage({ params }: Props) {
           <ul className="shelf-grid">
             {recs.map((c) => (
               <li key={c.id}>
-                {/* On their own page every card is theirs: "from Ann" would only repeat the heading. */}
-                <RecCard card={{ ...c, recommender: null }} actions />
+                {/* On their own page every card is theirs: no "from Ann", but a loved tip can still be thanked. */}
+                <RecCard card={c} actions from={false} />
               </li>
             ))}
           </ul>

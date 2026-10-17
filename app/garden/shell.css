@@ -5,9 +5,11 @@
 .garden--home .garden-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .garden-mark { flex: none; margin-top: 0.375rem; color: var(--sage-ink); }
 .garden-lookback {
-  display: inline-flex; align-items: center; gap: 0.375rem; min-height: 44px; margin-top: 0.25rem;
-  color: var(--ink-2); font-size: 0.9375rem; text-decoration: none; border-radius: 8px;
+  display: inline-flex; align-items: flex-start; gap: 0.375rem; box-sizing: border-box; min-height: 44px; padding-block: 0.75rem;
+  margin-top: 0.25rem; color: var(--ink-2); font-size: 0.9375rem; line-height: 1.3; text-decoration: none; border-radius: 8px;
 }
+/* at 320 the line wraps: the icon stays centred on its first line */
+.garden-lookback svg { flex: none; margin-top: calc(0.65em - 8px); }
 .garden-lookback:hover { color: var(--ink); }
 
 /* ---- search: a door, not a toolbar ---- */
@@ -26,7 +28,7 @@
   transition: border-color 180ms var(--ease-out);
 }
 .garden-search input::placeholder { color: var(--ink-3); opacity: 1; }
-.garden-search input:hover { border-color: #cdc2b1; }
+.garden-search input:hover { border-color: var(--hairline-strong); }
 .garden-search input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-color: var(--ink-3); }
 .garden-search input::-webkit-search-cancel-button { cursor: pointer; }
 .garden-search-icon { position: absolute; left: 1.125rem; top: 1.625rem; translate: 0 -50%; color: var(--ink-3); pointer-events: none; }
@@ -76,7 +78,7 @@
   border-radius: 12px;
   transition: border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
-.new-chip:hover { border-color: #cdc2b1; transform: translateY(-1px); }
+.new-chip:hover { border-color: var(--hairline-strong); transform: translateY(-1px); }
 .new-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .new-chip-icon { flex: none; color: var(--ink-2); }
 .new-chip--bloom .new-chip-icon { color: var(--accent); } /* orange = bloomed */
@@ -117,7 +119,11 @@ body:has(.tabbar) { padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); 
   .tabbar ul { display: flex; flex-direction: column; gap: 0.5rem; }
   .tabbar a { min-height: 4rem; }
   body:has(.tabbar) { padding-bottom: 0; padding-left: 5.5rem; }
-  .new-chips { margin: 0; padding: 0 0 0.25rem; }
+  /* the row ends at the column edge, not the screen's: fade the cut chip, and pad the end so the last one clears it */
+  .new-chips:not(.is-open) {
+    margin: 0; padding: 0 2.5rem 0.25rem 0;
+    mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  }
   .new-chip { max-width: 16rem; }
   .garden-search { max-width: 40rem; }
 }
@@ -127,4 +133,10 @@ body:has(.tabbar) { padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); 
   .new-chip:hover { transform: none; }
 }
 
-.garden-head-links { display: inline-flex; gap: 1rem; }
+.garden-head-links { display: flex; flex-wrap: wrap; gap: 0 1rem; margin-left: -0.25rem; }
+/* quiet 44 px links, like "See all": the way to the Gardeners and Alexa+ pages */
+.garden-head-links a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.25rem;
+  color: var(--ink-2); font-size: 0.9375rem; text-underline-offset: 0.25em; border-radius: 8px;
+}
+.garden-head-links a:hover { color: var(--ink); }

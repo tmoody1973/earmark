@@ -48,7 +48,7 @@ export default async function SpacesPage() {
                       <span className="ledger-taste">{spaceCounts(s)}</span>
                       {s.name !== s.sentence && <span className="ledger-latest">Fills from “{s.sentence}”</span>}
                     </span>
-                    <Icon name="chevron" size={20} className="ledger-chev" />
+                    <Icon name="chevron" size={18} className="ledger-chev" />
                   </Link>
                 </li>
               ))}
