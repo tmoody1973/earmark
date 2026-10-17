@@ -3,6 +3,8 @@ import { makeMockDb } from "../../helpers/mock-db";
 
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
+const status = vi.hoisted(() => ({ setRecStatus: vi.fn(async () => ({ changed: true, previous: "needs_review" })) }));
+vi.mock("../../../agent/lib/recs/status", () => status);
 
 import {
   HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipVerdict, toPlant, toRecCard,
@@ -84,6 +86,20 @@ describe("garden queries", () => {
     expect(shelf).toHaveLength(1);
     expect(h.mock.calls).toHaveLength(1);
     expect(h.mock.calls[0].text).not.toContain("idea_clusters");
+  });
+
+  it("a Bee todo's link (?rec=<id>) always shows its tip: one extra query adds it when past the newest 60", async () => {
+    h.mock.queue.push([recRow], [{ ...recRow, id: 99, canonical_name: "Old one" }]);
+    const shelf = await getShelf(99);
+    expect(shelf.map((c) => c.id)).toEqual([7, 99]);
+    expect(h.mock.calls).toHaveLength(2);
+    expect(h.mock.calls[1].values).toContain(99);
+    expect(h.mock.calls[1].text).toContain("<> all("); // a hidden (dismissed/composted) tip stays hidden
+
+    h.mock = makeMockDb();
+    h.mock.queue.push([recRow]);
+    expect((await getShelf(7)).map((c) => c.id)).toEqual([7]);
+    expect(h.mock.calls).toHaveLength(1);
   });
 
   it("marks a plant unconfirmed and carries its newest line by date", () => {
@@ -180,20 +196,18 @@ describe("setTipVerdict", () => {
   beforeEach(() => { h.mock = makeMockDb(); });
   afterEach(() => { delete process.env.GARDEN_READ_ONLY; });
 
+  beforeEach(() => { status.setRecStatus.mockClear(); });
+
   it.each([["kept", "new"], ["not_a_tip", "dismissed"]] as const)(
-    "%s moves a maybe to %s and records the verdict, only while it is still a maybe",
-    async (verdict, status) => {
-      h.mock.queue.push([{ id: 7 }]);
+    "%s moves a maybe to %s through setRecStatus with the verdict, only while it is still a maybe",
+    async (verdict, next) => {
       expect(await setTipVerdict(7, verdict)).toBe(true);
-      const text = h.mock.calls[0].text.replace(/\s+/g, " ");
-      expect(text).toContain("update recommendations set status = ?, user_verdict = ?, user_verdict_at = now()");
-      expect(text).toContain("where id = ? and status = 'needs_review'");
-      expect(h.mock.calls[0].values).toEqual([status, verdict, 7]);
+      expect(status.setRecStatus).toHaveBeenCalledWith(7, next, "garden", { from: ["needs_review"], verdict });
     },
   );
 
   it("is a no-op (false) when the tip is no longer a maybe", async () => {
-    h.mock.queue.push([]);
+    status.setRecStatus.mockResolvedValueOnce({ changed: false, previous: null } as never);
     expect(await setTipVerdict(7, "kept")).toBe(false);
   });
 
@@ -201,5 +215,6 @@ describe("setTipVerdict", () => {
     process.env.GARDEN_READ_ONLY = "1";
     expect(await setTipVerdict(7, "kept")).toBe(false);
     expect(h.mock.calls).toHaveLength(0);
+    expect(status.setRecStatus).not.toHaveBeenCalled();
   });
 });
