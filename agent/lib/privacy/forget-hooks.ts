@@ -31,7 +31,7 @@ export const FORGET_HOOKS: readonly ForgetHook[] = [
     name: "place_nudges",
     run: async (ctx) => {
       if (ctx.target.type !== "rec") return "place_nudges 0";
-      const { beeTodoIds } = await forgetPlaceNudges(ctx.target.id, { sql: sqlOver(ctx.c), deleteTodo: (id) => createBeeClient().deleteTodo(id) });
+      const { beeTodoIds } = await forgetPlaceNudges({ sql: sqlOver(ctx.c), deleteTodo: (id) => createBeeClient().deleteTodo(id) });
       return `place_nudges ${beeTodoIds.length}${beeTodoIds.length ? ` (bee todos ${beeTodoIds.join(", ")})` : ""}`;
     },
   },

@@ -63,13 +63,14 @@ describe("FORGET_HOOKS (lane C)", () => {
     expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "place_nudges", "episodes"]);
   });
 
-  it("place_nudges: deletes the rec's nudge bee_sync rows in the transaction, then their Bee todos; line has ids only", async () => {
+  it("place_nudges: deletes the orphaned nudge bee_sync rows (every day's) in the transaction, then their Bee todos; line has ids only", async () => {
     nudgeTodos = [{ bee_id: "99" }, { bee_id: "100" }];
     const c = fakeClient();
     const line = await (await hook("place_nudges")).run(ctx(c));
     expect(line).toBe("place_nudges 2 (bee todos 99, 100)");
-    expect(c.query.mock.calls[0]![0].replace(/\s+/g, " ")).toContain("delete from bee_sync where entity_type = 'place_nudge' and entity_id = $1 and bee_object = 'todo'");
-    expect(c.query.mock.calls[0]![1]).toEqual([1]);
+    expect(c.query.mock.calls[0]![0].replace(/\s+/g, " ")).toContain("not exists (select 1 from place_nudges n where n.id = s.entity_id)");
+    expect(c.query.mock.calls[0]![0]).toContain("s.entity_type = 'place_nudge'");
+    expect(c.query.mock.calls[0]![1]).toEqual([]);
     expect(log.filter((l) => l.startsWith("bee todo"))).toEqual(["bee todo 99", "bee todo 100"]);
   });
 
