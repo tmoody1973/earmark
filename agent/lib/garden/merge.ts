@@ -1,81 +1,129 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
+import { lineIndexFor, type StampedEntry } from "../ideas/timeline-match";
+import { hasMentionFromSameOccasion } from "../store/ideas";
 
-// Merging two ideas that are one idea (decision 027). Reversible: an idea_merges row records which mentions moved and
-// each idea's stage, count and pin (no text), and undoMerge puts them back. Nothing is deleted: the merged idea stays
-// (dismissed, with a "merged into" note and Undo on its page), and a mention from the same conversation as one of the
-// kept idea's stays with the merged idea (the per-idea occasion indexes, migrations 004/006, allow one per conversation).
+// Merging two ideas that are one idea (decision 027). Reversible: an idea_merges row records which mentions moved,
+// each idea's stage, count and pin, and the prior status of any twin (no text), and undoMerge puts them back.
+// Nothing is deleted: the merged idea stays (dismissed, with a "merged into" note and Undo on its page).
 //
-// Timeline lines travel with their mentions, never by their text: a line belongs to the mention spoken at its date
-// (timelineEntryJson writes the mention's spoken_at; forget pairs them the same way). Per date, a merge moves as many
-// lines as mentions moved at that date, the earliest first; undo takes back the same number, the latest first (the
-// ones the merge appended), so a kept idea's own identical lines never move.
+// Occasions: one conversation or voice note counts once per idea. A mention whose conversation/journal id equals one
+// the kept idea has cannot move (the per-idea unique indexes, migrations 004/006) and stays with the merged idea. A
+// mention that is the same occasion by the save path's own rule (hasMentionFromSameOccasion: a live uuid and the REST
+// id of one conversation, or a voice note inside it) moves, but dismissed, so the moment counts once.
 //
-// One non-interactive transaction. The first statement inserts the merge row only when both ideas are still growing;
-// every later statement acts only through that row (by its random token), so a refused merge changes nothing.
-// Stage follows idea_stage_for (= stageFor): a merge that brings an idea to its third mention blooms it (a 'bloom'
-// garden event; the draft job writes the one-pager), exactly as a third mention would.
+// Timeline lines travel with their mentions, matched by mention_id (ideas/timeline-match.ts; legacy lines by a unique
+// moment, else the merge refuses). A legacy line that moves is stamped with its mention's id on the way.
+//
+// Plan in code, write in one transaction. The plan is read first; the first statement records the merge only when
+// both ideas are still growing and unchanged since the read (updated_at), and every later statement acts only through
+// that record (by its random token), so a stale or refused plan changes nothing.
+
+type Row = Record<string, unknown>;
+interface IdeaRow { id: number; stage: string; timeline: StampedEntry[]; ver: string }
+interface MentionRow { id: number; convId: number | null; uuid: string | null; journalId: string | null; spokenAt: string; status: string }
+
+async function readIdea(id: number): Promise<IdeaRow | null> {
+  const [r] = (await db()`select id, stage, timeline, updated_at::text as ver from idea_clusters where id = ${id}`) as Row[];
+  return r ? { id: Number(r.id), stage: String(r.stage), timeline: (r.timeline ?? []) as StampedEntry[], ver: String(r.ver) } : null;
+}
+async function readMentions(sql: ReturnType<typeof db>, where: { clusterId?: number; ids?: number[] }): Promise<MentionRow[]> {
+  const rows = (where.ids
+    ? await sql`select id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, (extract(epoch from spoken_at) * 1000)::float8 as spoken_ms, review_status
+                from idea_mentions where id = any(${where.ids}::bigint[])`
+    : await sql`select id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, (extract(epoch from spoken_at) * 1000)::float8 as spoken_ms, review_status
+                from idea_mentions where cluster_id = ${where.clusterId!} order by id`) as Row[];
+  return rows.map((r) => ({
+    id: Number(r.id),
+    convId: r.bee_conversation_id == null ? null : Number(r.bee_conversation_id),
+    uuid: (r.bee_conversation_uuid as string | null) ?? null,
+    journalId: (r.bee_journal_id as string | null) ?? null,
+    spokenAt: new Date(Number(r.spoken_ms)).toISOString(),
+    status: String(r.review_status),
+  }));
+}
+
+// Splits `from`'s timeline: the lines of `mentions` (stamped with their mention id) and the rest. Throws
+// TimelineAmbiguousError when a legacy line cannot be told apart.
+function splitLines(from: IdeaRow, mentions: readonly MentionRow[]): { going: StampedEntry[]; staying: StampedEntry[] } {
+  const owner = new Map<number, number>(); // line index → mention id
+  for (const mm of mentions) {
+    const i = lineIndexFor(from.timeline, { id: mm.id, spokenAt: mm.spokenAt }, from.id);
+    if (i !== -1) owner.set(i, mm.id);
+  }
+  return {
+    going: from.timeline.flatMap((e, i) => (owner.has(i) ? [{ ...e, mention_id: owner.get(i)! }] : [])),
+    staying: from.timeline.filter((_, i) => !owner.has(i)),
+  };
+}
 
 /** Merge `mergedId` into `keepId`. Returns the merge id (for Undo), or null when nothing changed. */
 export async function mergeClusters(keepId: number, mergedId: number): Promise<number | null> {
   if (keepId === mergedId) throw new Error("Cannot merge an idea into itself");
   if (gardenReadOnly()) return null; // a real-data e2e run browses read-only (e2e-guard.ts)
   const sql = db();
+  const [k, m] = [await readIdea(keepId), await readIdea(mergedId)];
+  if (!k || !m || k.stage === "dismissed" || m.stage === "dismissed") return null;
+  const kept = await readMentions(sql, { clusterId: keepId });
+  const theirs = await readMentions(sql, { clusterId: mergedId });
+  const sameId = (a: MentionRow, b: MentionRow) =>
+    (a.convId !== null && a.convId === b.convId) || (a.uuid !== null && a.uuid === b.uuid) || (a.journalId !== null && a.journalId === b.journalId);
+  const moving = theirs.filter((mm) => !kept.some((km) => sameId(km, mm)));
+  const twins: Record<string, string> = {};
+  for (const mm of moving) {
+    if (mm.status === "dismissed") continue;
+    const same = await hasMentionFromSameOccasion(keepId, {
+      beeConversationId: mm.convId, beeConversationUuid: mm.uuid, beeJournalId: mm.journalId, spokenAt: new Date(mm.spokenAt),
+    });
+    if (same) twins[String(mm.id)] = mm.status;
+  }
+  const { going, staying } = splitLines(m, moving);
+  const keepTimeline = JSON.stringify([...k.timeline, ...going]);
+  const mergedTimeline = JSON.stringify(staying);
+  const movingIds = moving.map((mm) => mm.id);
+  const twinIds = Object.keys(twins).map(Number);
+
   const token = randomUUID();
   const lo = String(Math.min(keepId, mergedId));
   const hi = String(Math.max(keepId, mergedId));
   const [recorded] = (await sql.transaction([
     sql`
-      with k as (select * from idea_clusters where id = ${keepId} and stage <> 'dismissed' for update),
-           m as (select * from idea_clusters where id = ${mergedId} and stage <> 'dismissed' for update),
-           moving as (
-             select mm.id from idea_mentions mm, m
-             where mm.cluster_id = m.id
-               and not exists (
-                 select 1 from idea_mentions km where km.cluster_id = ${keepId} and (
-                   km.bee_conversation_id = mm.bee_conversation_id or km.bee_conversation_uuid = mm.bee_conversation_uuid
-                   or km.bee_journal_id = mm.bee_journal_id)))
-      insert into idea_merges (token, keep_id, merged_id, mention_ids, keep_before, merged_before)
-      select ${token}::uuid, k.id, m.id, coalesce((select array_agg(id order by id) from moving), '{}'),
+      insert into idea_merges (token, keep_id, merged_id, mention_ids, keep_before, merged_before, twin_statuses)
+      select ${token}::uuid, k.id, m.id, ${movingIds}::bigint[],
         jsonb_build_object('stage', k.stage, 'mention_count', k.mention_count, 'pinned', k.pinned),
-        jsonb_build_object('stage', m.stage, 'mention_count', m.mention_count, 'pinned', m.pinned)
-      from k, m
+        jsonb_build_object('stage', m.stage, 'mention_count', m.mention_count, 'pinned', m.pinned),
+        ${JSON.stringify(twins)}::jsonb
+      from idea_clusters k, idea_clusters m
+      where k.id = ${keepId} and m.id = ${mergedId} and k.stage <> 'dismissed' and m.stage <> 'dismissed'
+        and k.updated_at = ${k.ver}::timestamptz and m.updated_at = ${m.ver}::timestamptz
       returning id`,
-    sql`update idea_mentions set cluster_id = ${keepId}
+    sql`update idea_mentions set cluster_id = ${keepId},
+          review_status = case when id = any(${twinIds}::bigint[]) then 'dismissed' else review_status end
         where id in (select unnest(mention_ids) from idea_merges where token = ${token}::uuid) and cluster_id = ${mergedId}`,
-    // Both ideas in one statement (different rows): the moved lines go from the merged idea to the kept one.
-    // counted = non-dismissed mentions (save-item.ts: accepted and needs_review both count, decision 004)
+    // Both ideas in one statement (different rows). Counts are recounted: non-dismissed mentions (decision 004).
     sql`
       with mg as (select * from idea_merges where token = ${token}::uuid),
-           moved as (select id, spoken_at, review_status from idea_mentions where id in (select unnest(mention_ids) from mg)),
-           n as (select count(*) filter (where review_status <> 'dismissed')::int as n from moved),
-           per_date as (select spoken_at, count(*) as n from moved group by spoken_at),
-           lines as (
-             select t.e, t.ord, row_number() over (partition by (t.e ->> 'date')::timestamptz order by t.ord) as rk
-             from idea_clusters m, jsonb_array_elements(m.timeline) with ordinality as t(e, ord)
-             where m.id = (select merged_id from mg)),
-           going as (select l.e, l.ord from lines l join per_date p on p.spoken_at = (l.e ->> 'date')::timestamptz and l.rk <= p.n),
            k as (
              update idea_clusters k set
-               mention_count = k.mention_count + n.n,
-               stage = idea_stage_for(k.stage, k.mention_count + n.n),
+               mention_count = (select count(*) from idea_mentions where cluster_id = k.id and review_status <> 'dismissed'),
+               stage = idea_stage_for(k.stage, (select count(*)::int from idea_mentions where cluster_id = k.id and review_status <> 'dismissed')),
                centroid = coalesce((select avg(embedding) from idea_mentions where cluster_id = k.id and review_status <> 'dismissed' and embedding is not null), k.centroid),
                first_mentioned_at = (select min(spoken_at) from idea_mentions where cluster_id = k.id),
                last_mentioned_at = (select max(spoken_at) from idea_mentions where cluster_id = k.id),
-               timeline = coalesce(k.timeline, '[]'::jsonb) || coalesce((select jsonb_agg(e order by ord) from going), '[]'::jsonb),
+               timeline = ${keepTimeline}::jsonb,
                pinned = k.pinned or (mg.merged_before ->> 'pinned')::boolean,
                updated_at = now()
-             from mg, n where k.id = mg.keep_id
+             from mg where k.id = mg.keep_id
              returning old.stage as prev_stage, new.stage as next_stage, k.id),
            m as (
              update idea_clusters m set
                stage = 'dismissed',
-               mention_count = m.mention_count - n.n,
+               mention_count = (select count(*) from idea_mentions where cluster_id = m.id and review_status <> 'dismissed'),
                centroid = coalesce((select avg(embedding) from idea_mentions where cluster_id = m.id and review_status <> 'dismissed' and embedding is not null), m.centroid),
-               timeline = coalesce((select jsonb_agg(l.e order by l.ord) from lines l where l.ord not in (select ord from going)), '[]'::jsonb),
+               timeline = ${mergedTimeline}::jsonb,
                updated_at = now()
-             from mg, n where m.id = mg.merged_id
+             from mg where m.id = mg.merged_id
              returning m.id)
       insert into garden_events (kind, cluster_id)
       select 'bloom', k.id from k where k.prev_stage <> 'ready' and k.next_stage = 'ready'`,
@@ -88,42 +136,48 @@ export async function mergeClusters(keepId: number, mergedId: number): Promise<n
 }
 
 /**
- * Undo one merge: the moved mentions and their timeline lines go back, both ideas get their stage and pin back, counts
- * and centroids are recounted, and the "same idea" suggestion is marked removed so it is not offered again.
- * A bloom the merge caused is taken back with what grew from it: if the kept idea was below bloom before the merge,
- * its summary and one-pager (written from mentions that are leaving) are cleared and its stage follows the count, the
- * way forget recomputes an idea. False (nothing changed) if already undone, if the kept idea was itself merged on or
- * dismissed since, or if any moved mention no longer exists (a forget ended this merge).
+ * Undo one merge: the moved mentions (twins with their prior status) and their timeline lines go back, both ideas get
+ * their stage and pin back, counts and centroids are recounted, and the "same idea" suggestion is marked removed so it
+ * is not offered again. A bloom the merge caused is taken back with what grew from it: if the kept idea was below bloom
+ * before the merge, its summary and one-pager are cleared and its stage follows the count, the way forget recomputes
+ * an idea. False (nothing changed) if already undone, if the kept idea was dismissed or merged on since, if either idea
+ * changed after this read, or if any moved mention no longer exists (a forget ended this merge).
  */
 export async function undoMerge(mergeId: number): Promise<boolean> {
   if (gardenReadOnly()) return false;
   const sql = db();
+  const [mg] = (await sql`select keep_id, merged_id, mention_ids from idea_merges where id = ${mergeId} and undone_at is null`) as Row[];
+  if (!mg) return false;
+  const ids = ((mg.mention_ids ?? []) as Array<number | string>).map(Number);
+  const [k, m] = [await readIdea(Number(mg.keep_id)), await readIdea(Number(mg.merged_id))];
+  if (!k || !m || k.stage === "dismissed") return false;
+  const moved = await readMentions(sql, { ids });
+  if (moved.length !== ids.length) return false;
+  const { going, staying } = splitLines(k, moved); // only lines naming a moved mention: never one of the kept idea's
+  const keepTimeline = JSON.stringify(staying);
+  const mergedTimeline = JSON.stringify([...m.timeline, ...going]);
+
   // now() is the transaction's start time: `undone_at = now()` in later statements means "claimed by this transaction".
   const [claimed] = (await sql.transaction([
     sql`update idea_merges mg set undone_at = now() where mg.id = ${mergeId} and mg.undone_at is null
-          and exists (select 1 from idea_clusters k where k.id = mg.keep_id and k.stage <> 'dismissed')
+          and exists (select 1 from idea_clusters k where k.id = mg.keep_id and k.stage <> 'dismissed' and k.updated_at = ${k.ver}::timestamptz)
+          and exists (select 1 from idea_clusters m where m.id = mg.merged_id and m.updated_at = ${m.ver}::timestamptz)
           and cardinality(mg.mention_ids) = (select count(*) from idea_mentions where id = any(mg.mention_ids))
         returning mg.id`,
-    sql`update idea_mentions mm set cluster_id = mg.merged_id
+    sql`update idea_mentions mm set cluster_id = mg.merged_id,
+          review_status = coalesce(mg.twin_statuses ->> mm.id::text, mm.review_status)
         from idea_merges mg where mg.id = ${mergeId} and mg.undone_at = now()
           and mm.id = any(mg.mention_ids) and mm.cluster_id = mg.keep_id`,
     sql`
       with mg as (select * from idea_merges where id = ${mergeId} and undone_at = now()),
-           moved as (select id, spoken_at, review_status from idea_mentions where id in (select unnest(mention_ids) from mg)),
-           n as (select count(*) filter (where review_status <> 'dismissed')::int as n from moved),
-           per_date as (select spoken_at, count(*) as n from moved group by spoken_at),
-           lines as (
-             select t.e, t.ord, row_number() over (partition by (t.e ->> 'date')::timestamptz order by t.ord desc) as rk
-             from idea_clusters k, jsonb_array_elements(k.timeline) with ordinality as t(e, ord)
-             where k.id = (select keep_id from mg)),
-           going as (select l.e, l.ord from lines l join per_date p on p.spoken_at = (l.e ->> 'date')::timestamptz and l.rk <= p.n),
            k as (
              update idea_clusters k set
-               mention_count = k.mention_count - n.n,
+               mention_count = (select count(*) from idea_mentions where cluster_id = k.id and review_status <> 'dismissed'),
                stage = case
                  when k.stage in ('used', 'dismissed') then k.stage
                  when mg.keep_before ->> 'stage' in ('compost', 'sprouting')
-                   then idea_stage_for(case when k.stage in ('ready', 'drafted') then 'compost' else k.stage end, k.mention_count - n.n)
+                   then idea_stage_for(case when k.stage in ('ready', 'drafted') then 'compost' else k.stage end,
+                                       (select count(*)::int from idea_mentions where cluster_id = k.id and review_status <> 'dismissed'))
                  else k.stage end,
                summary = case when mg.keep_before ->> 'stage' in ('compost', 'sprouting') and k.stage in ('ready', 'drafted') then null else k.summary end,
                draft_md = case when mg.keep_before ->> 'stage' in ('compost', 'sprouting') and k.stage in ('ready', 'drafted') then null else k.draft_md end,
@@ -133,18 +187,18 @@ export async function undoMerge(mergeId: number): Promise<boolean> {
                centroid = coalesce((select avg(embedding) from idea_mentions where cluster_id = k.id and review_status <> 'dismissed' and embedding is not null), k.centroid),
                first_mentioned_at = coalesce((select min(spoken_at) from idea_mentions where cluster_id = k.id), k.first_mentioned_at),
                last_mentioned_at = coalesce((select max(spoken_at) from idea_mentions where cluster_id = k.id), k.last_mentioned_at),
-               timeline = coalesce((select jsonb_agg(l.e order by l.ord) from lines l where l.ord not in (select ord from going)), '[]'::jsonb),
+               timeline = ${keepTimeline}::jsonb,
                pinned = (mg.keep_before ->> 'pinned')::boolean,
                updated_at = now()
-             from mg, n where k.id = mg.keep_id
+             from mg where k.id = mg.keep_id
              returning k.id)
       update idea_clusters m set
         stage = case when m.stage = 'dismissed' then mg.merged_before ->> 'stage' else m.stage end,
-        mention_count = m.mention_count + n.n,
+        mention_count = (select count(*) from idea_mentions where cluster_id = m.id and review_status <> 'dismissed'),
         centroid = coalesce((select avg(embedding) from idea_mentions where cluster_id = m.id and review_status <> 'dismissed' and embedding is not null), m.centroid),
-        timeline = coalesce(m.timeline, '[]'::jsonb) || coalesce((select jsonb_agg(e order by ord) from going), '[]'::jsonb),
+        timeline = ${mergedTimeline}::jsonb,
         updated_at = now()
-      from mg, n where m.id = mg.merged_id`,
+      from mg where m.id = mg.merged_id`,
     // the merge's bloom no longer happened, unless the idea is still in bloom on its own
     sql`
       delete from garden_events e using idea_merges mg, idea_clusters k

@@ -148,6 +148,13 @@ describe("mergeIdeas", () => {
     expect(mergeClusters).toHaveBeenCalledWith(1, 2);
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
+
+  it("says why when legacy timeline lines can't be told apart, instead of failing blind", async () => {
+    signedInAs("user_owner");
+    const { TimelineAmbiguousError } = await import("../../../agent/lib/ideas/timeline-match");
+    vi.mocked(mergeClusters).mockRejectedValueOnce(new TimelineAmbiguousError(2));
+    expect(await mergeIdeas(1, 2)).toEqual({ mergeId: null, refused: "idea 2: two timeline lines share this moment; can't tell which is this mention" });
+  });
 });
 
 describe("undoIdeaMerge", () => {

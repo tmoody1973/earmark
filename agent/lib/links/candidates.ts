@@ -13,6 +13,8 @@ export type RecRef = RecText & { id: number };
 export interface IdeaPairCandidate { a: IdeaRef; b: IdeaRef } // a.id < b.id, the order links rows use
 export interface RecIdeaCandidate { rec: RecRef; idea: IdeaRef }
 
+const EMBED_TIMEOUT_MS = 30_000;
+
 type IdeaCols = { id: number | string; title: string; summary: string | null; timeline: unknown };
 const toIdea = (r: IdeaCols): IdeaRef => ({
   id: Number(r.id),
@@ -33,7 +35,8 @@ export async function ensureRecEmbeddings(limit: number): Promise<number> {
     order by id limit ${limit}`) as Array<{ id: number; type: string; canonical_name: string; creator: string | null; context_summary: string | null }>;
   if (rows.length === 0) return 0;
   const values = rows.map((r) => recEmbedText({ type: r.type, name: r.canonical_name, creator: r.creator, contextSummary: r.context_summary }));
-  const { embeddings } = await embedMany({ model: getEnv().EMBED_MODEL, values });
+  // bounded like every model call in the hourly run (a hung batch must not hold the run lock)
+  const { embeddings } = await embedMany({ model: getEnv().EMBED_MODEL, values, abortSignal: AbortSignal.timeout(EMBED_TIMEOUT_MS) });
   if (embeddings.length !== rows.length || embeddings.some((e) => e.length !== EMBED_DIMENSIONS)) {
     throw new Error(`ensureRecEmbeddings: expected ${rows.length} × ${EMBED_DIMENSIONS}-dim embeddings`);
   }

@@ -30,14 +30,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     clusterIds.push(Number(rows[0].id));
     return Number(rows[0].id);
   };
-  const addMention = async (clusterId: number, o: { axis: number; at?: string; conv?: number | null; status?: string }) => {
+  const addMention = async (clusterId: number, o: { axis: number; at?: string; conv?: number | null; uuid?: string; status?: string; excerpt?: string }) => {
     const { rows } = await c.query(
-      `insert into idea_mentions (cluster_id, bee_conversation_id, excerpt, embedding, spoken_at, confidence, review_status, source)
-       values ($1, $2, 'it links', $3::vector, $4, 0.95, $5, 'ambient') returning id`,
-      [clusterId, o.conv ?? null, vec(o.axis), o.at ?? AT, o.status ?? "accepted"],
+      `insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, excerpt, embedding, spoken_at, confidence, review_status, source)
+       values ($1, $2, $3, $4, $5::vector, $6, 0.95, $7, 'ambient') returning id`,
+      [clusterId, o.conv ?? null, o.uuid ?? null, o.excerpt ?? "it links", vec(o.axis), o.at ?? AT, o.status ?? "accepted"],
     );
     return Number(rows[0].id);
   };
+  const uuids: string[] = [];
   const addRec = async (status: string, axis: number) => {
     const { rows } = await c.query(
       `insert into recommendations (type, raw_text, canonical_name, excerpt, said_at, source, status, confidence, embedding)
@@ -72,6 +73,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     await c.query(`delete from idea_merges where keep_id = any($1::bigint[]) or merged_id = any($1::bigint[])`, [clusterIds]);
     await c.query(`delete from recommendations where id = any($1::bigint[])`, [recIds]);
     await c.query(`delete from idea_clusters where id = any($1::bigint[])`, [clusterIds]); // cascades to mentions + events
+    await c.query(`delete from bee_conversation_map where conversation_uuid = any($1::text[])`, [uuids]);
     c.release();
     await pool.end();
   });
@@ -248,6 +250,78 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     expect(await undoMerge(mergeId!)).toBe(true);
     const k = (await c.query(`select stage, mention_count, summary, draft_md, draft_format, draft_claimed_at from idea_clusters where id = $1`, [keep])).rows[0];
     expect(k).toEqual({ stage: "sprouting", mention_count: 2, summary: null, draft_md: null, draft_format: null, draft_claimed_at: null });
+  });
+
+  // A live mention (stream uuid only) and the completed pass (REST id) of one conversation are one occasion
+  // (store/ideas.ts hasMentionFromSameOccasion). Planned into two ideas, a merge brings them together.
+  const twinPair = async (axis: number, n: number) => {
+    const T = "2026-10-08T15:00:00.000Z";
+    const restId = 9_300_000 + n * 10;
+    const uuid = `it-links-twin-${n}-${Date.now()}`;
+    uuids.push(uuid);
+    await c.query(`insert into bee_conversation_map (conversation_uuid, bee_conversation_id) values ($1, $2)`, [uuid, restId]);
+    const keep = await addCluster({ title: `twin keep ${n}`, axis, count: 2, stage: "sprouting" });
+    const kRest = await addMention(keep, { axis, conv: restId, at: T });
+    const kOther = await addMention(keep, { axis, conv: restId + 1, at: "2026-10-02T15:00:00.000Z" });
+    const other = await addCluster({ title: `twin other ${n}`, axis, count: 2, stage: "sprouting" });
+    const twin = await addMention(other, { axis, uuid, at: T, excerpt: `it-links-twin-secret-${n}` });
+    const distinct = await addMention(other, { axis, conv: restId + 2, at: "2026-10-09T15:00:00.000Z" });
+    // lines as the save path writes them now: each names its mention; the twin's and keep's share the moment
+    await c.query(`update idea_clusters set timeline = $2::jsonb where id = $1`, [keep, JSON.stringify([
+      { date: T, line: "Oct 8: same moment", mention_id: kRest }, { date: "2026-10-02T15:00:00.000Z", line: "Oct 2: first heard", mention_id: kOther }])]);
+    await c.query(`update idea_clusters set timeline = $2::jsonb where id = $1`, [other, JSON.stringify([
+      { date: T, line: `Oct 8: it-links-twin-line-${n}`, mention_id: twin }, { date: "2026-10-09T15:00:00.000Z", line: "Oct 9: more", mention_id: distinct }])]);
+    return { keep, other, twin, distinct, kRest };
+  };
+  const status = async (id: number) => (await c.query(`select review_status from idea_mentions where id = $1`, [id])).rows[0]?.review_status;
+
+  it("a live/REST twin brought together by a merge counts its moment once, and undo restores it exactly", async () => {
+    const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
+    const { keep, other, twin, distinct } = await twinPair(9, 1);
+    const mergeId = await mergeClusters(keep, other);
+    expect(await mentionsOf(keep)).toEqual(expect.arrayContaining([twin, distinct]));
+    expect(await status(twin)).toBe("dismissed"); // moved, but the occasion counts once
+    expect(await cluster(keep)).toMatchObject({ mention_count: 3, stage: "ready" });
+    expect(await undoMerge(mergeId!)).toBe(true);
+    expect(await status(twin)).toBe("accepted");
+    expect((await mentionsOf(other)).sort()).toEqual([twin, distinct].sort());
+    expect(await cluster(other)).toMatchObject({ mention_count: 2, stage: "sprouting" });
+    expect(await cluster(keep)).toMatchObject({ mention_count: 2, stage: "sprouting" });
+  });
+
+  it("forgetting the twin after the merge removes its line, not the kept idea's line at the same moment; no text survives and undo is gone", async () => {
+    const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
+    const { forget } = await import("../../agent/lib/privacy/forget");
+    const { keep, other, twin, kRest } = await twinPair(10, 2);
+    const mergeId = await mergeClusters(keep, other);
+    const noop = async () => {};
+    await forget(c, { type: "mention", id: twin }, { yes: true, deps: { deleteTodo: noop, deleteFact: noop, trashNotionPage: noop, deleteBlob: noop } });
+    const secret = "%it-links-twin-%-2%";
+    expect(Number((await c.query(`select count(*)::int as n from idea_clusters where id in ($1, $2) and timeline::text like $3`, [keep, other, secret])).rows[0].n)).toBe(0);
+    expect(Number((await c.query(`select count(*)::int as n from idea_mentions where excerpt like $1`, [secret])).rows[0].n)).toBe(0);
+    expect(Number((await c.query(`select count(*)::int as n from idea_merges where id = $1`, [mergeId])).rows[0].n)).toBe(0);
+    const k = await cluster(keep);
+    expect(k.timeline.map((e: { mention_id: number }) => e.mention_id)).toContain(kRest); // the kept idea's own line stays
+    expect(await undoMerge(mergeId!)).toBe(false);
+  });
+
+  it("legacy lines (no mention id) that share a moment: forget, merge and undo refuse rather than guess", async () => {
+    const { mergeClusters } = await import("../../agent/lib/garden/merge");
+    const { forget } = await import("../../agent/lib/privacy/forget");
+    const T = "2026-10-10T15:00:00.000Z";
+    const legacy = await addCluster({ title: "legacy twins", axis: 11, count: 2, stage: "sprouting",
+      timeline: [{ date: T, line: "Oct 10: one" }, { date: T, line: "Oct 10: two" }] });
+    const a = await addMention(legacy, { axis: 11, conv: 9_400_001, at: T });
+    await addMention(legacy, { axis: 11, conv: 9_400_002, at: T });
+    const noop = async () => {};
+    await expect(forget(c, { type: "mention", id: a }, { yes: true, deps: { deleteTodo: noop, deleteFact: noop, trashNotionPage: noop, deleteBlob: noop } }))
+      .rejects.toThrow(`idea ${legacy}: two timeline lines share this moment; can't tell which is this mention`);
+    expect(await mentionsOf(legacy)).toContain(a);
+    const keep = await addCluster({ title: "legacy keep", axis: 11 });
+    await addMention(keep, { axis: 11, conv: 9_400_003 });
+    await expect(mergeClusters(keep, legacy)).rejects.toMatchObject({ name: "TimelineAmbiguousError" });
+    expect(await mentionsOf(keep)).toHaveLength(1);
+    expect(await cluster(legacy)).toMatchObject({ stage: "sprouting" });
   });
 
   it("refuses to merge into or from a dismissed idea", async () => {

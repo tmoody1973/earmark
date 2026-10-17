@@ -1,6 +1,7 @@
 // The Postgres half of `pnpm forget` (M3-T11, decision 011): what an item's rows and outside refs are (readPlan) and
 // deleting them (deleteRows), always inside the caller's transaction. Ids and counts only, never text.
 import type { PoolClient } from "@neondatabase/serverless";
+import { lineIndexFor, TimelineAmbiguousError, type StampedEntry } from "../ideas/timeline-match";
 import { CLAIM_LEASE } from "../store/conversations";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
@@ -202,7 +203,7 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
   return [];
 }
 
-// Drops the mention, its backup row and its timeline line (paired by spoken_at, as timelineEntryJson writes it), then
+// Drops the mention, its backup row and its timeline line (by mention_id; legacy lines by a unique spoken_at), then
 // recomputes the idea as the save path keeps it (count and centroid over non-dismissed mentions, decision 004) and
 // clears what was derived from all its mentions: summary, draft (a drafted idea re-drafts), Bee fact and Notion page
 // ids (deleted outside already), fact proposals. Titles are not stored per mention, so a title from this mention
@@ -213,10 +214,15 @@ async function deleteMention(c: PoolClient, id: number, retitle: boolean): Promi
   if (!m) return [];
   const clusterId = Number(m.cluster_id);
   await c.query(`delete from ${MERGES_OF_MENTION}`, [clusterId, id]);
-  const spokenAt = new Date(m.spoken_at as string | Date).getTime();
   const [k] = await rows(c, `select timeline from idea_clusters where id = $1`, [clusterId]);
-  const timeline = (k?.timeline ?? []) as { date: string }[];
-  const at = timeline.findIndex((e) => Date.parse(e.date) === spokenAt);
+  const timeline = (k?.timeline ?? []) as StampedEntry[];
+  let at: number;
+  try {
+    at = lineIndexFor(timeline, { id, spokenAt: m.spoken_at as string | Date }, clusterId); // by mention id (M4-T6)
+  } catch (err) {
+    if (err instanceof TimelineAmbiguousError) throw new ForgetTimelineError(err.message);
+    throw err;
+  }
   if (at === -1) throw new ForgetTimelineError(`idea ${clusterId} has no timeline line for mention ${id}; forget the whole idea instead`);
   const kept = [...timeline.slice(0, at), ...timeline.slice(at + 1)];
   await c.query(`delete from bee_sync where entity_type = 'idea' and entity_id = $1`, [clusterId]);

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isOwner } from "@/agent/lib/owner";
 import { setLinkStatus, type LinkKey } from "@/agent/lib/garden/backlinks";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
+import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { getGardenVisit, saveGardenVisit, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
 import { nextVisit } from "@/agent/lib/garden/visit";
 
@@ -77,13 +78,19 @@ export async function removeLink(key: LinkKey): Promise<{ changed: boolean }> {
 }
 
 /** Merge `mergedId` into `keepId` (decision 027: reversible). mergeId null: nothing changed (already merged). */
-export async function mergeIdeas(keepId: number, mergedId: number): Promise<{ mergeId: number | null }> {
+// refused: why nothing changed, in words the page can show (ids only, never idea text)
+export async function mergeIdeas(keepId: number, mergedId: number): Promise<{ mergeId: number | null; refused?: string }> {
   await requireOwner();
   const ids = z.tuple([Id, Id]).safeParse([keepId, mergedId]);
   if (!ids.success || ids.data[0] === ids.data[1]) throw new Error("invalid idea id");
-  const mergeId = await mergeClusters(ids.data[0], ids.data[1]);
-  revalidatePath("/", "layout");
-  return { mergeId };
+  try {
+    const mergeId = await mergeClusters(ids.data[0], ids.data[1]);
+    revalidatePath("/", "layout");
+    return { mergeId };
+  } catch (err) {
+    if (err instanceof TimelineAmbiguousError) return { mergeId: null, refused: err.message };
+    throw err;
+  }
 }
 
 /** Undo a merge: both ideas return as they were. A no-op if it was already undone. */
