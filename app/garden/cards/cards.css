@@ -202,6 +202,11 @@
 }
 .rec-foot:empty { display: none; }
 .rec-from { margin: 0; font-size: 0.8125rem; color: var(--ink-3); }
+/* above the card-wide title link (.rec-link::after, z-index 1) so it stays its own tap target */
+.rec-thank {
+  position: relative; z-index: 2; display: inline-flex; align-items: center; min-height: 44px;
+  margin-block: -0.5rem; font-size: 0.8125rem; color: var(--ink);
+}
 .rec-unconfirmed {
   padding: 0.125rem 0.5rem;
   border: 1px solid var(--hairline);

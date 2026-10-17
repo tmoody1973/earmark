@@ -1,0 +1,26 @@
+# 031 — Earmark's MCP server uses one service-level login, not a login per person
+
+**Decision:** The MCP server (the door an AI assistant such as Claude, and later Alexa+, uses to ask Earmark questions like "what did Ann tell me to try?") is protected by a single shared client login (an id and a secret that trade for a one-hour pass), instead of a full sign-in flow for individual users.
+
+**Why this came up:** Earmark is built for one person, Tarik. The MCP endpoint is public on the internet, because Claude and Alexa+ call it from their own servers, so something has to stop strangers reading his recommendations, which contain first names and short quotes (25 words or fewer) of what people said. The question was how heavy that protection needs to be. Alexa+ also dictates part of the answer: for a private server it wants the "client credentials" style of OAuth (OAuth is the standard way for one program to get permission to call another), where the caller proves who it is with an id and secret and receives a short-lived pass, with no web page where a person clicks "Allow".
+
+**Options:**
+1. **Service-level client credentials (chosen).** One client id and secret that belong to "Tarik's assistant". The assistant trades them at `/api/oauth/token` for a signed pass (a JWT, a small tamper-proof token) that lasts one hour and is only valid for the MCP address. Real cost: the secret is a master key for what the server can do; anyone holding it is treated as Tarik's assistant.
+2. **Per-user OAuth with a sign-in page.** The assistant would send Tarik through a consent screen tied to his Clerk login (Clerk is the sign-in service the garden uses). Real cost: a lot of new moving parts (an authorization page, stored grants, refresh handling) for an app with exactly one user, and Alexa+ does not need it for a private server.
+3. **A single long-lived bearer token pasted into each client.** The least code. Real cost: the token never expires, so a leak stays dangerous until noticed, and Alexa+ would not accept it anyway.
+
+**What we chose and why:** Option 1, decided by Claude as a ruling during lane M5 (task M5-T9), because it is the smallest design that satisfies Alexa+'s private-server rules and still gives passes that expire. The secret is compared in constant time (so response timing cannot hint at correct characters), the token endpoint accepts only the client-credentials grant, caps the request body at 4 KB, and issues passes that last 1 hour, name the MCP address as their only audience, and carry no refresh token. If any of the four settings is missing, every MCP route answers 503 (service unavailable) rather than guessing. A missing or bad pass gets a 401 with the standard `WWW-Authenticate` hint pointing at the metadata page, which is what the MCP specification asks for.
+
+**What a leaked client secret allows:** The five tools: read-only search of recommendations and ideas (including first names and short quotes), listing ready ideas, reading the opening of the latest episode script, and adding an already-saved music recommendation to the Earmarked playlist (the one write, and only once the playlist is connected). It cannot edit or delete anything, cannot read raw conversations or the episode audio address, and cannot sign into the garden. A leaked one-hour pass allows the same for at most an hour.
+
+**How to rotate it:** Generate new values (`openssl rand -base64 32` for the secret and for the JWT signing key), update `EARMARK_MCP_CLIENT_SECRET` and `EARMARK_MCP_JWT_SECRET` in Vercel production and redeploy. Changing the signing key kills every pass already issued immediately; changing the secret stops new passes. Then re-add the new token to Claude (`scripts/mcp-token.ts` mints one) and update Alexa+.
+
+**What we gave up:**
+- **One key, no per-device control.** Claude and Alexa+ can share the client, so we cannot revoke one without rotating for both.
+- **No rate limiting in the code.** The endpoints are public, so someone could hammer the token endpoint guessing secrets. The secret is 32+ random characters so guessing is hopeless, but the traffic itself is not throttled by Earmark. The plan is a Vercel firewall rule that rate-limits `/api/oauth/token` and `/api/mcp`, set up when deploying (a deploy-time setting, not code, so it is not tested here).
+- **Alexa+ and the challenge header.** Alexa+'s published docs ask for a 401 with no `WWW-Authenticate` header. We keep the header because the MCP specification requires it and Claude clients depend on it to discover how to sign in. If a real Alexa+ test rejects it, we revisit this in the Alexa task (M5-T10).
+- **Names leave the building on purpose.** Tool answers include first names and short excerpts, because that is the product; anyone who holds a valid pass sees them.
+
+**How we'll know if this was right:** After deploy, request `/api/mcp` with no pass (expect 401), with a wrong secret at the token endpoint (expect 401 and no pass), then with a good pass (expect the five tools listed). Check the Vercel logs hold only tool names and error classes, never questions or names. Rotate the secret once as a drill and confirm the old pass stops working.
+
+**What actually happened:**

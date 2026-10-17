@@ -1,7 +1,7 @@
 import type { RecType } from "@/agent/lib/types";
 
 // One authored line set: 24-unit grid, 1.6 stroke, round caps, currentColor. Decorative: labels carry the meaning.
-const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "search" | "close" | "undo" | "more", string> = {
+const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "spaces" | "search" | "close" | "undo" | "more", string> = {
   // A card's "…" (M3-T10): three dots, small enough that the 1.6 stroke fills them.
   more: "M6 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M20 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   // Garden shell (M4-T4): the sprout is the wordmark's mark, the Garden tab and a bloom chip's icon.
@@ -9,6 +9,8 @@ const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | 
   home: "M4.5 10.2 12 4l7.5 6.2V19a1 1 0 0 1-1 1H15v-5.5H9V20H5.5a1 1 0 0 1-1-1Z",
   shelf: "M4.5 4h3.5v16H4.5Z M10 4h3.5v16H10Z M15.6 5.4l3-.8 3 14.6-3 .8Z",
   people: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z M2.5 20a6.5 6.5 0 0 1 13 0 M15.5 4.3a3.5 3.5 0 0 1 0 6.4 M18 14.2a6.5 6.5 0 0 1 3.5 5.8",
+  // Smart Spaces (M4-T7): a collection, drawn as stacked trays
+  spaces: "M4 11h16v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z M6 7.5h12 M8.5 4h7",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4",
   album: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   song: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",

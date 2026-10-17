@@ -5,6 +5,7 @@
 // Inbound changes write Postgres even with BEE_TODO_WRITES off; nothing here writes to Bee. Decision 016.
 import type { Todo } from "../bee/client";
 import { db } from "../db";
+import { handleReceiptTodoChange } from "../recs/receipts";
 import { setRecStatus } from "../recs/status";
 import { saveLeft, saveTodo } from "./bee-todos";
 
@@ -74,6 +75,7 @@ export async function handleRecTodoChange(recId: number, todo: Todo | null): Pro
 
 export const TODO_CHANGE_HANDLERS: readonly TodoChangeHandler[] = [
   { entityType: "rec", run: handleRecTodoChange },
-  // Lane C registers { entityType: "rec_receipt", run: handleReceiptTodoChange } from agent/lib/recs/receipts.ts here
-  // (and removes its TEMP dispatch block from handleTodoChange). Place nudges have no handler: their changes are a no-op.
+  // Lane C (M5-T6): a thank-you reminder checked off in Bee marks the receipt sent and the tip thanked.
+  // Place nudges have no handler: their changes are a no-op.
+  { entityType: "rec_receipt", run: handleReceiptTodoChange },
 ];
