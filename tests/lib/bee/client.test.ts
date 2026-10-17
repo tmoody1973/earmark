@@ -74,10 +74,19 @@ describe("facts", () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ fact: { id: 3, text: "Loves jazz", confirmed: true }, timezone: "America/Chicago" })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 4, text: "Loves ramen", confirmed: false, tags: [] })));
-    const bee = createBeeClient({ token: "t", baseUrl: "https://bee.test", fetchImpl });
+    const bee = createBeeClient({ token: "t", baseUrl: "https://bee.test", fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(await bee.getFact(3)).toEqual({ id: 3, text: "Loves jazz", confirmed: true });
     expect(await bee.getFact(4)).toEqual({ id: 4, text: "Loves ramen", confirmed: false });
     expect(fetchImpl.mock.calls[0][0]).toBe("https://bee.test/v1/facts/3");
+  });
+
+  it("createFact needs only an id, wrapped or bare", async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ fact: { id: 5, surprise: 1 }, timezone: "x" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 6 })));
+    const bee = createBeeClient({ token: "t", baseUrl: "https://bee.test", fetchImpl: f as unknown as typeof fetch });
+    expect((await bee.createFact("a")).id).toBe(5);
+    expect((await bee.createFact("b")).id).toBe(6);
   });
 
   it("createFact POSTs only the text", async () => {
