@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({
   nearestClusters: vi.fn(),
+  pinnedClustersNear: vi.fn(),
+  MAX_CLUSTER_OPTIONS: 7,
   hasMentionFromSameOccasion: vi.fn(),
   getClusterTimeline: vi.fn(),
 }));
@@ -34,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   deps.embedText.mockImplementation(async () => vec(0));
   store.nearestClusters.mockResolvedValue([]);
+  store.pinnedClustersNear.mockResolvedValue([]);
   store.hasMentionFromSameOccasion.mockResolvedValue(false);
   store.getClusterTimeline.mockResolvedValue([]);
   deps.writeTimelineNote.mockImplementation(async () => "added a radio segment angle");
@@ -71,6 +74,19 @@ describe("planIdeaClusters", () => {
     expect(store.nearestClusters).toHaveBeenCalledWith(vec(0), 5);
     expect(deps.chooseCluster.mock.calls[0]![1].map((o) => o.key)).toEqual(["c_12", "c_40"]);
     expect(out).toMatchObject({ cluster: { action: "join", clusterId: 12, embedding: vec(0) } });
+  });
+
+  it("Top of Mind: nearby pinned ideas outside the 5 nearest are offered too, after them, no duplicates, 7 at most", async () => {
+    store.nearestClusters.mockResolvedValue([1, 2, 3, 4, 5].map((id) => dbCluster(id, `Idea ${id}`)));
+    const pin = (id: number) => ({ ...dbCluster(id, `Pinned ${id}`), pinned: true, distance: 0.45 });
+    store.pinnedClustersNear.mockResolvedValue([pin(5), pin(9), pin(10), pin(11)]);
+    deps.chooseCluster.mockResolvedValue({ key: "c_9", choice: "c_9", probability: 0.45 });
+    const [out] = await planIdeaClusters([idea("Crates")], deps);
+    expect(store.pinnedClustersNear).toHaveBeenCalledWith(vec(0));
+    const offered = deps.chooseCluster.mock.calls[0]![1];
+    expect(offered.map((o) => o.key)).toEqual(["c_1", "c_2", "c_3", "c_4", "c_5", "c_9", "c_10"]);
+    expect(offered.find((o) => o.key === "c_9")!.pinned).toBe(true);
+    expect(out).toMatchObject({ cluster: { action: "join", clusterId: 9 } });
   });
 
   it("records nothing when the chosen cluster already has a mention from the same conversation", async () => {

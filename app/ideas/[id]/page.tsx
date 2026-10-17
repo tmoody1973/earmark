@@ -14,6 +14,7 @@ import { Icon } from "@/app/garden/cards/icons";
 import { Backlinks, MergedNote } from "./Backlinks";
 import { CopyButton } from "./CopyButton";
 import { Draft } from "./Draft";
+import { PinToggle } from "./PinToggle";
 import "@/app/garden/cards/cards.css";
 import "@/app/garden/ideas.css";
 
@@ -70,7 +71,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         {dismissed && !links.mergedInto && (
           <p className="idea-note">You dismissed this idea. It stays here, greyed out, so nothing is lost.</p>
         )}
-        {/* TODO(M4-T9): Top of Mind pin toggle. */}
+        {/* Top of Mind (M4-T9): a dismissed idea can't be pinned, but one still pinned can be let go */}
+        {(!dismissed || plant.pinned) && <PinToggle ideaId={n} pinned={plant.pinned} />}
       </header>
 
       <section className="idea-panel" aria-labelledby="grew-h">

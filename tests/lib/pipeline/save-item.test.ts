@@ -44,6 +44,11 @@ describe("buildSaveQueries for ideas", () => {
     expect(q.params).toContain("accepted");
   });
 
+  it("join plan flags a pinned (Top of Mind) idea at once; an unpinned one keeps its flag as it was", () => {
+    const q = one(idea({ cluster: { action: "join", clusterId: 12, embedding: [1] } }));
+    expect(q.sql).toContain("flagged_at = case when pinned then now() else flagged_at end");
+  });
+
   it("join plan clamps the excerpt to 25 words like every save", () => {
     const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
     const q = one(idea({ extraction: { title: "t", excerpt: long }, cluster: { action: "join", clusterId: 12, embedding: [1] } }));
