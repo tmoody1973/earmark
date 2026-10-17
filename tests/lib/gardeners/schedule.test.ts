@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDue, toUtcSchedule } from "../../../agent/lib/gardeners/schedule";
+import { canAttempt, isDue, toUtcSchedule } from "../../../agent/lib/gardeners/schedule";
 
 const weekly = { every: "week" as const, weekday: 0, hourUtc: 13 };
 const monthly = { every: "month" as const, day: 1, hourUtc: 14 };
@@ -34,5 +34,22 @@ describe("toUtcSchedule (Chicago wall-clock to UTC)", () => {
   });
   it("rolls the month day forward and stays inside 1-28", () => {
     expect(toUtcSchedule({ every: "month", day: 27, hourLocal: 22 }, cdt)).toEqual({ every: "month", day: 28, hourUtc: 3 });
+  });
+});
+
+describe("canAttempt (bounded retries)", () => {
+  const fri = { every: "week" as const, weekday: 5, hourUtc: 14 };
+  const at = (h: string) => new Date(`2026-10-23T${h}:00Z`);
+  const st = (lastAttempt: string | null, failCount: number) => ({ lastRunAt: null, lastAttemptAt: lastAttempt ? at(lastAttempt) : null, failCount });
+  it("tries once when due and never attempted", () => expect(canAttempt(fri, st(null, 0), at("14:05"))).toBe(true));
+  it("does not retry on the next hourly tick after a failure", () => expect(canAttempt(fri, st("14:05", 1), at("15:05"))).toBe(false));
+  it("retries after the 3 hour backoff", () => expect(canAttempt(fri, st("14:05", 1), at("17:05"))).toBe(true));
+  it("stops after 3 failures in the period", () => expect(canAttempt(fri, st("17:05", 3), at("23:05"))).toBe(false));
+  it("ignores a failure count from an earlier period", () => {
+    const s = { lastRunAt: null, lastAttemptAt: new Date("2026-10-16T20:00:00Z"), failCount: 3 };
+    expect(canAttempt(fri, s, at("14:05"))).toBe(true);
+  });
+  it("is false once the period has a successful run", () => {
+    expect(canAttempt(fri, { lastRunAt: at("14:10"), lastAttemptAt: at("14:05"), failCount: 0 }, at("20:00"))).toBe(false);
   });
 });

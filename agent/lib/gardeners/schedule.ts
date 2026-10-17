@@ -7,7 +7,7 @@ export const GardenerScheduleSchema = z.discriminatedUnion("every", [
 export type GardenerSchedule = z.infer<typeof GardenerScheduleSchema>;
 
 /** Today's slot if today matches and the hour has passed. ponytail: a slot missed for a whole day is skipped, not caught up. */
-function currentSlot(s: GardenerSchedule, now: Date): Date | null {
+export function dueSlot(s: GardenerSchedule, now: Date): Date | null {
   const matches = s.every === "week" ? now.getUTCDay() === s.weekday : now.getUTCDate() === s.day;
   if (!matches) return null;
   const slot = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), s.hourUtc));
@@ -15,7 +15,7 @@ function currentSlot(s: GardenerSchedule, now: Date): Date | null {
 }
 
 export function isDue(s: GardenerSchedule, lastRunAt: Date | null, now: Date): boolean {
-  const slot = currentSlot(s, now);
+  const slot = dueSlot(s, now);
   return slot !== null && (lastRunAt === null || lastRunAt < slot);
 }
 
@@ -36,4 +36,17 @@ export function toUtcSchedule(l: LocalSchedule, now: Date): GardenerSchedule {
   return l.every === "week"
     ? { every: "week", weekday: (l.weekday + carry) % 7, hourUtc }
     : { every: "month", day: Math.min(l.day + carry, 28), hourUtc };
+}
+
+export const RETRY_BACKOFF_MS = 3 * 3_600_000; // after a failed attempt, wait this long before the next
+export const MAX_FAILURES = 3; // first attempt plus two retries per period, then give up until the next period
+
+export interface AttemptState { lastRunAt: Date | null; lastAttemptAt: Date | null; failCount: number }
+
+/** Due this period AND not already attempted too recently / too often. A running attempt blocks like a recent failure. */
+export function canAttempt(s: GardenerSchedule, st: AttemptState, now: Date): boolean {
+  const slot = dueSlot(s, now);
+  if (!slot || (st.lastRunAt && st.lastRunAt >= slot)) return false;
+  if (!st.lastAttemptAt || st.lastAttemptAt < slot) return true; // first attempt of this period
+  return st.failCount < MAX_FAILURES && now.getTime() - st.lastAttemptAt.getTime() >= RETRY_BACKOFF_MS;
 }

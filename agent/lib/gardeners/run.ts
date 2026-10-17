@@ -6,12 +6,13 @@ import { findIssues, ScriptRejectedError, type Reason } from "../episode/guard";
 import { runEpisode } from "../episode/publish";
 import { FIX_TEXT } from "../episode/script";
 import { publishEpisode } from "./decide";
-import { GardenerScheduleSchema, isDue } from "./schedule";
+import { canAttempt, dueSlot, GardenerScheduleSchema } from "./schedule";
 
 export type Source = "ideas" | "recs" | "recommenders";
 export interface GardenerRow {
   id: number; name: string; kind: "custom" | "episode"; task: string; schedule: unknown;
   sources: Source[]; needs_approval: boolean; last_run_at: string | null;
+  last_attempt_at: string | null; fail_count: number;
 }
 export interface RunDeps {
   generateImpl?: typeof generateText;
@@ -69,7 +70,40 @@ export async function draftCustom(task: string, data: GardenerData, generateImpl
   }
 }
 
-export async function runGardener(g: GardenerRow, { generateImpl = generateText, episode = runEpisode, now = new Date() }: RunDeps = {}): Promise<number> {
+const LEASE_MS = 5 * 60_000; // an attempt this recent is treated as still running: a second claim is refused
+
+/** Another run holds the claim, or the gardener is paused. Not a failure. */
+export class NotClaimedError extends Error { override name = "NotClaimedError"; }
+
+export async function getGardener(id: number): Promise<GardenerRow | undefined> {
+  const [g] = (await db()`select id, name, kind, task, schedule, sources, needs_approval, last_run_at, last_attempt_at, fail_count from gardeners where id = ${id}`) as GardenerRow[];
+  return g;
+}
+
+// Atomic claim before any model work: wins only if the gardener is enabled and no attempt started inside the lease.
+// An overlapping tick or a double-click loses here and does nothing. A stale failure count (earlier period) resets.
+async function claim(g: GardenerRow, now: Date): Promise<void> {
+  const slot = (() => { const s = GardenerScheduleSchema.safeParse(g.schedule); return s.success ? dueSlot(s.data, now) : null; })();
+  const stale = !g.last_attempt_at || !slot || new Date(g.last_attempt_at) < slot;
+  const won = (await db()`
+    update gardeners set last_attempt_at = ${now.toISOString()}, fail_count = case when ${stale}::boolean then 0 else fail_count end
+    where id = ${g.id} and enabled and (last_attempt_at is null or last_attempt_at < ${new Date(now.getTime() - LEASE_MS).toISOString()})
+    returning id`) as unknown[];
+  if (won.length === 0) throw new NotClaimedError("not claimed");
+}
+
+export async function runGardener(g: GardenerRow, deps: RunDeps = {}): Promise<number> {
+  const now = deps.now ?? new Date();
+  await claim(g, now);
+  try {
+    return await work(g, { ...deps, now });
+  } catch (err) {
+    await db()`update gardeners set fail_count = fail_count + 1 where id = ${g.id}`;
+    throw err;
+  }
+}
+
+async function work(g: GardenerRow, { generateImpl = generateText, episode = runEpisode, now = new Date() }: RunDeps): Promise<number> {
   let output: string;
   let episodeId: number | null = null;
   if (g.kind === "episode") {
@@ -84,7 +118,7 @@ export async function runGardener(g: GardenerRow, { generateImpl = generateText,
     insert into gardener_runs (gardener_id, output_md, status, episode_id)
     values (${g.id}, ${output}, ${status}, ${episodeId}) returning id`) as { id: number | string }[];
   if (episodeId && status === "approved") await publishEpisode(episodeId);
-  await db()`update gardeners set last_run_at = ${now.toISOString()} where id = ${g.id}`;
+  await db()`update gardeners set last_run_at = ${now.toISOString()}, fail_count = 0 where id = ${g.id}`;
   return Number(run.id);
 }
 
@@ -92,16 +126,17 @@ export async function runDueGardeners(
   now: Date,
   { run = (g: GardenerRow) => runGardener(g, { now }) }: { run?: (g: GardenerRow) => Promise<number> } = {},
 ): Promise<{ ran: number; failed: number }> {
-  const all = (await db()`select id, name, kind, task, schedule, sources, needs_approval, last_run_at from gardeners where enabled order by id`) as GardenerRow[];
+  const all = (await db()`select id, name, kind, task, schedule, sources, needs_approval, last_run_at, last_attempt_at, fail_count from gardeners where enabled order by id`) as GardenerRow[];
   let ran = 0;
   let failed = 0;
   for (const g of all) {
     try {
-      const schedule = GardenerScheduleSchema.parse(g.schedule);
-      if (!isDue(schedule, g.last_run_at ? new Date(g.last_run_at) : null, now)) continue;
+      const state = { lastRunAt: g.last_run_at ? new Date(g.last_run_at) : null, lastAttemptAt: g.last_attempt_at ? new Date(g.last_attempt_at) : null, failCount: Number(g.fail_count ?? 0) };
+      if (!canAttempt(GardenerScheduleSchema.parse(g.schedule), state, now)) continue;
       await run(g);
       ran++;
     } catch (err) {
+      if (err instanceof NotClaimedError) continue; // another tick has it
       failed++;
       // Id and error class only: never the gardener's name or task (free text) or any model output.
       console.error(`[gardeners] failed id=${g.id} err=${errName(err)}`);

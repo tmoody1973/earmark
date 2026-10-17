@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/agent/lib/db";
 import { decideRun } from "@/agent/lib/gardeners/decide";
-import { runGardener, type GardenerRow } from "@/agent/lib/gardeners/run";
+import { getGardener, NotClaimedError, runGardener } from "@/agent/lib/gardeners/run";
 import { toUtcSchedule } from "@/agent/lib/gardeners/schedule";
 import { requireOwner } from "./owner";
 
@@ -42,14 +42,20 @@ export async function setRunStatus(runId: number, status: "approved" | "dismisse
 
 export async function runNow(gardenerId: number): Promise<void> {
   await requireOwner();
-  const [g] = (await db()`
-    select id, name, kind, task, schedule, sources, needs_approval, last_run_at from gardeners where id = ${z.number().int().positive().parse(gardenerId)}`) as GardenerRow[];
+  const g = await getGardener(z.number().int().positive().parse(gardenerId));
   if (g) {
     try {
-      await runGardener(g);
+      await runGardener(g); // refused (NotClaimedError) when paused or a run is already in flight
     } catch (err) {
-      console.error(`[gardeners] run-now failed id=${g.id} err=${err instanceof Error ? err.name : "unknown"}`); // id + error class only
+      if (!(err instanceof NotClaimedError)) console.error(`[gardeners] run-now failed id=${g.id} err=${err instanceof Error ? err.name : "unknown"}`); // id + error class only
     }
   }
+  revalidatePath("/gardeners");
+}
+
+/** Pause (false) or resume (true). Idempotent; a paused gardener is skipped by the schedule and by Run now. */
+export async function setGardenerEnabled(gardenerId: number, enabled: boolean): Promise<void> {
+  await requireOwner();
+  await db()`update gardeners set enabled = ${z.boolean().parse(enabled)} where id = ${z.number().int().positive().parse(gardenerId)}`;
   revalidatePath("/gardeners");
 }
