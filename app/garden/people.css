@@ -1,0 +1,60 @@
+/* The taste ledger (M4-T5): People and a person's page. Tokens: app/globals.css. A list, not cards: one surface,
+   hairline rows, the first name in the serif, the counts in the sans. No orange here (it means new and bloomed). */
+
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 40rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.ledger-row + .ledger-row { border-top: 1px solid var(--hairline); }
+
+.ledger-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 44px;
+  padding: 0.875rem 0.75rem 0.875rem 1.125rem;
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color 150ms var(--ease-out);
+}
+.ledger-link:hover { background: var(--ground); }
+.ledger-link:hover .ledger-chev { color: var(--ink); transform: translateX(2px); }
+.ledger-link:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; border-radius: var(--radius-card); }
+
+.ledger-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 0.125rem; }
+.ledger-name { font-family: var(--serif); font-size: 1.25rem; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; }
+.ledger-taste { font-size: 0.9375rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ledger-latest { font-size: 0.875rem; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-latest-name { color: var(--ink-2); }
+.ledger-chev { flex: none; color: var(--ink-3); transition: color 150ms var(--ease-out), transform 150ms var(--ease-out); }
+
+/* Not a person and not a link: the same row, quieter. */
+.ledger-row--unknown .ledger-text { padding: 0.875rem 1.125rem; }
+.ledger-row--unknown .ledger-name { font-family: var(--sans); font-size: 1rem; font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
+.ledger-row--unknown { background: var(--ground); }
+
+/* ---- a person's page ---- */
+.person-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 44px;
+  margin: -0.75rem 0 0.5rem -0.25rem;
+  padding-right: 0.5rem;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+  text-decoration: none;
+}
+.person-back:hover { color: var(--ink); }
+.person-head p { font-variant-numeric: tabular-nums; }
+#person .zone { margin-top: 2rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-link:hover .ledger-chev { transform: none; }
+}
