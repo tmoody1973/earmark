@@ -2,6 +2,7 @@ import { defineSchedule } from "eve/schedules";
 import { draftBlooms } from "../lib/ideas/one-pager";
 import { runBeeChangesSync } from "../lib/sync/bee-changes";
 import { drainTodoQueue } from "../lib/sync/bee-todos";
+import { handleRecTodoChange } from "../lib/sync/todo-handlers";
 
 // FR-02 catch-up: the Bee stream is at-most-once, so every 10 minutes ask /v1/changes what moved since the saved cursor.
 // Sub-daily cron: needs the Pro team (M2-T2). Handler form (run): no model session; the pipelines call the models.
@@ -23,7 +24,8 @@ export default defineSchedule({
         return [];
       });
       if (drafted.length) console.log(`[draft] tail drafted clusters=${drafted.map((r) => r.clusterId).join(",")}`);
-      const todos = await drainTodoQueue().catch((err: unknown) => {
+      // checkLinked (M3-T8): the backstop for Bee completions/deletions whose change was lost or dropped.
+      const todos = await drainTodoQueue({ checkLinked: handleRecTodoChange }).catch((err: unknown) => {
         console.error(`[bee-todos] reconcile failed error=${err instanceof Error ? err.name : "unknown"}`);
         return null;
       });

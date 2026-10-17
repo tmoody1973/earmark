@@ -153,6 +153,41 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("handleTodoChange on the Neon te
     }
   });
 
+  // Backstop: a todo change dropped after 5 attempts (or lost by the stream) is still caught by the scheduled reconciler.
+  it("the reconciler backstop finds linked queued tips whose todo is not open in Bee: completed → tried, 404 → 'new'", async () => {
+    const done = await linked("queued", { text, completed: false });
+    const gone = await linked("queued", { text, completed: false });
+    const open = await linked("queued", { text, completed: false });
+    const off = await linked("queued", { text, completed: false }); // not in the list, and Bee says it is still open
+    const store = new Map([[done.beeId, todo(done.beeId, { completed: true })], [off.beeId, todo(off.beeId)]]);
+    const bee = {
+      listTodos: vi.fn(async () => ({ todos: [todo(open.beeId)], next_cursor: null })),
+      getTodo: vi.fn(async (id: number) => {
+        const t = store.get(id);
+        if (!t) throw new BeeApiError(404, `/v1/todos/${id}`, "not found");
+        return t;
+      }),
+      createTodo: vi.fn(), updateTodo: vi.fn(), deleteTodo: vi.fn(),
+    };
+    const { drainTodoQueue } = await import("../../agent/lib/sync/bee-todos");
+    const { handleRecTodoChange } = await import("../../agent/lib/sync/todo-handlers");
+    const out = await drainTodoQueue({
+      bee: bee as never, env: { BEE_TODO_WRITES: "on" }, onlyIds: [done.recId, gone.recId, open.recId, off.recId],
+      checkLinked: handleRecTodoChange, lease,
+    });
+    expect(out).toMatchObject({ status: "done", created: 0, failed: false });
+    expect(bee.getTodo.mock.calls.map(([id]) => id).sort()).toEqual([done.beeId, gone.beeId, off.beeId].sort());
+    expect(await rec(done.recId)).toEqual({ status: "tried", bee_todo_id: null });
+    expect(await sync(done.beeId)).toMatchObject({ last_written_state: { text, completed: true } });
+    expect(await rec(gone.recId)).toEqual({ status: "new", bee_todo_id: null });
+    expect(await sync(gone.beeId)).toBeUndefined();
+    expect(await rec(open.recId)).toEqual({ status: "queued", bee_todo_id: String(open.beeId) });
+    expect(await rec(off.recId)).toEqual({ status: "queued", bee_todo_id: String(off.beeId) });
+    expect(bee.createTodo).not.toHaveBeenCalled();
+    expect(bee.updateTodo).not.toHaveBeenCalled();
+    expect(bee.deleteTodo).not.toHaveBeenCalled();
+  });
+
   it("a Bee error other than 404 throws and changes nothing", async () => {
     const { recId, beeId } = await linked("queued", { text, completed: false });
     const bee = { getTodo: vi.fn(async () => { throw new BeeApiError(500, "/v1/todos/x", "boom"); }) };

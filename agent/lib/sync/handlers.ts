@@ -18,7 +18,7 @@ const syncRow = async (beeId: number) => (await db()`
  * FR-18: a todo changed in Bee. Not an Earmark todo, or no handler for its entity type: no-op (and no Bee read).
  * Otherwise, under the Bee todo lease (so it never interleaves with the reconciler's write-then-save): re-read the
  * row, GET the todo (404 → null), skip an exact echo of Earmark's own last write, dispatch. Lease busy or a Bee error
- * other than 404 throws: the change feed puts the id on its retry list, up to 5 runs (the stream path just logs).
+ * other than 404 throws: the change feed puts the id on its retry list (the stream path just logs).
  */
 export async function handleTodoChange(beeId: number, deps: TodoChangeDeps = {}): Promise<void> {
   const handlers = deps.handlers ?? TODO_CHANGE_HANDLERS;
@@ -39,10 +39,14 @@ export async function handleTodoChange(beeId: number, deps: TodoChangeDeps = {})
     if (isEcho(row.last_written_state, todo)) return;
     await handler.run(Number(row.entity_id), todo);
   }, deps.lease);
-  if (out === "locked") {
-    const err = new Error(`Bee todo lease busy; todo ${beeId} replays`);
-    err.name = "BeeTodoLeaseBusy";
-    throw err;
+  if (out === "locked") throw new BeeTodoLeaseBusy(beeId);
+}
+
+/** Another Bee todo writer holds the lease. Not a failure: the change feed retries it without counting an attempt. */
+export class BeeTodoLeaseBusy extends Error {
+  constructor(beeId: number) {
+    super(`Bee todo lease busy; todo ${beeId} retries`);
+    this.name = "BeeTodoLeaseBusy";
   }
 }
 
