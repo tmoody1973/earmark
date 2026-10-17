@@ -1,3 +1,4 @@
+import { publicImageUrl } from "../capture/thumbs";
 import { db } from "../db";
 import { HIDDEN_TIP_STATUSES, credit, toRecCard, type GardenRecRow, type RecCardData } from "../garden/queries";
 import { newShareToken } from "../privacy/tokens";
@@ -32,7 +33,7 @@ async function acceptedTips(spaceId: number): Promise<TipRow[]> {
 function toPublicTip(r: TipRow): RecCardData {
   const card = toRecCard({ ...r, first_name: r.consent ? r.first_name : null, context_summary: null });
   // lat/lng null: a place card then shows its designed no-image state, not the owner-only map tile
-  return { ...card, why: null, rating: null, status: "new", lat: null, lng: null };
+  return { ...card, why: null, rating: null, status: "new", lat: null, lng: null, imageUrl: publicImageUrl(card.imageUrl) };
 }
 
 export interface PublishedSpace { id: number; name: string; ruleSentence: string; indexable: boolean; tips: RecCardData[]; dates: string[] }

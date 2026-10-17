@@ -20,13 +20,15 @@ describe("chunkForPolly", () => {
 
 describe("synthesize", () => {
   it("calls Polly once per chunk with the generative engine and concatenates the MP3 bytes", async () => {
-    const send = vi.fn(async (cmd: { input: Record<string, string> }) => {
+    type Send = (cmd: { input: Record<string, string> }, opts?: { abortSignal?: AbortSignal }) => Promise<unknown>;
+    const send = vi.fn<Send>(async (cmd) => {
       expect(cmd.input).toMatchObject({ Engine: "generative", OutputFormat: "mp3", VoiceId: "Ruth", TextType: "text" });
       return { AudioStream: { transformToByteArray: async () => new Uint8Array([1, 2]) } };
     });
     const out = await synthesize(["a", "b"], { send } as never, "Ruth");
     expect(Array.from(out)).toEqual([1, 2, 1, 2]);
     expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0][1]?.abortSignal).toBeInstanceOf(AbortSignal); // each chunk capped inside the 5-minute lease
   });
   it("fails when Polly returns no audio", async () => {
     await expect(synthesize(["a"], { send: async () => ({}) } as never, "Ruth")).rejects.toThrow(/no audio/);

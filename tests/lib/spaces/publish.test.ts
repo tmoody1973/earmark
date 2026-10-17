@@ -91,6 +91,14 @@ describe("getPublishedSpace", () => {
     expect(t.lat).toBeNull(); // no owner-only map tile on the public page
     expect(t.lng).toBeNull();
   });
+
+  it("drops the owner's own photo thumbnail (also the og:image source); other artwork stays", async () => {
+    sql.mockResolvedValueOnce([{ id: 1, name: "Picks", rule_sentence: "x", indexable: false }]).mockResolvedValueOnce([
+      tip({ id: 4, image_url: "https://abc123.public.blob.vercel-storage.com/thumbs/9f2c-uuid-AbCdEf.jpg" }), tip({ id: 5, image_url: "https://covers.example/kindred.jpg" }),
+    ]);
+    const { tips } = (await getPublishedSpace("a".repeat(43)))!;
+    expect(tips.map((t) => t.imageUrl)).toEqual([null, "https://covers.example/kindred.jpg"]);
+  });
 });
 
 describe("rangeLabel", () => {
