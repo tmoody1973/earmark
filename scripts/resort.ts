@@ -65,7 +65,12 @@ async function inTransaction<T>(c: PoolClient, readOnly: boolean, work: () => Pr
     await c.query(commit ? "commit" : "rollback");
     return value;
   } catch (err) {
-    await c.query("rollback");
+    // A failed rollback (dropped connection) must not hide why the transaction failed; Postgres aborts it anyway.
+    try {
+      await c.query("rollback");
+    } catch (rollbackErr) {
+      console.error(`[resort] rollback failed error=${rollbackErr instanceof Error ? rollbackErr.name : "unknown"}`);
+    }
     throw err;
   }
 }
