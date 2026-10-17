@@ -69,7 +69,7 @@ export function Backlinks({ ideaId, idea, links }: { ideaId: number; idea: { men
   };
   const undo = (m: MergeRef) => {
     refocus();
-    act(null, () => undoIdeaMerge(m.mergeId), `Undone: “${m.title}” is its own idea again.`);
+    act(null, async () => (await undoIdeaMerge(m.mergeId)).refused, `Undone: “${m.title}” is its own idea again.`);
   };
 
   const empty = !view.related.length && !view.fits.length && !view.sameIdea.length && !view.mergedIn.length;
@@ -237,7 +237,7 @@ export function MergedNote({ merge }: { merge: MergeRef | null }) {
     startTransition(async () => {
       try {
         const r = await undoIdeaMerge(m.mergeId);
-        setSaid(r.changed ? "Undone: this is its own idea again." : "This merge was already undone.");
+        setSaid(r.changed ? "Undone: this is its own idea again." : (r.refused ?? "This merge can’t be undone now."));
       } catch (err) {
         console.error("undo merge failed", (err as Error).name);
         setSaid("That didn’t save. Try again.");

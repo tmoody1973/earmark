@@ -68,20 +68,24 @@ for (const s of SAMPLES) {
   const times = s.mentions.filter((m) => m.status !== "dismissed").map((m) => m.at).sort();
   // Lines are built the way the writer builds them: the date by code, and the earliest mention is always "first heard".
   const earliest = [...s.mentions].sort((a, b) => a.at.localeCompare(b.at))[0]!;
-  const timeline = s.mentions.map((m) => ({
-    date: new Date(m.at).toISOString(),
-    line: `${formatTimelineDate(new Date(m.at))}: ${m === earliest ? NOTE_FIRST : m.note}`,
-  }));
   const [c] = await sql`insert into idea_clusters
     (title, summary, timeline, stage, mention_count, first_mentioned_at, last_mentioned_at, draft_md, draft_format)
-    values (${s.title}, 'sample-ideas', ${JSON.stringify(timeline)}, ${s.stage},
+    values (${s.title}, 'sample-ideas', '[]'::jsonb, ${s.stage},
       ${s.mentions.filter((m) => m.status !== "dismissed").length}, ${times[0]}, ${times.at(-1)},
       ${s.draft?.md ?? null}, ${s.draft?.format ?? null})
     returning id`;
+  // each line names its mention (mention_id, M4-T6), as the save path writes it
+  const timeline = [];
   for (const m of s.mentions) {
-    await sql`insert into idea_mentions (cluster_id, excerpt, spoken_at, confidence, review_status, source)
-      values (${c!.id}, ${m.excerpt}, ${m.at}, 0.9, ${m.status ?? "accepted"}, ${m.source ?? "ambient"})`;
+    const [row] = await sql`insert into idea_mentions (cluster_id, excerpt, spoken_at, confidence, review_status, source)
+      values (${c!.id}, ${m.excerpt}, ${m.at}, 0.9, ${m.status ?? "accepted"}, ${m.source ?? "ambient"}) returning id`;
+    timeline.push({
+      date: new Date(m.at).toISOString(),
+      line: `${formatTimelineDate(new Date(m.at))}: ${m === earliest ? NOTE_FIRST : m.note}`,
+      mention_id: Number(row!.id),
+    });
   }
+  await sql`update idea_clusters set timeline = ${JSON.stringify(timeline)}::jsonb where id = ${c!.id}`;
   console.log(`${s.stage.padEnd(9)} /ideas/${c!.id}  ${s.title}`);
 }
 console.log(`seeded ${SAMPLES.length} sample ideas on the test branch`);

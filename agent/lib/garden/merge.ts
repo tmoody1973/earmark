@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
-import { lineIndexFor, type StampedEntry } from "../ideas/timeline-match";
+import { lineIndexFor, TimelineAmbiguousError, type StampedEntry } from "../ideas/timeline-match";
 import { hasMentionFromSameOccasion } from "../store/ideas";
 
 // Merging two ideas that are one idea (decision 027). Reversible: an idea_merges row records which mentions moved,
@@ -46,11 +46,18 @@ async function readMentions(sql: ReturnType<typeof db>, where: { clusterId?: num
 
 // Splits `from`'s timeline: the lines of `mentions` (stamped with their mention id) and the rest. Throws
 // TimelineAmbiguousError when a legacy line cannot be told apart.
-function splitLines(from: IdeaRow, mentions: readonly MentionRow[]): { going: StampedEntry[]; staying: StampedEntry[] } {
+// byIdOnly (undo): only lines that name a moved mention; never fall back to a date in the kept idea, whose own legacy
+// lines must stay put (every line a merge moves is stamped on the way, so undo never needs the date).
+function splitLines(from: IdeaRow, mentions: readonly MentionRow[], { byIdOnly = false } = {}): { going: StampedEntry[]; staying: StampedEntry[] } {
   const owner = new Map<number, number>(); // line index → mention id
   for (const mm of mentions) {
-    const i = lineIndexFor(from.timeline, { id: mm.id, spokenAt: mm.spokenAt }, from.id);
-    if (i !== -1) owner.set(i, mm.id);
+    const i = byIdOnly
+      ? from.timeline.findIndex((e) => e.mention_id != null && Number(e.mention_id) === mm.id)
+      : lineIndexFor(from.timeline, { id: mm.id, spokenAt: mm.spokenAt }, from.id);
+    if (i === -1) continue;
+    // two moving mentions at one moment cannot both own a single legacy line: refuse rather than guess
+    if (owner.has(i)) throw new TimelineAmbiguousError(from.id);
+    owner.set(i, mm.id);
   }
   return {
     going: from.timeline.flatMap((e, i) => (owner.has(i) ? [{ ...e, mention_id: owner.get(i)! }] : [])),
@@ -88,13 +95,18 @@ export async function mergeClusters(keepId: number, mergedId: number): Promise<n
   const lo = String(Math.min(keepId, mergedId));
   const hi = String(Math.max(keepId, mergedId));
   const [recorded] = (await sql.transaction([
+    // Both ideas are row-locked first (in id order) and checked against the plan on the locked rows: a live save that
+    // joins either idea waits for this transaction, or has already committed and this merge refuses (stale plan).
     sql`
+      with locked as (
+        select id, stage, mention_count, pinned, updated_at from idea_clusters
+        where id in (${keepId}, ${mergedId}) order by id for update)
       insert into idea_merges (token, keep_id, merged_id, mention_ids, keep_before, merged_before, twin_statuses)
       select ${token}::uuid, k.id, m.id, ${movingIds}::bigint[],
         jsonb_build_object('stage', k.stage, 'mention_count', k.mention_count, 'pinned', k.pinned),
         jsonb_build_object('stage', m.stage, 'mention_count', m.mention_count, 'pinned', m.pinned),
         ${JSON.stringify(twins)}::jsonb
-      from idea_clusters k, idea_clusters m
+      from locked k, locked m
       where k.id = ${keepId} and m.id = ${mergedId} and k.stage <> 'dismissed' and m.stage <> 'dismissed'
         and k.updated_at = ${k.ver}::timestamptz and m.updated_at = ${m.ver}::timestamptz
       returning id`,
@@ -153,15 +165,18 @@ export async function undoMerge(mergeId: number): Promise<boolean> {
   if (!k || !m || k.stage === "dismissed") return false;
   const moved = await readMentions(sql, { ids });
   if (moved.length !== ids.length) return false;
-  const { going, staying } = splitLines(k, moved); // only lines naming a moved mention: never one of the kept idea's
+  const { going, staying } = splitLines(k, moved, { byIdOnly: true }); // only lines naming a moved mention
   const keepTimeline = JSON.stringify(staying);
   const mergedTimeline = JSON.stringify([...m.timeline, ...going]);
 
   // now() is the transaction's start time: `undone_at = now()` in later statements means "claimed by this transaction".
   const [claimed] = (await sql.transaction([
-    sql`update idea_merges mg set undone_at = now() where mg.id = ${mergeId} and mg.undone_at is null
-          and exists (select 1 from idea_clusters k where k.id = mg.keep_id and k.stage <> 'dismissed' and k.updated_at = ${k.ver}::timestamptz)
-          and exists (select 1 from idea_clusters m where m.id = mg.merged_id and m.updated_at = ${m.ver}::timestamptz)
+    // both ideas row-locked first (id order), the plan checked on the locked rows, as in mergeClusters
+    sql`with locked as (
+          select id, stage, updated_at from idea_clusters where id in (${k.id}, ${m.id}) order by id for update)
+        update idea_merges mg set undone_at = now() where mg.id = ${mergeId} and mg.undone_at is null
+          and exists (select 1 from locked k where k.id = mg.keep_id and k.stage <> 'dismissed' and k.updated_at = ${k.ver}::timestamptz)
+          and exists (select 1 from locked m where m.id = mg.merged_id and m.updated_at = ${m.ver}::timestamptz)
           and cardinality(mg.mention_ids) = (select count(*) from idea_mentions where id = any(mg.mention_ids))
         returning mg.id`,
     sql`update idea_mentions mm set cluster_id = mg.merged_id,

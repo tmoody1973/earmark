@@ -149,6 +149,12 @@ describe("mergeIdeas", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
+  it("a merge that changed nothing (an idea changed since the page loaded) says so, never \"Merged\"", async () => {
+    signedInAs("user_owner");
+    vi.mocked(mergeClusters).mockResolvedValueOnce(null);
+    expect(await mergeIdeas(1, 2)).toEqual({ mergeId: null, refused: "That idea changed — try again." });
+  });
+
   it("says why when legacy timeline lines can't be told apart, instead of failing blind", async () => {
     signedInAs("user_owner");
     const { TimelineAmbiguousError } = await import("../../../agent/lib/ideas/timeline-match");
@@ -170,5 +176,14 @@ describe("undoIdeaMerge", () => {
     signedInAs("user_owner");
     expect(await undoIdeaMerge(4)).toEqual({ changed: true });
     expect(undoMerge).toHaveBeenCalledWith(4);
+  });
+
+  it("says why when nothing was undone", async () => {
+    signedInAs("user_owner");
+    vi.mocked(undoMerge).mockResolvedValueOnce(false);
+    expect(await undoIdeaMerge(4)).toEqual({
+      changed: false,
+      refused: "This merge can’t be undone now: it was already undone, or one of its ideas changed or was forgotten.",
+    });
   });
 });
