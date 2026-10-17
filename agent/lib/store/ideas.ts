@@ -113,7 +113,8 @@ export const MAX_DRAFT_ATTEMPTS = 3;
 // Claim up to `limit` bloomed clusters without a draft (optionally only these ids). SKIP LOCKED + the lease: two runners
 // never get the same cluster; a claim from a run that crashed is re-taken once older than CLAIM_LEASE.
 // attempts: this claim's attempt number (1-based), so the caller can tell when the last allowed attempt failed.
-export async function claimDraftableClusters(opts: { clusterIds?: number[]; limit: number }): Promise<Array<{ id: number; attempts: number }>> {
+// claim: this claim's draft_claimed_at as exact text (microseconds kept); saveDraft writes only while it is still current.
+export async function claimDraftableClusters(opts: { clusterIds?: number[]; limit: number }): Promise<Array<{ id: number; attempts: number; claim: string }>> {
   const ids = opts.clusterIds ?? null;
   const rows = await db()`
     with open as (
@@ -127,8 +128,8 @@ export async function claimDraftableClusters(opts: { clusterIds?: number[]; limi
     )
     update idea_clusters c set draft_claimed_at = now(), draft_attempts = c.draft_attempts + 1
     from open where c.id = open.id
-    returning c.id, c.draft_attempts`;
-  return rows.map((r) => ({ id: Number(r.id), attempts: Number(r.draft_attempts) }));
+    returning c.id, c.draft_attempts, c.draft_claimed_at::text as claim`;
+  return rows.map((r) => ({ id: Number(r.id), attempts: Number(r.draft_attempts), claim: String(r.claim) }));
 }
 
 // Manual retry after MAX_DRAFT_ATTEMPTS (scripts/draft-one-pager.ts --reset): attempts back to 0, claim cleared.
@@ -158,10 +159,12 @@ export async function getClusterForDraft(clusterId: number): Promise<ClusterForD
 }
 
 // Statement builder only (amendment a: no stray writers): run it inside db().transaction. Saves the draft, its format
-// and stage ready → drafted together, and only while the cluster is still ready without a draft (no row otherwise).
-export function saveDraft(txn: Txn, clusterId: number, draftMd: string, format: DraftFormat) {
+// and stage ready → drafted together, and only while the cluster is still ready without a draft AND the claim this
+// drafter holds is still current (no row otherwise). `pnpm forget` clears the claim when it removes an excerpt, so a
+// draft written from the old excerpts can never be saved afterwards (M3-T11).
+export function saveDraft(txn: Txn, clusterId: number, draftMd: string, format: DraftFormat, claim: string) {
   return txn`update idea_clusters
              set draft_md = ${draftMd}, draft_format = ${format}, stage = 'drafted', draft_claimed_at = null, updated_at = now()
-             where id = ${clusterId} and stage = 'ready' and draft_md is null
+             where id = ${clusterId} and stage = 'ready' and draft_md is null and draft_claimed_at = ${claim}::timestamptz
              returning id`;
 }
