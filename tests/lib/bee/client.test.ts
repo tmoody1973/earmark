@@ -68,3 +68,24 @@ describe("toDate", () => {
     expect(toDate("not a date")).toBeNull();
   });
 });
+
+describe("facts", () => {
+  it("getFact unwraps either response shape", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ fact: { id: 3, text: "Loves jazz", confirmed: true }, timezone: "America/Chicago" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 4, text: "Loves ramen", confirmed: false, tags: [] })));
+    const bee = createBeeClient({ token: "t", baseUrl: "https://bee.test", fetchImpl });
+    expect(await bee.getFact(3)).toEqual({ id: 3, text: "Loves jazz", confirmed: true });
+    expect(await bee.getFact(4)).toEqual({ id: 4, text: "Loves ramen", confirmed: false });
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://bee.test/v1/facts/3");
+  });
+
+  it("createFact POSTs only the text", async () => {
+    const f = fakeFetch(200, { id: 9, text: "Loves jazz", confirmed: false });
+    expect(await createBeeClient(opts(f)).createFact("Loves jazz")).toEqual({ id: 9, text: "Loves jazz", confirmed: false });
+    const [url, init] = f.mock.calls[0]!;
+    expect(String(url)).toBe("https://bee.test/v1/facts");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ text: "Loves jazz" });
+  });
+});
