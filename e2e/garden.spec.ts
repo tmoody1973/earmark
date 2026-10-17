@@ -206,3 +206,66 @@ test("a signed-in non-owner is refused and sees no data", async ({ page }, info)
   await page.goto("/");
   await expect(page).toHaveURL(/\/sign-in/);
 });
+
+// The taste ledger (M4-T5). With SHOT_LABEL=sample the dev server reads the test branch seeded by
+// scripts/seed-sample-shelf.ts then scripts/seed-sample-people.ts. Read-only: nothing here writes.
+test("People lists who gave tips, newest first, and each person opens to their own tips", async ({ page }, info) => {
+  const label = process.env.SHOT_LABEL ?? "real";
+  const dir = "docs/design/screens";
+  const width = info.project.name === "phone" ? 390 : 1440;
+  const noOverflow = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const nav = page.getByRole("navigation", { name: "Garden sections" });
+  await signInAs(page, OWNER_EMAIL);
+
+  await page.goto("/");
+  await nav.getByRole("link", { name: "People" }).click();
+  await expect(page).toHaveURL(/\/people$/);
+  await expect(page.getByRole("heading", { level: 1, name: "People" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
+
+  const rows = page.getByTestId("ledger-row");
+  await expect(rows.first()).toBeVisible();
+  const last = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-last-tip")!));
+  expect(last).toEqual([...last].sort().reverse()); // most recent tip first
+  const names = await rows.locator(".ledger-name").allTextContents();
+  const owner = process.env.EARMARK_OWNER_FIRST_NAME?.trim().toLowerCase();
+  if (owner) expect(names.map((n) => n.toLowerCase())).not.toContain(owner);
+  for (const row of await rows.all()) await expect(row.getByRole("link")).toHaveAttribute("href", /^\/people\/\d+$/);
+  if (label === "sample") await expect(page.getByTestId("ledger-unknown")).toContainText(/not sure who/);
+  const link = rows.first().getByRole("link");
+  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await noOverflow();
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await page.screenshot({ path: `${dir}/m4-people-${label}-${width}.png`, fullPage: true });
+
+  const taste = (await rows.first().locator(".ledger-taste").textContent())!;
+  await link.click();
+  await expect(page).toHaveURL(/\/people\/\d+$/);
+  await expect(page.getByRole("heading", { level: 1, name: names[0], exact: true })).toBeVisible();
+  await expect(page.locator(".person-head p")).toHaveText(taste);
+  await expect(nav.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "true");
+  const cards = page.getByTestId("rec-card");
+  await expect(cards).toHaveCount(Number(taste.match(/^(\d+) tips?/)![1])); // the count is the cards shown
+  await expect(page.locator(".rec-from")).toHaveCount(0); // their own page: no "from Ann" on every card
+  await noOverflow();
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
+  await page.screenshot({ path: `${dir}/m4-person-${label}-${width}.png`, fullPage: true });
+
+  await page.setViewportSize({ width: 320, height: 800 });
+  await noOverflow();
+  await page.locator(".person-back").click();
+  await expect(page).toHaveURL(/\/people$/);
+  await noOverflow();
+});
+
+test("a person who does not exist is a 404, and a stranger never sees People", async ({ page }) => {
+  await signInAs(page, OWNER_EMAIL);
+  expect((await page.goto("/people/999999999"))?.status()).toBe(404);
+  expect((await page.goto("/people/not-a-number"))?.status()).toBe(404);
+  await clerk.signOut({ page });
+  await signInAs(page, STRANGER_EMAIL);
+  expect((await page.goto("/people"))?.status()).toBe(403);
+  await expect(page.getByTestId("ledger-row")).toHaveCount(0);
+});

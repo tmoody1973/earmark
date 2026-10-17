@@ -1,3 +1,4 @@
+import { isTried } from "@/agent/lib/garden/ledger";
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import type { Rating, RecType } from "@/agent/lib/types";
 import { Artwork } from "./Artwork";
@@ -20,7 +21,7 @@ function TriedTag({ card }: { card: RecCardData }) {
       </span>
     );
   }
-  if (card.status !== "tried") return null;
+  if (!isTried(card)) return null; // thanked counts as tried, as in the taste ledger
   return <span className="rec-tag"><Icon name="check" size={14} />Tried</span>;
 }
 
