@@ -2,6 +2,7 @@ import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import { firstNameOnly } from "../pipeline/attribution";
+import { setRecStatus } from "../recs/status";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
@@ -157,15 +158,14 @@ export async function getMaybeTips(): Promise<MaybePile> {
 export type TipVerdict = "kept" | "not_a_tip";
 const VERDICT_STATUS: Record<TipVerdict, RecStatus> = { kept: "new", not_a_tip: "dismissed" };
 
-/** Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. */
+/**
+ * Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. Goes through
+ * the status core (M3-T2) so the change gets its side effects; status and verdict are still one statement.
+ */
 export async function setTipVerdict(id: number, verdict: TipVerdict): Promise<boolean> {
   if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
-  const rows = await db()`
-    update recommendations set status = ${VERDICT_STATUS[verdict]}, user_verdict = ${verdict}, user_verdict_at = now(),
-      updated_at = now()
-    where id = ${id} and status = 'needs_review'
-    returning id`;
-  return rows.length > 0;
+  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict });
+  return changed;
 }
 
 // Every idea still growing (dismissed ones live only on their own page), in garden order.
