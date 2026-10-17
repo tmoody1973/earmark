@@ -39,3 +39,4 @@
 @media (prefers-reduced-motion: reduce) {
   .ring, .ring-thinking, .ring-speaking { animation: none; transition: none; }
 }
+.alexa > p:first-child a { display: inline-flex; align-items: center; min-height: 44px; }
