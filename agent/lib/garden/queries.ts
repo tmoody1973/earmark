@@ -3,6 +3,7 @@ import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
+import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
 import { NEW_ROW_MAX, newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
@@ -216,4 +217,36 @@ export async function getIdeaDetail(id: number): Promise<IdeaDetail | null> {
 export async function markIdeaViewed(id: number): Promise<void> {
   if (gardenReadOnly()) return; // a real-data e2e run browses read-only (e2e-guard.ts)
   await db()`update idea_clusters set last_viewed_at = now() where id = ${id}`;
+}
+
+// ---- the taste ledger (M4-T5) ----
+
+// Every visible tip, carded (so toRecCard's owner guard applies), then counted in ledger.ts. Same columns as the
+// shelf: raw_text and excerpts never reach these pages.
+// ponytail: reads every visible tip (no limit) to count them; fine into the low thousands, move the counting into
+// SQL (group by recommender) if the shelf ever outgrows that.
+export async function getTasteLedger(): Promise<TasteLedger> {
+  const recs = (await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      p.id as recommender_id, p.first_name
+    from recommendations r left join recommenders p on p.id = r.recommender_id
+    where r.status not in ('dismissed','composted')`) as GardenRecRow[];
+  return buildLedger(recs.map(toRecCard));
+}
+
+export interface RecommenderPage { person: LedgerPerson; recs: RecCardData[] }
+
+// No page (null → 404) unless at least one visible tip credits this person: that covers a missing id, a person
+// whose tips were all dismissed, and the owner (toRecCard never credits them).
+export async function getRecommenderPage(id: number): Promise<RecommenderPage | null> {
+  const recs = ((await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      p.id as recommender_id, p.first_name
+    from recommendations r join recommenders p on p.id = r.recommender_id
+    where r.recommender_id = ${id} and r.status not in ('dismissed','composted')
+    order by r.said_at desc, r.id desc`) as GardenRecRow[]).map(toRecCard);
+  const [person] = buildLedger(recs).people;
+  return person ? { person, recs } : null;
 }

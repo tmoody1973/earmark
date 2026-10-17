@@ -93,7 +93,7 @@
   background: var(--surface);
   border-top: 1px solid var(--hairline);
 }
-.tabbar ul { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); max-width: 32rem; margin: 0 auto; padding: 0; }
+.tabbar ul { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); max-width: 32rem; margin: 0 auto; padding: 0; }
 .tabbar a {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.125rem;
   min-height: 3.5rem;
@@ -101,8 +101,8 @@
   transition: color 150ms var(--ease-out);
 }
 .tabbar a:hover { color: var(--ink); }
-.tabbar a[aria-current="page"] { color: var(--ink); font-weight: 650; }
-.tabbar a[aria-current="page"] svg { stroke-width: 2; }
+.tabbar a[aria-current] { color: var(--ink); font-weight: 650; }
+.tabbar a[aria-current] svg { stroke-width: 2; }
 .tabbar a { border-radius: 12px; }
 .tabbar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; } /* inset: the bar edge would clip it */
 body:has(.tabbar) { padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
