@@ -12,6 +12,9 @@ import "../garden/people.css";
 import "./spaces.css";
 
 export const dynamic = "force-dynamic";
+// createSpace runs on this page, and its first fill runs in after() on the same request: up to 10 calls × 20 s plus one
+// 20 s wait (agent/lib/spaces/evaluate.ts fillNewSpace) must fit.
+export const maxDuration = 300;
 export const metadata: Metadata = { title: "Spaces · Earmark" };
 
 // Smart Spaces (M4-T7, FR-32): describe a collection in one sentence; Earmark fills it. A list like People: one
@@ -33,7 +36,7 @@ export default async function SpacesPage() {
           {spaces.length === 0 ? (
             <p className="empty">
               No Spaces yet. Describe one above, like “Books to give my dad” or “Radio segment ideas”, and Earmark
-              gathers everything you’ve kept that fits.
+              gathers every idea and tip of yours that fits.
             </p>
           ) : (
             <ul className="ledger">

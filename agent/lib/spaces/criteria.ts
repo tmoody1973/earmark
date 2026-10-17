@@ -4,6 +4,9 @@ import type { BooleanQuestion } from "../decide/ask-booleans";
 // (M4-T11). An item shows in a Space when Jev's P(yes) is at or above this, or when Tarik kept it.
 export const SPACE_MIN = 0.7;
 
+/** The sync_cursors row a Spaces pass holds while it runs (evaluate.ts); the Space page reads it to say "sorting now". */
+export const SPACES_LOCK = "spaces_evaluate_lock";
+
 /** askBooleans keys must be words (JS orders integer-like keys numerically). */
 export const spaceKey = (spaceId: number) => `s_${spaceId}`;
 

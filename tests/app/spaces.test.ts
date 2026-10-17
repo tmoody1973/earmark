@@ -18,7 +18,7 @@ vi.mock("../../agent/lib/garden/spaces", () => ({
 import { auth } from "@clerk/nextjs/server";
 import { getSpace, listSpaces } from "../../agent/lib/garden/spaces";
 import SpacePage, { generateMetadata } from "../../app/spaces/[id]/page";
-import SpacesPage from "../../app/spaces/page";
+import SpacesPage, { maxDuration } from "../../app/spaces/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -57,6 +57,11 @@ describe("spaces pages owner guard", () => {
     signedInAs("user_owner");
     const tree = JSON.stringify(await SpacesPage());
     expect(tree).toContain("No Spaces yet");
+    expect(tree).toContain("every idea and tip of yours that fits");
     expect(tree).not.toContain("space-row");
+  });
+
+  it("gives the create request room for the first fill it starts in after()", () => {
+    expect(maxDuration).toBe(300);
   });
 });

@@ -10,14 +10,14 @@ vi.mock("../../../agent/lib/garden/spaces", () => ({
   deleteSpace: vi.fn(async () => true),
   setSpaceItemStatus: vi.fn(async () => true),
 }));
-vi.mock("../../../agent/lib/spaces/evaluate", () => ({ evaluateSpaces: vi.fn(async () => ({})), MAX_CALLS_PER_SPACE: 30 }));
+vi.mock("../../../agent/lib/spaces/evaluate", () => ({ fillNewSpace: vi.fn(async () => ({})) }));
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import * as lib from "../../../agent/lib/garden/spaces";
-import { evaluateSpaces } from "../../../agent/lib/spaces/evaluate";
+import { fillNewSpace } from "../../../agent/lib/spaces/evaluate";
 import { createSpace, deleteSpace, keepSpaceItem, removeSpaceItem, renameSpace } from "../../../app/garden/actions";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
@@ -55,10 +55,10 @@ describe("createSpace", () => {
     expect(lib.createSpace).toHaveBeenCalledWith("Books to give my dad");
     expect(redirect).toHaveBeenCalledWith("/spaces/12");
     expect(revalidatePath).toHaveBeenCalledWith("/spaces");
-    // the fill is bounded to this Space's share of a run, and only runs once the page is on its way
-    expect(evaluateSpaces).not.toHaveBeenCalled();
+    // the first fill only runs once the response is on its way
+    expect(fillNewSpace).not.toHaveBeenCalled();
     await (vi.mocked(after).mock.calls[0][0] as () => Promise<void>)();
-    expect(evaluateSpaces).toHaveBeenCalledWith({ spaceId: 12, maxCalls: 30 });
+    expect(fillNewSpace).toHaveBeenCalledWith(12); // budgeted and retried once (evaluate.ts)
   });
 
   it("says so when the garden is read-only", async () => {

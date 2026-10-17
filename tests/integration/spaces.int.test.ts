@@ -4,9 +4,9 @@ import { evaluateSpaces } from "../../agent/lib/spaces/evaluate";
 import { deleteSpace, getSpace, listSpaces, setSpaceItemStatus } from "../../agent/lib/garden/spaces";
 
 // Real Neon test on the `test` branch: needs TEST_DATABASE_URL (never production). Skipped when absent.
-// Synthetic rows only ("IT spaces …"). Other suites run on the branch at the same time, so this file never writes a
-// judgement about their rows: its items are dated ahead (the pass takes the newest changes first), runs are capped
-// small, and the mocked Jev fails for anything else, so no row is written for it (three failures stop the run).
+// Synthetic rows only ("IT spaces …"). Other suites run on the branch at the same time, so this file never lets a pass
+// reach their rows: each run is capped to exactly the items it dates ahead (the pass takes the newest changes first).
+// Jev is mocked; it fails for anything that is not this file's, and for the sentinel when told to.
 describe.skipIf(!process.env.TEST_DATABASE_URL)("Smart Spaces on the Neon test branch (M4-T7)", { timeout: 60_000 }, () => {
   let pool: Pool;
   let c: PoolClient;
@@ -14,9 +14,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Smart Spaces on the Neon test b
   let idea = 0;
   let tip = 0;
   let hidden = 0;
+  let sentinel = 0;
+  let failSentinel = false;
   const mine = (state: Record<string, string>) => state.item.includes("IT spaces");
   const ask = vi.fn(async (state: Record<string, string>, qs: Record<string, unknown>) => {
     if (!mine(state)) throw new Error("not this file's item");
+    if (failSentinel && state.item.includes("sentinel")) throw Object.assign(new Error("x"), { name: "TimeoutError" });
     return Object.fromEntries(Object.keys(qs).map((k) => [k, 0.9]));
   });
   const row = async (type: string, id: number) =>
@@ -46,6 +49,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Smart Spaces on the Neon test b
       `insert into recommendations (type, raw_text, canonical_name, creator, excerpt, said_at, source, status, confidence)
        values ('book', 'it spaces', 'IT spaces sample novel', 'A. Writer', 'it spaces', now(), 'ambient', $1, 0.95) returning id`, [status],
     )).rows[0].id);
+    sentinel = Number((await c.query(
+      `insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at)
+       values ('IT spaces sentinel', 'compost', 1, now() - interval '1 day', now() - interval '1 day') returning id`,
+    )).rows[0].id);
+    await dateAhead("idea_clusters", sentinel, -1);
     tip = await addTip("new");
     hidden = await addTip("needs_review");
     await dateAhead("idea_clusters", idea, 1);
@@ -81,16 +89,34 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Smart Spaces on the Neon test b
     // unchanged since judged (dated ahead only to come first; put them back before their judgement)
     await dateAhead("idea_clusters", idea, -1);
     await dateAhead("recommendations", tip, -1);
+    // the sentinel is now the one item waiting first: a pass of one call asks about it, not the judged two
+    await dateAhead("idea_clusters", sentinel, 1);
     ask.mockClear();
-    await evaluateSpaces({ spaceId: space, maxCalls: 5, ask: ask as never });
-    expect(judgedNow()).toBe(0);
+    await evaluateSpaces({ spaceId: space, maxCalls: 1, ask: ask as never });
+    expect(ask.mock.calls.map((call) => call[0].item)).toEqual(["idea: IT spaces sentinel"]);
+    await dateAhead("idea_clusters", sentinel, -1);
+    ask.mockClear();
 
     expect(await setSpaceItemStatus({ spaceId: space, itemType: "idea", itemId: idea }, "accepted")).toBe(true);
     await dateAhead("idea_clusters", idea, 2);
     await dateAhead("recommendations", tip, 2);
-    await evaluateSpaces({ spaceId: space, maxCalls: 5, ask: ask as never });
+    await evaluateSpaces({ spaceId: space, maxCalls: 1, ask: ask as never });
     expect(judgedNow()).toBe(1); // the changed tip, not the kept idea
     expect(ask.mock.calls.find((call) => mine(call[0]))![0].item).toMatch(/^book: IT spaces sample novel/);
+  });
+
+  it("a failed call backs its item off: a row with no answer, not asked again for hours", async () => {
+    await c.query(`delete from space_items where space_id = $1 and item_type = 'idea' and item_id = $2`, [space, sentinel]);
+    await dateAhead("idea_clusters", sentinel, 3);
+    failSentinel = true;
+    const out = await evaluateSpaces({ spaceId: space, maxCalls: 1, ask: ask as never });
+    failSentinel = false;
+    expect(out).toMatchObject({ failed: 1, pairs: 0 });
+    await dateAhead("idea_clusters", sentinel, -1); // unchanged since: only the back-off decides when it is asked again
+    const r = await row("idea", sentinel);
+    expect(r).toMatchObject({ status: "suggested", confidence: null });
+    expect(Date.now() - new Date(r.judged_at).getTime()).toBeLessThan(60_000);
+    expect((await getSpace(space))!.ideas.map((i) => i.plant.id)).not.toContain(sentinel); // no answer is not a member
   });
 
   it("a removed item leaves the Space and stays out; deleting the Space keeps the items", async () => {

@@ -83,6 +83,14 @@ test("Spaces: describe one, Earmark fills it; keep, remove, rename and delete", 
     await expect(nav.getByRole("link", { name: "Spaces" })).toHaveAttribute("aria-current", "true");
     expect((await sql`select count(*)::int as n from space_items where space_id = ${space}`)[0].n).toBe(0); // no model call ran
 
+    // No pass running (the lease looks stale, the Space is past its first seconds): the page says the hourly run will
+    // finish it, instead of an endless "Still sorting". The lease is fresh again at once, well before the fill's retry.
+    await sql`update spaces set created_at = now() - interval '1 minute' where id = ${space}`;
+    await sql`update sync_cursors set updated_at = now() - interval '20 minutes' where name = ${LOCK} and cursor = ${token}`;
+    await page.reload();
+    await sql`update sync_cursors set updated_at = now() where name = ${LOCK} and cursor = ${token}`;
+    await expect(page.getByTestId("space-sorting")).toContainText(/\d+ items? still to sort\. Earmark will finish sorting this within the hour\./);
+
     // Jev's judgements, written as the evaluate pass writes them
     const judge = (type: string, id: number, p: number) =>
       sql`insert into space_items (space_id, item_type, item_id, confidence) values (${space}, ${type}, ${id}, ${p})`;
@@ -163,6 +171,8 @@ test("Spaces: describe one, Earmark fills it; keep, remove, rename and delete", 
       await page.screenshot({ path: `${DIR}/m4-spaces-list-320.png`, fullPage: true });
     }
   } finally {
+    // the Space goes before the lease: a first-fill retry that wakes after this finds nothing to judge (no model call)
+    await sql`delete from spaces where rule_sentence like 'Sample space:%'`;
     await sql`delete from sync_cursors where name = ${LOCK} and cursor = ${token}`;
   }
 });
