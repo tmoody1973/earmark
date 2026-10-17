@@ -7,7 +7,7 @@ import { EPISODE_RULES } from "./rules";
 
 const ScriptSchema = z.object({ title: z.string().max(80), script: z.string() });
 export const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
-export const MIN_WORDS = 700;
+export const MIN_WORDS = 700; // hard floor; the retry asks for 850-1100, so only clearly short drafts are redone
 export const MAX_WORDS = 1100;
 
 const FIX_TEXT: Record<Reason, string> = {
