@@ -16,7 +16,7 @@ export interface RecIdeaCandidate { rec: RecRef; idea: IdeaRef }
 const EMBED_TIMEOUT_MS = 30_000;
 
 type IdeaCols = { id: number | string; title: string; summary: string | null; timeline: unknown };
-const toIdea = (r: IdeaCols): IdeaRef => ({
+export const toIdea = (r: IdeaCols): IdeaRef => ({
   id: Number(r.id),
   title: r.title,
   summary: r.summary,

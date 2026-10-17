@@ -1,9 +1,13 @@
 "use server";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { isOwner } from "@/agent/lib/owner";
 import { setLinkStatus, type LinkKey } from "@/agent/lib/garden/backlinks";
+import * as spaces from "@/agent/lib/garden/spaces";
+import { evaluateSpaces, MAX_CALLS_PER_SPACE } from "@/agent/lib/spaces/evaluate";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { getGardenVisit, saveGardenVisit, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
@@ -101,4 +105,79 @@ export async function undoIdeaMerge(mergeId: number): Promise<{ changed: boolean
   const changed = await undoMerge(id.data);
   revalidatePath("/", "layout");
   return changed ? { changed } : { changed, refused: "This merge can’t be undone now: it was already undone, or one of its ideas changed or was forgotten." };
+}
+
+// ---- Smart Spaces (M4-T7, FR-32, decision 028) ----
+
+export type SpaceFormState = { error: string | null };
+const Sentence = z.string().trim().min(3).max(200);
+const SpaceName = z.string().trim().min(1).max(200);
+const SpaceItemKeySchema = z.strictObject({ spaceId: Id, itemType: z.enum(["idea", "rec"]), itemId: Id });
+
+function spaceId(raw: unknown): number {
+  const id = Id.safeParse(raw);
+  if (!id.success) throw new Error("invalid space id");
+  return id.data;
+}
+
+/**
+ * A new Space from one sentence (NewSpaceForm). Earmark starts filling it once the response is on its way, bounded to
+ * one Space's share of a run (the hourly evaluate-spaces schedule picks up the rest), and the new Space opens.
+ */
+export async function createSpace(_prev: SpaceFormState, form: FormData): Promise<SpaceFormState> {
+  await requireOwner();
+  const sentence = Sentence.safeParse(form.get("sentence") ?? "");
+  if (!sentence.success) return { error: "Describe the Space in 3 to 200 characters." };
+  const id = await spaces.createSpace(sentence.data);
+  if (id === null) return { error: "The garden is read-only right now. Nothing was saved." };
+  after(async () => {
+    try {
+      await evaluateSpaces({ spaceId: id, maxCalls: MAX_CALLS_PER_SPACE });
+    } catch (err) {
+      console.error(`[spaces] first fill failed space=${id} error=${err instanceof Error ? err.name : "unknown"}`);
+    }
+  });
+  revalidatePath("/spaces");
+  redirect(`/spaces/${id}`);
+}
+
+/** Renames a Space; what fills it stays its sentence. A no-op when the name is unchanged. */
+export async function renameSpace(id: number, name: string): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const sid = spaceId(id);
+  const parsed = SpaceName.safeParse(name);
+  if (!parsed.success) throw new Error("invalid name");
+  const changed = await spaces.renameSpace(sid, parsed.data);
+  revalidatePath("/spaces", "layout");
+  return { changed };
+}
+
+/** Deletes a Space (the page asks first). Its ideas and tips stay where they are. */
+export async function deleteSpace(id: number): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await spaces.deleteSpace(spaceId(id));
+  revalidatePath("/spaces", "layout");
+  return { changed };
+}
+
+function spaceItemKey(raw: unknown): spaces.SpaceItemKey {
+  const parsed = SpaceItemKeySchema.safeParse(raw);
+  if (!parsed.success) throw new Error("invalid space item");
+  return parsed.data;
+}
+
+/** Keep an item Earmark put in a Space. A no-op unless it is still a suggestion. */
+export async function keepSpaceItem(key: spaces.SpaceItemKey): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await spaces.setSpaceItemStatus(spaceItemKey(key), "accepted");
+  revalidatePath("/spaces", "layout");
+  return { changed };
+}
+
+/** Take an item out of a Space. It is never put back. */
+export async function removeSpaceItem(key: spaces.SpaceItemKey): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await spaces.setSpaceItemStatus(spaceItemKey(key), "removed");
+  revalidatePath("/spaces", "layout");
+  return { changed };
 }

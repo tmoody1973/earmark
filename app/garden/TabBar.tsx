@@ -8,9 +8,10 @@ const TABS = [
   { href: "/garden", label: "Garden", icon: "sprout" },
   { href: "/shelf", label: "Shelf", icon: "shelf" },
   { href: "/people", label: "People", icon: "people" },
+  { href: "/spaces", label: "Spaces", icon: "spaces" },
 ] as const;
 
-/** Bottom tabs on a phone; a quiet left rail on desktop (shell.css). A person's page keeps People lit. */
+/** Bottom tabs on a phone; a quiet left rail on desktop (shell.css). A person's or a Space's page keeps its tab lit. */
 export function TabBar() {
   const path = usePathname();
   const current = (href: string) =>
