@@ -1,7 +1,7 @@
 import type { RecType } from "@/agent/lib/types";
 
 // One authored line set: 24-unit grid, 1.6 stroke, round caps, currentColor. Decorative: labels carry the meaning.
-const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "spaces" | "search" | "close" | "undo" | "more", string> = {
+const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "spaces" | "search" | "close" | "undo" | "more" | "pin", string> = {
   // A card's "…" (M3-T10): three dots, small enough that the 1.6 stroke fills them.
   more: "M6 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M20 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   // Garden shell (M4-T4): the sprout is the wordmark's mark, the Garden tab and a bloom chip's icon.
@@ -28,6 +28,8 @@ const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | 
   external: "M14 4h6v6 M20 4l-8.5 8.5 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
   close: "M6.5 6.5l11 11 M17.5 6.5l-11 11",
   undo: "M9 6.5 4.5 11 9 15.5 M4.5 11h10a5 5 0 0 1 0 10H12",
+  // Top of Mind (M4-T9): a push pin, head up.
+  pin: "M9 4h6 M10 4v5.5L7 13h10l-3-3.5V4 M12 13v7",
 };
 
 export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS; size?: number; className?: string }) {

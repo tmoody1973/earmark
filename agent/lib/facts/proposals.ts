@@ -77,14 +77,22 @@ export async function proposeTasteFacts(
   return kept;
 }
 
-/** Owner plus every known recommender: no fact may name any of them. */
-async function blockedNames(): Promise<string[]> {
+/** Owner plus every known recommender: no fact may name any of them. Top of Mind pins (garden/top-of-mind.ts) reuse it. */
+export async function blockedNames(): Promise<string[]> {
   const recommenders = ((await db()`select first_name from recommenders`) as { first_name: string }[]).map((r) => r.first_name);
   const owner = ownerFirstName();
   return owner ? [owner, ...recommenders] : recommenders;
 }
 
-/** Ready ideas become fact proposals; the text is built in code (counts and dates are never Jev's job). */
+/** An idea fact's text, built in code (counts and dates are never Jev's job). Shared with Top of Mind pins. */
+export function ideaFactText(title: string, mentionCount: number, firstMentionedAt: Date | string | null): string {
+  const since = firstMentionedAt
+    ? ` since ${new Date(firstMentionedAt).toLocaleString("en-US", { month: "short", timeZone: TIMELINE_TZ })}`
+    : "";
+  return `Developing an idea: ${title} (mentioned ${mentionCount} ${mentionCount === 1 ? "time" : "times"}${since})`.slice(0, 2000);
+}
+
+/** Ready ideas become fact proposals. */
 export async function proposeIdeaFacts(): Promise<number> {
   const rows = (await db()`
     select c.id, c.title, c.mention_count, c.first_mentioned_at from idea_clusters c
@@ -98,8 +106,7 @@ export async function proposeIdeaFacts(): Promise<number> {
   // A title naming the owner or a recommender is never proposed (facts are about the owner's own ideas, first names only).
   const safe = rows.filter((c) => !names.some((n) => nameAppearsIn(n, c.title))).slice(0, MAX_IDEAS_PER_RUN);
   for (const c of safe) {
-    const since = new Date(c.first_mentioned_at).toLocaleString("en-US", { month: "short", timeZone: TIMELINE_TZ });
-    const text = `Developing an idea: ${c.title} (mentioned ${c.mention_count} times since ${since})`.slice(0, 2000);
+    const text = ideaFactText(c.title, c.mention_count, c.first_mentioned_at);
     await db()`insert into fact_proposals (text, kind, evidence_ids) values (${text}, 'idea', ${JSON.stringify([Number(c.id)])}::jsonb)`;
   }
   return safe.length;

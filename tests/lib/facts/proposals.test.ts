@@ -4,7 +4,7 @@ const sql = vi.fn();
 vi.mock("../../../agent/lib/db", () => ({ db: () => sql }));
 const owner = vi.fn<() => string | undefined>(() => undefined);
 vi.mock("../../../agent/lib/env", () => ({ getEnv: () => ({ TRIAGE_MODEL: "triage", WRITE_MODEL: "write" }), ownerFirstName: () => owner() }));
-import { proposeIdeaFacts, proposeTasteFacts, writePendingProposals } from "../../../agent/lib/facts/proposals";
+import { ideaFactText, proposeIdeaFacts, proposeTasteFacts, writePendingProposals } from "../../../agent/lib/facts/proposals";
 
 const loved = [
   { id: 1, type: "album", canonical_name: "Promises", creator: "Floating Points" },
@@ -99,6 +99,13 @@ describe("proposeIdeaFacts", () => {
     expect(await proposeIdeaFacts()).toBe(1);
     const inserts = sql.mock.calls.filter((c) => (c[0] as TemplateStringsArray).join("?").includes("insert into fact_proposals"));
     expect(inserts.map((c) => c[2])).toEqual(["[3]"]);
+  });
+});
+
+describe("ideaFactText (shared by the weekly proposer and Top of Mind pins)", () => {
+  it("counts in words that read right for one mention and leaves out an unknown first date", () => {
+    expect(ideaFactText("Station crates", 1, null)).toBe("Developing an idea: Station crates (mentioned 1 time)");
+    expect(ideaFactText("Station crates", 2, new Date("2026-10-15T15:00:00Z"))).toBe("Developing an idea: Station crates (mentioned 2 times since Oct)");
   });
 });
 

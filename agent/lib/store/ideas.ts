@@ -47,10 +47,29 @@ export async function nearestClusters(embedding: readonly number[], k = 5): Prom
     where c.centroid is not null
     order by c.centroid <=> ${v}::vector
     limit ${k}`;
-  return rows.map((r) => ({
-    id: Number(r.id), title: String(r.title), excerpt: r.excerpt === null ? null : String(r.excerpt), stage: r.stage as IdeaStage,
-    pinned: Boolean(r.pinned), mentionCount: Number(r.mention_count), distance: Number(r.distance),
-  }));
+  return rows.map(toCandidate);
+}
+
+const toCandidate = (r: Record<string, unknown>): ClusterCandidate => ({
+  id: Number(r.id), title: String(r.title), excerpt: r.excerpt === null ? null : String(r.excerpt), stage: r.stage as IdeaStage,
+  pinned: Boolean(r.pinned), mentionCount: Number(r.mention_count), distance: Number(r.distance),
+});
+
+// Top of Mind (FR-35): pinned ideas this close to a new mention are offered to the cluster choice even when they are
+// not among the 5 nearest. Dismissed ones never are. Two at most get through (compost.ts caps the options at 7).
+export const PINNED_CANDIDATE_MAX_DISTANCE = 0.5;
+
+export async function pinnedClustersNear(embedding: readonly number[], maxDistance = PINNED_CANDIDATE_MAX_DISTANCE): Promise<ClusterCandidate[]> {
+  const v = toVectorLiteral(embedding);
+  const rows = await db()`
+    select c.id, c.title, c.stage, c.pinned, c.mention_count, c.centroid <=> ${v}::vector as distance,
+           (select m.excerpt from idea_mentions m
+             where m.cluster_id = c.id and m.review_status <> 'dismissed' order by m.spoken_at desc limit 1) as excerpt
+    from idea_clusters c
+    where c.pinned and c.stage <> 'dismissed' and c.centroid is not null and c.centroid <=> ${v}::vector < ${maxDistance}
+    order by c.centroid <=> ${v}::vector
+    limit 7`;
+  return rows.map(toCandidate);
 }
 
 // One occasion (a conversation or a voice note) adds at most one mention to a cluster, so "the third mention" means

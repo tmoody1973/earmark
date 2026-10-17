@@ -1,6 +1,6 @@
 import { clampExcerpt } from "../pipeline/excerpt";
 import type { ClusterPlan, SaveItem } from "../pipeline/save-item";
-import { getClusterTimeline, hasMentionFromSameOccasion, nearestClusters, type OccasionSpan } from "../store/ideas";
+import { getClusterTimeline, hasMentionFromSameOccasion, nearestClusters, pinnedClustersNear, type OccasionSpan } from "../store/ideas";
 import { chooseCluster, clusterKey, type ClusterOption } from "./choose-cluster";
 import { embedText } from "./embed";
 import { NOTE_AGAIN, NOTE_FIRST, writeTimelineNote } from "./timeline";
@@ -21,6 +21,7 @@ export class CompostUnavailableError extends Error {
 }
 
 const NEAREST = 5;
+const MAX_OPTIONS = 7; // the 5 nearest plus up to 2 nearby pinned (Top of Mind) ideas
 
 // A cluster this run already planned to create, offered to later ideas of the same run (key n_<i>).
 type Pending = ClusterOption & { embedding: number[] };
@@ -93,7 +94,12 @@ async function decide(
       option: { key: clusterKey(c.id), title: c.title, excerpt: c.excerpt, pinned: c.pinned }, clusterId: c.id as number | null, distance: c.distance,
     }));
     const planned = pending.map((p) => ({ option: { key: p.key, title: p.title, excerpt: p.excerpt, pinned: p.pinned }, clusterId: null, distance: cosineDistance(e, p.embedding) }));
-    const offered = [...stored, ...planned].sort((a, b) => a.distance - b.distance).slice(0, NEAREST);
+    const nearest = [...stored, ...planned].sort((a, b) => a.distance - b.distance).slice(0, NEAREST);
+    // Top of Mind: nearby pinned ideas the 5 nearest left out are offered after them (up to MAX_OPTIONS in all).
+    const pinned = (await pinnedClustersNear(e))
+      .filter((c) => !nearest.some((o) => o.clusterId === c.id))
+      .map((c) => ({ option: { key: clusterKey(c.id), title: c.title, excerpt: c.excerpt, pinned: true }, clusterId: c.id as number | null, distance: c.distance }));
+    const offered = [...nearest, ...pinned].slice(0, MAX_OPTIONS);
     stage = "choose";
     const { key } = await d.chooseCluster({ title, excerpt }, offered.map((o) => o.option));
     const chosen = offered.find((o) => o.option.key === key);

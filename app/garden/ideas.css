@@ -104,6 +104,9 @@
   overflow: hidden;
 }
 .idea-card .rec-unconfirmed { align-self: flex-start; margin-top: 0.375rem; }
+/* Top of Mind (M4-T9): the pin is ink; only the "New mention" dot is the accent, because it means new */
+.idea-pin { display: inline-block; margin-right: 0.2em; vertical-align: -0.15em; }
+.idea-flag { margin: 0; font-size: 0.8125rem; font-weight: 500; color: var(--ink); }
 
 /* ---- the live bloom (M4-T4; the sequence lives in bloom-motion.ts) ----
    While it draws, strokes scale with the drawing (dashes need path units) and their width is divided by the
@@ -286,6 +289,13 @@
 }
 .idea-action:hover { border-color: var(--hairline-strong); background: var(--surface-hover); }
 .idea-action-status { font-size: 0.875rem; color: var(--ink-2); }
+.pin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin-top: 1rem; }
+.pin-row .idea-action-status { margin: 0; }
+.pin-row .idea-action-status:empty { display: none; }
+.pin-toggle { cursor: pointer; transition: background-color 180ms var(--ease-out), color 180ms var(--ease-out), border-color 180ms var(--ease-out); }
+.pin-toggle[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.pin-toggle[aria-pressed="true"]:hover { background: var(--ink); border-color: var(--ink); opacity: 0.9; }
+.pin-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* ---- Connected: backlinks (M4-T6). Rows, not cards: a quiet list inside the panel, hairlines between items. ---- */
 .links h2:focus { outline: none; } /* focus is parked here after a row leaves; the heading is not a control */

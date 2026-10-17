@@ -5,6 +5,7 @@ import { stableOrder, type DrawnPlant } from "@/agent/lib/garden/live";
 import type { PlantView } from "@/agent/lib/garden/queries";
 import { isBloomed, stageLabel } from "@/agent/lib/garden/plant";
 import { PlantArt } from "./PlantArt";
+import { Icon } from "./cards/icons";
 import { FLOWER_OPENS_MS, playBloom, prefersReducedMotion } from "./bloom-motion";
 import { Findable, useLive, usePlantPatch } from "./live";
 import "./cards/cards.css"; // the shared "Unconfirmed" pill
@@ -51,7 +52,10 @@ export function IdeaPlant({ plant: served, href }: IdeaPlantProps) {
           {meta.bloomed && <span className="bloom-dot" aria-hidden="true" />}
           <span className="idea-stage">{stageLabel(meta.stage)}</span>
           {` · ${meta.mentionCount} ${meta.mentionCount === 1 ? "mention" : "mentions"}`}
+          {plant.pinned && <span className="idea-meta-part">{" · "}<Icon name="pin" size={13} className="idea-pin" />Top of mind</span>}
         </p>
+        {/* Top of Mind: a mention joined this pinned idea since its page was last opened (orange = new) */}
+        {plant.flagged && <p className="idea-flag"><span className="bloom-dot" aria-hidden="true" />New mention</p>}
         {plant.latestLine && <p className="idea-line">{plant.latestLine}</p>}
         {/* TODO(M3): Keep / Dismiss for unconfirmed ideas once an idea review action exists. */}
         {!plant.confirmed && <span className="rec-unconfirmed">Unconfirmed</span>}
