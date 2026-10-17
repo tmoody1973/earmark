@@ -30,6 +30,11 @@ describe("synthesize", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0][1]?.abortSignal).toBeInstanceOf(AbortSignal); // each chunk capped inside the 5-minute lease
   });
+  it("refuses a script longer than 4 chunks before calling Polly, so the run fits its 5-minute lease", async () => {
+    const send = vi.fn();
+    await expect(synthesize(["a", "b", "c", "d", "e"], { send } as never, "Ruth")).rejects.toThrow(/too long/);
+    expect(send).not.toHaveBeenCalled();
+  });
   it("fails when Polly returns no audio", async () => {
     await expect(synthesize(["a"], { send: async () => ({}) } as never, "Ruth")).rejects.toThrow(/no audio/);
   });

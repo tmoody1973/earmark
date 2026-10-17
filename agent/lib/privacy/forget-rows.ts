@@ -2,6 +2,7 @@
 // deleting them (deleteRows), always inside the caller's transaction. Ids and counts only, never text.
 import type { PoolClient } from "@neondatabase/serverless";
 import { lineIndexFor, TimelineAmbiguousError, type StampedEntry } from "../ideas/timeline-match";
+import { GARDENER_LEASE_MS } from "../gardeners/schedule";
 import { CLAIM_LEASE } from "../store/conversations";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
@@ -19,6 +20,7 @@ export interface ForgetPlan {
   retitle?: boolean; // the forgotten mention is the one the idea's title came from
   draftInFlight?: number; // id of an idea whose one-pager draft claim is inside its lease: --yes refuses
   mergedInto?: number; // the idea was merged into this one and the merge can still be undone: --yes refuses
+  gardenerInFlight?: boolean; // a gardener (or the weekly episode) run holds its claim: --yes refuses
 }
 
 // A forgotten mention's timeline line could not be found: rather than leave it behind, the transaction fails.
@@ -29,6 +31,13 @@ export class ForgetTimelineError extends Error {
 export const UNTITLED = "Untitled idea";
 const TITLE_NOTE = "title came from this mention: forget the whole idea, or it will be retitled";
 const TIMELINE_NOTE = "the dry run cannot check this mention's timeline line; --yes stops safely (nothing deleted) if it is missing";
+const GARDENER_NOTE = "a gardener run is in progress: --yes will refuse; retry in a few minutes";
+// A run that claimed inside the lease and has not stamped last_run_at (run.ts stamps it with its claim time) may still
+// be reading data, and would save its output after this forget commits. Under the lock every gardener row is locked
+// (FOR UPDATE cannot sit on an aggregate, hence the per-row flag): a claim that starts now waits for this commit and
+// then reads data without the item.
+const GARDENERS_LIVE = `select (last_attempt_at >= now() - $1::int * interval '1 millisecond'
+    and (last_run_at is null or last_run_at < last_attempt_at)) as live from gardeners`;
 const draftNote = (id: number) => `a draft is being written for idea ${id} now: --yes will refuse; retry in a few minutes`;
 // The idea row (locked when executing) and whether a drafter holds a live claim on it (one-pager claim, migration 009).
 // saved_at: the idea's or any of its mentions' first save (a merge can move in mentions older than the idea row).
@@ -170,9 +179,12 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
 
 export async function readPlan(c: PoolClient, target: ForgetTarget, lock: boolean): Promise<ForgetPlan> {
   const forUpdate = lock ? " for update" : "";
-  if (target.type === "rec") return planRec(c, target, lock ? " for update of r" : "");
-  if (target.type === "idea") return planIdea(c, target, target, forUpdate);
-  return planMention(c, target, forUpdate);
+  const plan = target.type === "rec" ? await planRec(c, target, lock ? " for update of r" : "")
+    : target.type === "idea" ? await planIdea(c, target, target, forUpdate)
+    : await planMention(c, target, forUpdate);
+  if (!plan.exists) return plan;
+  const live = (await rows(c, `${GARDENERS_LIVE}${forUpdate}`, [GARDENER_LEASE_MS])).some((g) => g.live === true);
+  return live ? { ...plan, gardenerInFlight: true, notes: [...plan.notes, GARDENER_NOTE] } : plan;
 }
 
 // Deletes everything readPlan counted. Returns log lines (ids only).
