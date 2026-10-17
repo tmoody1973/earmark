@@ -17,7 +17,7 @@ describe("cardVariant", () => {
   });
 
   it("draws a type it does not know as a note card, so one odd row never takes the garden down", () => {
-    expect(cardVariant("video" as never)).toBe("note");
+    expect(cardVariant("hologram" as never)).toBe("note");
   });
 });
 

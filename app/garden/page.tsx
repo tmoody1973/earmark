@@ -9,7 +9,7 @@ import { TabBar } from "./TabBar";
 import "./shell.css";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Ideas · Earmark" };
+export const metadata: Metadata = { title: "Garden · Earmark" };
 
 // Every idea still growing, in garden order. Dismissed ideas are not listed; each keeps its own page.
 // The tabs are the way home (no "Back to the garden" link).
@@ -22,7 +22,7 @@ export default async function GardenPage() {
       <TabBar />
       <main className="garden" id="ideas">
         <header className="garden-head">
-          <h1>Ideas</h1>
+          <h1>Garden</h1>
           <span className="garden-head-links"><Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link></span>
         </header>
         <section className="zone" aria-labelledby="all-ideas-h">
