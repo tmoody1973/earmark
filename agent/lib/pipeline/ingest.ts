@@ -4,6 +4,7 @@ import { conversationRef, isJournalComplete, type BeeEvent } from "../bee/events
 import { shapeOf } from "../bee/webhook";
 import { draftBlooms } from "../ideas/one-pager";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
+import { handleTodoChange } from "../sync/handlers";
 import { handleLiveUtterance } from "./live";
 import { processConversation, type PipelineDeps } from "./process-conversation";
 import { processJournal } from "./process-journal";
@@ -81,6 +82,10 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
       console.log(`[bee] journal ${j.id}`, r);
       return draftIfBloomed(r.saved);
     }
+    // FR-18: same path as /v1/changes. The stream is at-most-once; the change feed covers anything lost here.
+    case "todo-updated":
+    case "todo-deleted":
+      return handleTodoChange(evt.data.todo.id);
     default:
       console.log(`[bee] ignored ${evt.event}`);
   }

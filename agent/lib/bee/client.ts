@@ -163,6 +163,8 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     getJournal: (id: string) => call(`/v1/journals/${encodeURIComponent(id)}`, JournalSchema),
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
+    // M3-T8 (lane A/C contract): a BARE todo (verified live, read-only). A 404 surfaces as BeeApiError.status.
+    getTodo: (id: number) => call(`/v1/todos/${id}`, TodoSchema),
     // Todo writes (M3-T7): only sync/bee-todos.ts calls these, behind BEE_TODO_WRITES. A 404 surfaces as
     // BeeApiError.status. The PUT reply is unverified live and nothing reads it. alarm_at goes in as ISO 8601 (it comes
     // back as epoch ms; docs/research/bee-api.md); null or absent = no alarm.
