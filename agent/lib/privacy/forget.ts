@@ -27,7 +27,10 @@ export interface ExternalDeps {
 export interface ForgetDeps extends ExternalDeps { deleteRows(target: ForgetTarget): Promise<void> }
 // Other lanes' forgetters (lane C: M5 episodes, gardener runs), listed in forget-hooks.ts. They run inside the forget
 // transaction: use `c` for every query so a failure rolls everything back. `run` returns one line of ids/counts.
-export interface ForgetHookContext { c: PoolClient; target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean }
+export interface ForgetHookContext {
+  c: PoolClient; target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean;
+  savedAt: Date | null; // when the forgotten item first entered Earmark (read before its rows were deleted)
+}
 export interface ForgetHook { name: string; run(ctx: ForgetHookContext): Promise<string> }
 export interface ForgetResult { plan: ForgetPlan; lines: string[]; incomplete: number; aborted: boolean } // aborted = Postgres untouched
 
@@ -213,6 +216,7 @@ export async function forget(
       const rowLines = await deleteRows(c, p);
       const hookLines = await runHooks(opts.hooks ?? [], {
         c, target: p.resolved, recommenderFirstName: p.recommender?.firstName ?? null, recommenderRemoved: p.recommender?.removed ?? false,
+        savedAt: p.savedAt,
       });
       return { value: [p, [...rowLines, ...hookLines]] as [ForgetPlan, string[]], commit: true };
     });
