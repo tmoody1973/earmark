@@ -52,6 +52,14 @@ export class ForgetDraftInFlightError extends Error {
     super(`idea ${ideaId}: a draft is being written, retry in a few minutes`);
   }
 }
+// The idea was merged into another and the merge can still be undone (M4-T6, decision 027): forgetting it alone would
+// leave the merge half there. Undo the merge, or forget the idea it went into (which ends the merge). Nothing touched.
+export class ForgetMergedError extends Error {
+  override name = "ForgetMergedError";
+  constructor(ideaId: number, keepId: number) {
+    super(`idea ${ideaId} was merged into ${keepId}: undo the merge or forget ${keepId}`);
+  }
+}
 // A hook threw: the transaction rolled back. The message names the hook and the cause's err.name only.
 export class ForgetHookError extends Error {
   override name = "ForgetHookError";
@@ -190,6 +198,7 @@ export async function forget(
   const plan = await inTransaction(c, true, async () => ({ value: await readPlan(c, target, false), commit: false }));
   if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0, aborted: false };
   if (plan.draftInFlight !== undefined) throw new ForgetDraftInFlightError(plan.draftInFlight);
+  if (plan.mergedInto !== undefined) throw new ForgetMergedError(plan.resolved.id, plan.mergedInto);
   let committed = plan;
   let txLines: string[] = [];
   const deleteInTransaction = async () => {
@@ -197,6 +206,7 @@ export async function forget(
       const p = await readPlan(c, target, true);
       if (!p.exists) return { value: [p, []] as [ForgetPlan, string[]], commit: false };
       if (p.draftInFlight !== undefined) throw new ForgetDraftInFlightError(p.draftInFlight);
+      if (p.mergedInto !== undefined) throw new ForgetMergedError(p.resolved.id, p.mergedInto);
       if (!sameTarget(p.resolved, plan.resolved) || !covered(p.refs, plan.refs)) {
         throw new ForgetRefsChangedError("the item changed since the outside deletes (new outside copy, or the mention became its idea's last); re-run");
       }
