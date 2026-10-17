@@ -1,6 +1,7 @@
 // The Postgres half of `pnpm forget` (M3-T11, decision 011): what an item's rows and outside refs are (readPlan) and
 // deleting them (deleteRows), always inside the caller's transaction. Ids and counts only, never text.
 import type { PoolClient } from "@neondatabase/serverless";
+import { CLAIM_LEASE } from "../store/conversations";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
 export interface ForgetRefs { beeTodoIds: number[]; beeFactIds: number[]; notionPageIds: string[]; blobUrls: string[] }
@@ -14,6 +15,7 @@ export interface ForgetPlan {
   recommender: { id: number; firstName: string; removed: boolean } | null; // firstName is for hooks only, never printed
   notes: string[]; // dry-run warnings (ids only)
   retitle?: boolean; // the forgotten mention is the one the idea's title came from
+  draftInFlight?: number; // id of an idea whose one-pager draft claim is inside its lease: --yes refuses
 }
 
 // A forgotten mention's timeline line could not be found: rather than leave it behind, the transaction fails.
@@ -23,6 +25,12 @@ export class ForgetTimelineError extends Error {
 
 export const UNTITLED = "Untitled idea";
 const TITLE_NOTE = "title came from this mention: forget the whole idea, or it will be retitled";
+const TIMELINE_NOTE = "the dry run cannot check this mention's timeline line; --yes stops safely (nothing deleted) if it is missing";
+const draftNote = (id: number) => `a draft is being written for idea ${id} now: --yes will refuse; retry in a few minutes`;
+// The idea row (locked when executing) and whether a drafter holds a live claim on it (one-pager claim, migration 009).
+const IDEA_ROW = `select bee_fact_id, notion_page_id,
+    (draft_claimed_at is not null and draft_claimed_at >= now() - interval '${CLAIM_LEASE}') as drafting
+  from idea_clusters where id = $1`;
 const NONE: ForgetRefs = { beeTodoIds: [], beeFactIds: [], notionPageIds: [], blobUrls: [] };
 const nums = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(Number))];
 const strs = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(String))];
@@ -41,6 +49,7 @@ const LINKS = `links where (from_type = $1 and from_id = $2) or (to_type = $1 an
 const RECOMMENDER_LINKS = `links where (from_type = 'recommender' and from_id = $1) or (to_type = 'recommender' and to_id = $1)`;
 // fact_proposals (M5, lane C): 'taste' evidence = rec ids, 'idea' evidence = idea ids. A proposal is model text built
 // from its evidence, so it goes (with its Bee fact) when any of its evidence is forgotten.
+// evidence_ids hold numbers (lane C writes Number(id): origin/m5-extras agent/lib/facts/proposals.ts:73, :103).
 const PROPOSALS = `fact_proposals where kind = $1 and evidence_ids @> $2::jsonb`;
 const proposalKey = (type: "rec" | "idea", id: number) => [type === "rec" ? "taste" : "idea", JSON.stringify([id])];
 
@@ -93,11 +102,12 @@ async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promi
 }
 
 async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTarget, lock: string): Promise<ForgetPlan> {
-  const [k] = await rows(c, `select bee_fact_id, notion_page_id from idea_clusters where id = $1${lock}`, [resolved.id]);
+  const [k] = await rows(c, `${IDEA_ROW}${lock}`, [resolved.id]);
   if (!k) return missing(target, resolved);
   const s = await shared(c, "idea", resolved.id);
   return {
-    target, resolved, exists: true, recommender: null, updates: {}, notes: [],
+    target, resolved, exists: true, recommender: null, updates: {},
+    notes: k.drafting ? [draftNote(resolved.id)] : [], draftInFlight: k.drafting ? resolved.id : undefined,
     deletes: {
       idea_clusters: 1,
       idea_mentions: await count(c, `idea_mentions where cluster_id = $1`, [resolved.id]),
@@ -117,7 +127,7 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
   const [m] = await rows(c, `select cluster_id from idea_mentions where id = $1`, [target.id]);
   if (!m) return missing(target);
   const clusterId = Number(m.cluster_id);
-  const [k] = await rows(c, `select bee_fact_id, notion_page_id from idea_clusters where id = $1${lock}`, [clusterId]);
+  const [k] = await rows(c, `${IDEA_ROW}${lock}`, [clusterId]);
   const others = await count(c, `idea_mentions where cluster_id = $1 and id <> $2 and review_status <> 'dismissed'`, [clusterId, target.id]);
   if (!k || others === 0) return planIdea(c, target, { type: "idea", id: clusterId }, lock);
   // The title is the creating mention's extraction (save-item.ts create path): the cluster's first saved mention.
@@ -125,7 +135,9 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
   const retitle = Number(first!.id) === target.id;
   const s = await shared(c, "idea", clusterId);
   return {
-    target, resolved: target, exists: true, recommender: null, retitle, notes: retitle ? [TITLE_NOTE] : [],
+    target, resolved: target, exists: true, recommender: null, retitle,
+    notes: [...(retitle ? [TITLE_NOTE] : []), TIMELINE_NOTE, ...(k.drafting ? [draftNote(clusterId)] : [])],
+    draftInFlight: k.drafting ? clusterId : undefined,
     deletes: {
       idea_mentions: 1, bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
       resort_backup: await count(c, `resort_backup where table_name = 'idea_mentions' and row_id = $1`, [target.id]),

@@ -43,6 +43,15 @@ export class ForgetAbortedError extends Error {
 export class ForgetRefsChangedError extends Error {
   override name = "ForgetRefsChangedError";
 }
+// A one-pager draft is being written for the idea (its claim is inside the lease): forget refuses rather than race it.
+// Nothing outside or in Postgres was touched. (A drafter whose claim outlived the lease cannot save after a forget
+// either: saveDraft checks the claim it holds is still current.)
+export class ForgetDraftInFlightError extends Error {
+  override name = "ForgetDraftInFlightError";
+  constructor(ideaId: number) {
+    super(`idea ${ideaId}: a draft is being written, retry in a few minutes`);
+  }
+}
 // A hook threw: the transaction rolled back. The message names the hook and the cause's err.name only.
 export class ForgetHookError extends Error {
   override name = "ForgetHookError";
@@ -122,7 +131,7 @@ export async function trashNotionPage(pageId: string, opts: { token: string; fet
   if (res.ok) return;
   if (res.status === 400) {
     const body = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
-    if (body?.code === "validation_error" && /archived|in trash|trashed/i.test(body.message ?? "")) return;
+    if (body?.code === "validation_error" && /\b(?:is|was) (?:archived|in (?:the )?trash)\b/i.test(body.message ?? "")) return;
   }
   throw Object.assign(new Error(`Notion ${res.status}`), { name: "NotionApiError", status: res.status });
 }
@@ -180,12 +189,14 @@ export async function forget(
 ): Promise<ForgetResult> {
   const plan = await inTransaction(c, true, async () => ({ value: await readPlan(c, target, false), commit: false }));
   if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0, aborted: false };
+  if (plan.draftInFlight !== undefined) throw new ForgetDraftInFlightError(plan.draftInFlight);
   let committed = plan;
   let txLines: string[] = [];
   const deleteInTransaction = async () => {
     [committed, txLines] = await inTransaction(c, false, async () => {
       const p = await readPlan(c, target, true);
       if (!p.exists) return { value: [p, []] as [ForgetPlan, string[]], commit: false };
+      if (p.draftInFlight !== undefined) throw new ForgetDraftInFlightError(p.draftInFlight);
       if (!sameTarget(p.resolved, plan.resolved) || !covered(p.refs, plan.refs)) {
         throw new ForgetRefsChangedError("the item changed since the outside deletes (new outside copy, or the mention became its idea's last); re-run");
       }

@@ -154,11 +154,13 @@ describe("trashNotionPage", () => {
     }
   });
 
-  it("any other 400 is a real failure", async () => {
-    const other = { object: "error", status: 400, code: "validation_error", message: "body failed validation" };
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(other), { status: 400 }));
-    const err = await trashNotionPage("pg1", { token: "t", fetchImpl: fetchImpl as unknown as typeof fetch }).catch((e) => e);
-    expect(err).toMatchObject({ name: "NotionApiError", status: 400 });
+  it("any other 400 is a real failure, even one that only mentions an archived field", async () => {
+    for (const message of ["body failed validation", "body.archived should be not present", "archived_at is not a property"]) {
+      const other = { object: "error", status: 400, code: "validation_error", message };
+      const fetchImpl = vi.fn(async () => new Response(JSON.stringify(other), { status: 400 }));
+      const err = await trashNotionPage("pg1", { token: "t", fetchImpl: fetchImpl as unknown as typeof fetch }).catch((e) => e);
+      expect(err, message).toMatchObject({ name: "NotionApiError", status: 400 });
+    }
   });
 });
 

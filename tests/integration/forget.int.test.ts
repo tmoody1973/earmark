@@ -332,6 +332,49 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(await count(`idea_mentions where id = $1`, [m2])).toBe(1);
   });
 
+  const readyClusterWithClaim = async () => {
+    const cid = await addCluster();
+    await addMention(cid, A);
+    const m2 = await addMention(cid, B);
+    await c.query(`update idea_clusters set stage = 'ready' where id = $1`, [cid]);
+    const { claimDraftableClusters } = await import("../../agent/lib/store/ideas");
+    const [claim] = await claimDraftableClusters({ clusterIds: [cid], limit: 1 });
+    return { cid, m2, claim: claim! };
+  };
+
+  it("refuses while a draft is being written for the idea (claim inside its lease); the dry run says so", async () => {
+    const { forget, formatPlan } = await mod();
+    const { cid, m2 } = await readyClusterWithClaim();
+    const dry = await forget(c, { type: "mention", id: m2 }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(formatPlan(dry.plan).join("\n")).toContain("a draft is being written");
+    const d = fakeDeps();
+    await expect(forget(c, { type: "mention", id: m2 }, { yes: true, deps: d as ExternalDeps }))
+      .rejects.toMatchObject({ name: "ForgetDraftInFlightError", message: `idea ${cid}: a draft is being written, retry in a few minutes` });
+    expect(await count(`idea_mentions where id = $1`, [m2])).toBe(1);
+    await expect(forget(c, { type: "idea", id: cid }, { yes: true, deps: d as ExternalDeps })).rejects.toMatchObject({ name: "ForgetDraftInFlightError" });
+  });
+
+  it("a drafter whose claim outlived the lease cannot save after forget: its late save is a no-op", async () => {
+    const { forget } = await mod();
+    const { db } = await import("../../agent/lib/db");
+    const { saveDraft } = await import("../../agent/lib/store/ideas");
+    const { cid, m2 } = await readyClusterWithClaim();
+    // A slow drafter: its claim (and so its token) dates from 16 minutes ago.
+    const stale = String((await one(
+      `update idea_clusters set draft_claimed_at = now() - interval '16 minutes' where id = $1 returning draft_claimed_at::text as claim`, [cid])).claim);
+    // Three mentions stay after the forget, so the idea is still 'ready' with no draft: only the claim guard stops the save.
+    const D = "2026-10-07T15:00:00.000Z";
+    await addMention(cid, C);
+    await addMention(cid, D);
+    await c.query(`update idea_clusters set timeline = timeline || $2::jsonb where id = $1`,
+      [cid, JSON.stringify([{ date: C, line: "Oct 5: third" }, { date: D, line: "Oct 7: fourth" }])]);
+    await forget(c, { type: "mention", id: m2 }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect((await one(`select stage from idea_clusters where id = $1`, [cid])).stage).toBe("ready");
+    const [saved] = await db().transaction((txn) => [saveDraft(txn, cid, "# late draft", "newsletter_pitch", stale)]);
+    expect(saved).toHaveLength(0);
+    expect(await one(`select draft_md, stage from idea_clusters where id = $1`, [cid])).toEqual({ draft_md: null, stage: "ready" });
+  });
+
   it("when only dismissed mentions would remain, the whole idea is forgotten, dismissed mentions included", async () => {
     const { forget } = await mod();
     const cid = await addCluster();
