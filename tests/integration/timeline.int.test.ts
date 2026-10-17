@@ -37,9 +37,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea timeline on the Neon test 
     }));
     const id = first.ideaClusterIds[0]!;
     clusterIds.push(id);
-    expect(await getClusterTimeline(id)).toEqual([{ date: "2026-10-03T15:00:00.000Z", line: "Oct 3: first idea, said out loud" }]);
+    // each line carries its mention's id (M4-T6): merge, undo and forget match lines by mention, never by date or text
+    expect(await getClusterTimeline(id)).toEqual([
+      { date: "2026-10-03T15:00:00.000Z", line: "Oct 3: first idea, said out loud", mention_id: first.mentionIds[0] },
+    ]);
 
-    await save(idea({
+    const joined = await save(idea({
       beeConversationId: CONV(2), spokenAt: new Date("2026-10-12T03:00:00Z"),
       cluster: { action: "join", clusterId: id, embedding: unit(DIM), timelineNote: "added a radio segment angle" },
     }));
@@ -53,6 +56,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea timeline on the Neon test 
       "Oct 11: added a radio segment angle", // 10 pm CDT on Oct 11 (03:00Z Oct 12), never "now"
       "Oct 14: mentioned again",
     ]);
+    expect((await getClusterTimeline(id))[1]!.mention_id).toBe(joined.mentionIds[0]);
   });
 
   it("the CREATE path also dates in Chicago: 03:00Z is the previous day, and a CST 05:30Z on Nov 10 is Nov 9", async () => {

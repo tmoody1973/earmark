@@ -6,10 +6,12 @@ import { notFound } from "next/navigation";
 import { after } from "next/server";
 import { isOwner } from "@/agent/lib/owner";
 import { getIdeaDetail, markIdeaViewed } from "@/agent/lib/garden/queries";
+import { getBacklinks } from "@/agent/lib/garden/backlinks";
 import { toBloom } from "@/agent/lib/garden/plant";
 import { growthSteps, heardLine } from "@/agent/lib/garden/timeline";
 import { PlantArt } from "@/app/garden/PlantArt";
 import { Icon } from "@/app/garden/cards/icons";
+import { Backlinks, MergedNote } from "./Backlinks";
 import { CopyButton } from "./CopyButton";
 import { Draft } from "./Draft";
 import "@/app/garden/cards/cards.css";
@@ -33,7 +35,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const n = Number(id);
   if (!Number.isSafeInteger(n) || n <= 0) notFound();
-  const idea = await getIdeaDetail(n);
+  const [idea, links] = await Promise.all([getIdeaDetail(n), getBacklinks(n)]);
   if (!idea) notFound();
   after(() => markIdeaViewed(n));
 
@@ -61,9 +63,13 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
           {/* each part stays whole ("last Oct 16" never splits); lines break only at the separators */}
           {meta.map((m) => <Fragment key={m}>{" · "}<span className="idea-meta-part">{m}</span></Fragment>)}
         </p>
-        {!plant.confirmed && <span className="rec-unconfirmed">Unconfirmed</span>}
+        {!plant.confirmed && !links.mergedInto && <span className="rec-unconfirmed">Unconfirmed</span>}
         {/* TODO(M3): Restore (un-dismiss) once an idea action exists; until then the page only says so. */}
-        {dismissed && <p className="idea-note">You dismissed this idea. It stays here, greyed out, so nothing is lost.</p>}
+        {/* always mounted, so its "Undone" announcement survives the re-render that follows the undo */}
+        <MergedNote merge={dismissed ? links.mergedInto : null} />
+        {dismissed && !links.mergedInto && (
+          <p className="idea-note">You dismissed this idea. It stays here, greyed out, so nothing is lost.</p>
+        )}
         {/* TODO(M4-T9): Top of Mind pin toggle. */}
       </header>
 
@@ -120,7 +126,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
           </section>
         )
       )}
-      {/* Backlinks (M4-T6) render here once the links table has rows for this idea. */}
+      {/* Backlinks (M4-T6, FR-38): nothing shows until Earmark has found a connection. A dismissed idea offers none. */}
+      {!dismissed && <Backlinks ideaId={n} idea={{ mentionCount: plant.mentionCount, bloomed: plant.bloomed }} links={links} />}
     </main>
   );
 }
