@@ -109,6 +109,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
                 first_mentioned_at = least(first_mentioned_at, ${item.spokenAt}::timestamptz),
                 last_mentioned_at = greatest(last_mentioned_at, ${item.spokenAt}::timestamptz),
                 timeline = coalesce(timeline, '[]'::jsonb) || jsonb_set(${entry}::jsonb, '{0,mention_id}', to_jsonb((select id from nid))),
+                flagged_at = case when pinned then now() else flagged_at end,
                 updated_at = now()
               where id = ${plan.clusterId}::bigint
               returning old.stage as prev_stage, new.stage as next_stage

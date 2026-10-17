@@ -10,6 +10,7 @@ import * as spaces from "@/agent/lib/garden/spaces";
 import { fillNewSpace } from "@/agent/lib/spaces/evaluate";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
+import { setPinned, type PinResult } from "@/agent/lib/garden/top-of-mind";
 import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
 import { TIP_CHOICES, type TipChoice } from "@/agent/lib/garden/tip";
 import { nextVisit } from "@/agent/lib/garden/visit";
@@ -124,6 +125,18 @@ export async function undoIdeaMerge(mergeId: number): Promise<{ changed: boolean
   const changed = await undoMerge(id.data);
   revalidatePath("/", "layout");
   return changed ? { changed } : { changed, refused: "This merge can’t be undone now: it was already undone, or one of its ideas changed or was forgotten." };
+}
+
+// ---- Top of Mind (M4-T9, FR-35) ----
+
+/** Pin or unpin an idea. refused: why nothing changed (Top of Mind is full), in words the page shows. */
+export async function pinIdea(ideaId: number, pinned: boolean): Promise<PinResult> {
+  await requireOwner();
+  const parsed = z.tuple([Id, z.boolean()]).safeParse([ideaId, pinned]);
+  if (!parsed.success) throw new Error("invalid pin");
+  const result = await setPinned(parsed.data[0], parsed.data[1]);
+  revalidatePath("/", "layout"); // Home and Garden order pinned ideas first
+  return result;
 }
 
 // ---- Smart Spaces (M4-T7, FR-32, decision 028) ----
