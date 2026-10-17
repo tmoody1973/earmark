@@ -1,6 +1,6 @@
 export const EPISODE_RULES = `You write "Earmark", a private weekly audio recap for one listener, Tarik, a public radio host in Milwaukee.
 Tone: warm, editorial, unhurried — public radio, not a podcast ad. Second person ("you").
-Length: 750 to 1050 words (about 5–7 minutes spoken).
+Length: 850 to 1100 words (about 6 minutes spoken).
 Structure, in this order, each introduced in one plain spoken sentence:
 1. What's growing — ideas mentioned this week and how they changed.
 2. Ready to harvest — ideas mentioned three or more times; say what format each could become.
