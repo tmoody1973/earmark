@@ -86,7 +86,7 @@ export async function mergeIdeas(keepId: number, mergedId: number): Promise<{ me
   try {
     const mergeId = await mergeClusters(ids.data[0], ids.data[1]);
     revalidatePath("/", "layout");
-    return { mergeId };
+    return mergeId === null ? { mergeId, refused: "That idea changed — try again." } : { mergeId };
   } catch (err) {
     if (err instanceof TimelineAmbiguousError) return { mergeId: null, refused: err.message };
     throw err;
@@ -94,11 +94,11 @@ export async function mergeIdeas(keepId: number, mergedId: number): Promise<{ me
 }
 
 /** Undo a merge: both ideas return as they were. A no-op if it was already undone. */
-export async function undoIdeaMerge(mergeId: number): Promise<{ changed: boolean }> {
+export async function undoIdeaMerge(mergeId: number): Promise<{ changed: boolean; refused?: string }> {
   await requireOwner();
   const id = Id.safeParse(mergeId);
   if (!id.success) throw new Error("invalid merge id");
   const changed = await undoMerge(id.data);
   revalidatePath("/", "layout");
-  return { changed };
+  return changed ? { changed } : { changed, refused: "This merge can’t be undone now: it was already undone, or one of its ideas changed or was forgotten." };
 }

@@ -324,6 +324,68 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     expect(await cluster(legacy)).toMatchObject({ stage: "sprouting" });
   });
 
+  it("a live join into the kept idea while a merge is in flight keeps its line: the merge waits for it, then no-ops", async () => {
+    const { mergeClusters } = await import("../../agent/lib/garden/merge");
+    const keep = await addCluster({ title: "lock keep", axis: 12, timeline: [] });
+    const other = await addCluster({ title: "lock other", axis: 12, timeline: [] });
+    const k1 = await addMention(keep, { axis: 12, conv: 9_500_001 });
+    const o1 = await addMention(other, { axis: 12, conv: 9_500_002, at: "2026-10-03T15:00:00.000Z" });
+    await c.query(`update idea_clusters set timeline = $2::jsonb where id = $1`, [keep, JSON.stringify([{ date: AT, line: "Oct 1: first heard", mention_id: k1 }])]);
+    await c.query(`update idea_clusters set timeline = $2::jsonb where id = $1`, [other, JSON.stringify([{ date: "2026-10-03T15:00:00.000Z", line: "Oct 3: first heard", mention_id: o1 }])]);
+
+    // A second connection plays the live save path's join (save-item.ts): mention + line + count, in a transaction it
+    // holds open while the merge plans and starts writing.
+    const live = await pool.connect();
+    let joined = 0;
+    try {
+      await live.query("begin");
+      joined = Number((await live.query(
+        `insert into idea_mentions (cluster_id, bee_conversation_id, excerpt, spoken_at, confidence, review_status, source)
+         values ($1, 9500003, 'it links', '2026-10-12T15:00:00Z', 0.95, 'accepted', 'ambient') returning id`, [keep])).rows[0].id);
+      await live.query(
+        `update idea_clusters set mention_count = mention_count + 1, updated_at = now(),
+           timeline = timeline || jsonb_build_array(jsonb_build_object('date', '2026-10-12T15:00:00.000Z', 'line', 'Oct 12: joined live', 'mention_id', $2::bigint))
+         where id = $1`, [keep, joined]);
+      const merging = mergeClusters(keep, other); // plans from the committed rows, then writes
+      await new Promise((r) => setTimeout(r, 2500));
+      await live.query("commit");
+      expect(await merging).toBeNull(); // waited on the lock, saw the idea changed: nothing written
+    } finally {
+      live.release();
+    }
+    const lines = (await cluster(keep)).timeline.map((e: { mention_id: number }) => e.mention_id);
+    expect(lines).toContain(joined);
+    expect(await mentionsOf(other)).toEqual([o1]);
+    // a retry plans from the new state and keeps every line
+    expect(await mergeClusters(keep, other)).toEqual(expect.any(Number));
+    expect((await cluster(keep)).timeline.map((e: { mention_id: number }) => e.mention_id).sort()).toEqual([k1, joined, o1].sort());
+  });
+
+  it("undo takes back only lines that name a moved mention: never a kept-idea legacy line at the same moment", async () => {
+    const { mergeClusters, undoMerge } = await import("../../agent/lib/garden/merge");
+    const T = "2026-10-11T15:00:00.000Z";
+    const keep = await addCluster({ title: "idonly keep", axis: 13, timeline: [{ date: T, line: "Oct 11: the kept idea's own" }] });
+    const other = await addCluster({ title: "idonly other", axis: 13, timeline: [] }); // its mention has no line
+    await addMention(keep, { axis: 13, conv: 9_600_001, at: T });
+    await addMention(other, { axis: 13, conv: 9_600_002, at: T });
+    const mergeId = await mergeClusters(keep, other);
+    expect(await undoMerge(mergeId!)).toBe(true);
+    expect((await cluster(keep)).timeline).toEqual([{ date: T, line: "Oct 11: the kept idea's own" }]);
+    expect((await cluster(other)).timeline).toEqual([]);
+  });
+
+  it("refuses a merge where two moving mentions would claim one legacy line", async () => {
+    const { mergeClusters } = await import("../../agent/lib/garden/merge");
+    const T = "2026-10-13T15:00:00.000Z";
+    const keep = await addCluster({ title: "claim keep", axis: 14 });
+    await addMention(keep, { axis: 14, conv: 9_700_001 });
+    const other = await addCluster({ title: "claim other", axis: 14, count: 2, timeline: [{ date: T, line: "Oct 13: one line" }] });
+    await addMention(other, { axis: 14, conv: 9_700_002, at: T });
+    await addMention(other, { axis: 14, conv: 9_700_003, at: T });
+    await expect(mergeClusters(keep, other)).rejects.toMatchObject({ name: "TimelineAmbiguousError" });
+    expect(await cluster(other)).toMatchObject({ stage: "compost" });
+  });
+
   it("refuses to merge into or from a dismissed idea", async () => {
     const { mergeClusters } = await import("../../agent/lib/garden/merge");
     const live = await addCluster({ title: "guard live", axis: 6 });
