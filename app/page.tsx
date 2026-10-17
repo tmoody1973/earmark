@@ -1,80 +1,88 @@
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { isOwner } from "@/agent/lib/owner";
-import { listGardenItems, type GardenItem } from "@/agent/lib/store/garden";
-import { BloomTicker } from "./bloom-ticker";
+import { getGardenView, getGardenVisit } from "@/agent/lib/garden/queries";
+import { nextVisit } from "@/agent/lib/garden/visit";
+import { Icon } from "./garden/cards/icons";
+import { IdeaBed } from "./garden/IdeaPlant";
+import { GardenLive } from "./garden/live";
+import { NewRow } from "./garden/NewRow";
+import { SearchField } from "./garden/SearchField";
+import { Shelf } from "./garden/Shelf";
+import { TabBar } from "./garden/TabBar";
+import "./garden/shell.css";
 
-// M1 scaffold — replaced by the M4 Impeccable build.
 export const dynamic = "force-dynamic";
 
-const STAGE: Record<string, string> = {
-  compost: "compost",
-  sprouting: "sprouting",
-  ready: "ready to bloom",
-  drafted: "drafted",
-  used: "used",
-};
+// The garden shows the first few of each zone; the tab pages hold the rest.
+const SHELF_ON_HOME = 6;
+const IDEAS_ON_HOME = 6;
 
-type Idea = Extract<GardenItem, { kind: "idea" }>;
-type Rec = Extract<GardenItem, { kind: "rec" }>;
+function SeeAll({ href }: { href: string }) {
+  return (
+    <Link className="see-all" href={href}>
+      See all
+      <Icon name="chevron" size={16} />
+    </Link>
+  );
+}
 
 export default async function Garden() {
   // Defence in depth: proxy.ts already refuses non-owners, but the data read must not depend on the matcher alone.
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
-  const renderedAt = new Date().toISOString(); // before the read: the ticker picks up anything saved after it
-  const items = await listGardenItems(50);
-  const ideas = items.filter((i): i is Idea => i.kind === "idea");
-  const recs = items.filter((i): i is Rec => i.kind === "rec");
+  // Read only: a look is recorded by GardenLive on mount / return to the tab (recordGardenVisit), never by a render.
+  const { since } = nextVisit(await getGardenVisit(), new Date());
+  const view = await getGardenView(since);
+  const plants = view.plants.slice(0, IDEAS_ON_HOME);
+  const shelf = view.shelf.slice(0, SHELF_ON_HOME);
+  const index = [
+    ...plants.map((p) => ({ key: `idea-${p.id}`, fields: [p.title] })),
+    ...shelf.map((c) => ({ key: `rec-${c.id}`, fields: [c.name, c.recommender?.firstName] })),
+    ...view.newChips.map((c) => ({ key: c.key, fields: [c.title, c.from] })),
+  ];
+  const onPage = plants.map((p) => [p.id, { level: p.level, stage: p.stage, mentionCount: p.mentionCount }] as const);
   return (
-    <main className="garden">
-      <header>
-        <h1>Earmark</h1>
-        <p>What you keep saying, and what people told you to try.</p>
-      </header>
-      <BloomTicker since={renderedAt} />
+    <>
+      <TabBar />
+      <main className="garden garden--home" id="garden">
+        <GardenLive initialSince={view.serverTime} onPage={onPage}>
+          <header className="garden-head">
+            <div>
+              <h1>Earmark</h1>
+              <p>Small moments. A bigger mind.</p>
+            </div>
+            <Icon name="sprout" size={30} className="garden-mark" />
+          </header>
+          <SearchField index={index} />
+          <NewRow chips={view.newChips} />
 
-      <section aria-labelledby="ideas-h">
-        <h2 id="ideas-h">Ideas</h2>
-        {ideas.length === 0 ? (
-          <p className="empty">
-            Nothing has taken root yet. Once Earmark is listening, the things you keep saying will gather here.
-          </p>
-        ) : (
-          <ul>
-            {ideas.map((i) => (
-              <li key={`idea-${i.id}`}>
-                <strong>{i.title}</strong>
-                <span className="meta">
-                  {STAGE[i.stage] ?? i.stage} · {i.mentions} {i.mentions === 1 ? "mention" : "mentions"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {/* Zone 1 — the garden of ideas: bloomed and newly grown first (gardenOrder). */}
+          <section className="zone" aria-labelledby="ideas-h">
+            <div className="zone-head">
+              <h2 id="ideas-h">Ideas</h2>
+              {view.plants.length > IDEAS_ON_HOME && <SeeAll href="/garden" />}
+            </div>
+            {plants.length === 0 ? (
+              <p className="empty">
+                Nothing has taken root yet. Once Earmark is listening, the things you keep saying will gather here.
+              </p>
+            ) : (
+              <IdeaBed plants={plants} />
+            )}
+          </section>
 
-      <section aria-labelledby="recs-h">
-        <h2 id="recs-h">Heard from friends</h2>
-        {recs.length === 0 ? (
-          <p className="empty">
-            The shelf is empty for now. When someone tells you about something worth trying, it will land here with their name on it.
-          </p>
-        ) : (
-          <ul>
-            {recs.map((r) => (
-              <li key={`rec-${r.id}`}>
-                <strong>{r.name}</strong>
-                <span className="meta">
-                  {r.type.replace("_", "/")} · {r.recommender ? `from ${r.recommender}` : "from someone, not sure who"}
-                  {r.status === "needs_review" && " · waiting for your say-so"}
-                </span>
-                <blockquote>{r.excerpt}</blockquote>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+          {/* Zone 2 — the shelf of tips. */}
+          <section className="zone" aria-labelledby="shelf-h">
+            <div className="zone-head">
+              <h2 id="shelf-h">Shelf</h2>
+              {view.shelf.length > SHELF_ON_HOME && <SeeAll href="/shelf" />}
+            </div>
+            <Shelf cards={shelf} />
+          </section>
+        </GardenLive>
+      </main>
+    </>
   );
 }
