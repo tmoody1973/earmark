@@ -31,3 +31,6 @@ playwright-report/
 
 # M2-T8: real speech windows for labeling, local only. Delete after Oct 23.
 evals/triage/data/
+
+# M5-T15 detector dumps, local only
+.impeccable/detect-*.txt
