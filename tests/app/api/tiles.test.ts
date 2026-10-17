@@ -53,4 +53,12 @@ describe("GET /api/tiles/[z]/[x]/[y]", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 429 }));
     expect((await get("16", "16765", "24071")).status).toBe(502);
   });
+
+  it("logs only the error name when the fetch throws (no coordinates, no message)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock.mockRejectedValue(Object.assign(new Error("connect ECONNREFUSED 16/16765/24071"), { name: "TypeError" }));
+    expect((await get("16", "16765", "24071")).status).toBe(502);
+    expect(err).toHaveBeenCalledWith("[tiles] fetch failed error=TypeError");
+    err.mockRestore();
+  });
 });

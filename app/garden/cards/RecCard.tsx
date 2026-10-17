@@ -26,14 +26,15 @@ export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card
 export function RecCard({ card, actions = false, from = true }: { card: RecCardData; actions?: boolean; from?: boolean }) {
   const note = card.variant === "note";
   const subline = cardSubline(card);
-  const titleId = `rec-${card.id}-title`;
+  const titleId = actions ? `rec-${card.id}-title` : undefined; // ids stay off public pages
   const classes = ["rec-card", note && "rec-card--note", card.link && "rec-card--linked"];
   const article: ComponentProps<"article"> & { "data-testid": string; "data-variant": string } = {
-    id: `rec-${card.id}`,
+    // The #rec-<id> anchor (/shelf?rec=<id>) is private: a public /s page must not expose sequential ids.
+    ...(actions && { id: `rec-${card.id}` }),
     className: classes.filter(Boolean).join(" "),
     "data-testid": "rec-card",
     "data-variant": card.variant,
-    "aria-labelledby": titleId,
+    ...(titleId ? { "aria-labelledby": titleId } : { "aria-label": card.name }),
   };
   const body: ReactNode = (
     <>

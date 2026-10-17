@@ -11,7 +11,7 @@ export default defineSchedule({
       console.log("[rec-lane] done", JSON.stringify(await sweepRecLane()));
     } catch (err) {
       console.error(`[rec-lane] sweep failed error=${err instanceof Error ? err.name : "unknown"}`);
-      throw err;
+      throw new Error(err instanceof Error ? err.name : "unknown"); // never the message: a BeeApiError carries Bee's response body
     }
   },
 });

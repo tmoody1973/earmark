@@ -12,7 +12,7 @@ export default defineSchedule({
       await evaluateSpaces();
     } catch (err) {
       console.error(`[spaces] evaluate failed error=${err instanceof Error ? err.name : "unknown"}`);
-      throw err;
+      throw new Error(err instanceof Error ? err.name : "unknown"); // never the message: a BeeApiError carries Bee's response body
     }
   },
 });
