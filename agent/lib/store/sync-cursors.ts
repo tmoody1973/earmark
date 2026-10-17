@@ -15,16 +15,20 @@ export async function saveCursor(name: string, cursor: string): Promise<void> {
                  < coalesce(substring(excluded.cursor from '[0-9]+$')::numeric, 1e30)`;
 }
 
-// Items the feed listed but that were not ready yet (conversation still capturing, voice note still transcribing).
-// Stored as JSON text in sync_cursors (no extra table); retried first on every run.
+// Items the feed listed but that were not ready yet (conversation still capturing, voice note still transcribing), and
+// todo/fact changes whose handler threw (retried with an attempt count, M3-T8).
+// Stored as JSON text in sync_cursors (no extra table); retried on every run.
 export const BEE_PENDING = "bee_changes_pending";
 
+const Retry = z.object({ id: z.number(), attempts: z.number() });
 const PendingSchema = z.object({
   conversations: z.array(z.object({ id: z.number(), firstSeen: z.string() })).default([]),
   journals: z.array(z.object({ id: z.string(), firstSeen: z.string() })).default([]),
+  todos: z.array(Retry).default([]),
+  facts: z.array(Retry).default([]),
 });
 export type Pending = z.infer<typeof PendingSchema>;
-export const emptyPending = (): Pending => ({ conversations: [], journals: [] });
+export const emptyPending = (): Pending => ({ conversations: [], journals: [], todos: [], facts: [] });
 
 export async function getPending(): Promise<Pending> {
   const raw = await getCursor(BEE_PENDING);

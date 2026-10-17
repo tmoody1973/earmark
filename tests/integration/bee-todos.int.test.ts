@@ -28,6 +28,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
         todos.set(id, { ...t, ...patch });
       }),
       deleteTodo: vi.fn(async (id: number) => { if (!todos.delete(id)) throw gone(id); }),
+      getTodo: vi.fn(async (id: number) => { const t = todos.get(id); if (!t) throw gone(id); return t; }),
     };
   }
 
