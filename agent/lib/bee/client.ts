@@ -164,9 +164,13 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
     // Todo writes (M3-T7): only sync/bee-todos.ts calls these, behind BEE_TODO_WRITES. A 404 surfaces as
-    // BeeApiError.status. The PUT reply is unverified live and nothing reads it.
-    createTodo: (input: { text: string }) =>
-      call("/v1/todos", CreatedTodoSchema, { method: "POST", body: JSON.stringify({ text: input.text }) }),
+    // BeeApiError.status. The PUT reply is unverified live and nothing reads it. alarm_at goes in as ISO 8601 (it comes
+    // back as epoch ms; docs/research/bee-api.md); null or absent = no alarm.
+    createTodo: (input: { text: string; alarmAt?: string | null }) =>
+      call("/v1/todos", CreatedTodoSchema, {
+        method: "POST",
+        body: JSON.stringify(input.alarmAt ? { text: input.text, alarm_at: input.alarmAt } : { text: input.text }),
+      }),
     updateTodo: async (id: number, patch: { text?: string; completed?: boolean }): Promise<void> => {
       await call(`/v1/todos/${id}`, z.unknown(), { method: "PUT", body: JSON.stringify(patch) });
     },

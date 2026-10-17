@@ -9,12 +9,12 @@ const rec = {
 describe("formatTodoText", () => {
   it("is prefix, verb, title, creator, who and day, then the garden link (never an excerpt)", () => {
     expect(formatTodoText(rec, "https://earmark.test"))
-      .toBe("Earmark · Listen: Promises, Floating Points (Ann, Oct 12) https://earmark.test/shelf#rec-7");
+      .toBe("Earmark · Listen: Promises, Floating Points (Ann, Oct 12) https://earmark.test/shelf?rec=7#rec-7");
   });
 
   it("uses the type's verb and omits a missing recommender and creator", () => {
     expect(formatTodoText({ ...rec, type: "place", creator: null, recommender_first_name: null }, "https://earmark.test/"))
-      .toBe("Earmark · Visit: Promises (Oct 12) https://earmark.test/shelf#rec-7");
+      .toBe("Earmark · Visit: Promises (Oct 12) https://earmark.test/shelf?rec=7#rec-7");
   });
 
   it("dates in Central time (a late-evening tip keeps its local day)", () => {
