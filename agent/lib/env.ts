@@ -34,6 +34,7 @@ const EnvSchema = z.object({
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender
+  EARMARK_OWNER_DISPLAY_NAME: blankIsUnset(z.string().min(1).optional()), // "Collected by <name>" on published Spaces; falls back to the first name
   NUDGE_RADIUS_M: z.coerce.number().int().min(50).max(2000).default(300), // FR-16 place nudges; Bee location accuracy is unknown
 });
 export type Env = z.infer<typeof EnvSchema>;
@@ -57,4 +58,9 @@ export function requireEnv<K extends keyof Env>(key: K): NonNullable<Env[K]> {
 // Call-site read for the pipeline: tolerant of a partial env (unlike getEnv, which needs the full schema).
 export function ownerFirstName(source: Record<string, string | undefined> = process.env): string | undefined {
   return source.EARMARK_OWNER_FIRST_NAME?.trim() || undefined;
+}
+
+/** The name on a published Space ("Collected by …"): the display name, else the first name, else none. */
+export function ownerDisplayName(source: Record<string, string | undefined> = process.env): string | undefined {
+  return source.EARMARK_OWNER_DISPLAY_NAME?.trim() || ownerFirstName(source);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getEnv, ownerFirstName } from "../../agent/lib/env";
+import { getEnv, ownerDisplayName, ownerFirstName } from "../../agent/lib/env";
 
 const base = {
   BEE_TOKEN: "bee-token",
@@ -41,5 +41,13 @@ describe("owner first name", () => {
     expect(ownerFirstName({ EARMARK_OWNER_FIRST_NAME: "" })).toBeUndefined();
     expect(ownerFirstName({ EARMARK_OWNER_FIRST_NAME: "  " })).toBeUndefined();
     expect(ownerFirstName({ EARMARK_OWNER_FIRST_NAME: " Tarik " })).toBe("Tarik");
+  });
+});
+
+describe("ownerDisplayName", () => {
+  it("prefers the display name, falls back to the first name, else none", () => {
+    expect(ownerDisplayName({ EARMARK_OWNER_DISPLAY_NAME: " Tarik Moody ", EARMARK_OWNER_FIRST_NAME: "Tarik" })).toBe("Tarik Moody");
+    expect(ownerDisplayName({ EARMARK_OWNER_DISPLAY_NAME: "", EARMARK_OWNER_FIRST_NAME: "Tarik" })).toBe("Tarik");
+    expect(ownerDisplayName({})).toBeUndefined();
   });
 });
