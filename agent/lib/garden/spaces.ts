@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
-import { SPACE_MIN } from "../spaces/criteria";
+import { SPACE_MIN, SPACES_LOCK } from "../spaces/criteria";
 import { HIDDEN_TIP_STATUSES, toPlant, toRecCard, type GardenRecRow, type PlantRow, type PlantView, type RecCardData } from "./queries";
 
 // Smart Spaces on the garden (FR-32, M4-T7, decision 028). Jev's judgements live in space_items
@@ -12,7 +12,7 @@ export interface SpaceSummary {
   /** The sentence Earmark fills the Space from; the name starts as this sentence and can be renamed. */
   sentence: string;
   members: number;
-  /** Visible items Jev has not judged for this Space yet. */
+  /** Visible items Jev has not judged for this Space yet (never asked, or a failed call waiting for its retry). */
   pending: number;
   createdAt: string;
 }
@@ -20,7 +20,11 @@ export type SpaceItemStatus = "suggested" | "accepted";
 export interface SpaceItemKey { spaceId: number; itemType: "idea" | "rec"; itemId: number }
 export interface SpaceIdea { status: SpaceItemStatus; plant: PlantView }
 export interface SpaceTip { status: SpaceItemStatus; rec: RecCardData }
-export interface SpaceView { space: SpaceSummary; ideas: SpaceIdea[]; tips: SpaceTip[] }
+export interface SpaceView {
+  space: SpaceSummary; ideas: SpaceIdea[]; tips: SpaceTip[];
+  /** Items are left to sort and a pass is running (or about to: the Space is seconds old). False: the hourly run will. */
+  sortingNow: boolean;
+}
 
 const items = (n: number) => `${n} ${n === 1 ? "item" : "items"}`;
 
@@ -48,7 +52,7 @@ export async function listSpaces(id: number | null = null): Promise<SpaceSummary
     )
     select s.id, s.name, s.rule_sentence, s.created_at,
       (count(*) filter (where si.status = 'accepted' or (si.status = 'suggested' and si.confidence >= ${SPACE_MIN})))::int as members,
-      (count(*) filter (where v.item_id is not null and si.space_id is null))::int as pending
+      (count(*) filter (where v.item_id is not null and (si.space_id is null or si.confidence is null)))::int as pending
     from spaces s
     left join v on true
     left join space_items si on si.space_id = s.id and si.item_type = v.item_type and si.item_id = v.item_id
@@ -72,6 +76,10 @@ export async function getSpace(id: number): Promise<SpaceView | null> {
   const [space] = await listSpaces(id);
   if (!space) return null;
   const sql = db();
+  // the same 15-minute lease the pass takes (evaluate.ts), and the 30 s before a new Space's first fill takes it
+  const sortingNow = space.pending > 0 && Boolean(((await sql`
+    select (exists (select 1 from sync_cursors where name = ${SPACES_LOCK} and updated_at > now() - interval '15 minutes')
+      or exists (select 1 from spaces where id = ${id} and created_at > now() - interval '30 seconds')) as sorting`) as Array<{ sorting: boolean }>)[0]?.sorting);
   const ideas = (await sql`
     select si.status as member_status,
       c.id, c.title, c.stage, c.mention_count, c.last_mentioned_at, c.pinned, c.timeline, false as flagged,
@@ -95,6 +103,7 @@ export async function getSpace(id: number): Promise<SpaceView | null> {
     limit ${MAX_SHOWN}`) as Array<GardenRecRow & { member_status: SpaceItemStatus }>;
   return {
     space,
+    sortingNow,
     ideas: ideas.map((r) => ({ status: r.member_status, plant: toPlant(r) })),
     tips: tips.map((r) => ({ status: r.member_status, rec: toRecCard(r) })),
   };

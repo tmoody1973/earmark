@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof im
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
 import {
-  evaluateSpaces, MAX_CALLS_PER_RUN, MAX_CALLS_PER_SPACE, MAX_SPACES_PER_CALL, spaceKey, spaceQuestion,
+  evaluateSpaces, fillNewSpace, FIRST_FILL_CALLS, FIRST_FILL_RETRY_MS, MAX_CALLS_PER_RUN, MAX_CALLS_PER_SPACE, MAX_SPACES_PER_CALL, spaceKey, spaceQuestion,
 } from "../../../agent/lib/spaces/evaluate";
 import { HIDDEN_TIP_STATUSES } from "../../../agent/lib/garden/queries";
 
@@ -64,7 +64,9 @@ describe("evaluateSpaces", () => {
     h.mock.queue.push(CLAIMED, []);
     await evaluateSpaces({ ask: vi.fn() as never });
     const q = h.mock.calls[1];
-    expect(q.text).toMatch(/si\.space_id is null or \(si\.status = 'suggested' and si\.judged_at < v\.updated_at\)/);
+    expect(q.text).toMatch(/si\.space_id is null[\s\S]*si\.status = 'suggested' and \(si\.judged_at < v\.updated_at/);
+    // a pair whose call failed (no answer) is retried only after the back-off
+    expect(q.text).toMatch(/si\.confidence is null and si\.judged_at < now\(\) - interval '6 hours'/);
     expect(q.text).toMatch(/stage <> 'dismissed' and c\.mention_count > 0/);
     expect(q.values).toContainEqual(HIDDEN_TIP_STATUSES);
     // the write refreshes a suggestion only, skips a space deleted meanwhile and an item forgotten meanwhile
@@ -114,7 +116,12 @@ describe("evaluateSpaces", () => {
     const out = await evaluateSpaces({ ask: ask as never });
     expect(ask).toHaveBeenCalledTimes(3);
     expect(out).toMatchObject({ failed: 3, pairs: 0 });
-    expect(writes()).toHaveLength(0);
+    // each failed item is backed off (no answer, judged now) so it does not sit first and burn a call every run
+    expect(writes().map((c) => c.values.slice(0, 3))).toEqual([["rec", 1, [1]], ["rec", 2, [1]], ["rec", 3, [1]]]);
+    for (const w of writes()) {
+      expect(w.text).toMatch(/null, now\(\)/);
+      expect(w.text).toMatch(/do update set judged_at = now\(\)\s+where space_items\.status = 'suggested'/);
+    }
     const logged = [...vi.mocked(console.error).mock.calls, ...vi.mocked(console.log).mock.calls].flat().join(" ");
     expect(logged).toContain("TimeoutError");
     expect(logged).toContain("rec=1");
@@ -125,6 +132,25 @@ describe("evaluateSpaces", () => {
     h.mock.queue.push(CLAIMED, []);
     await evaluateSpaces({ spaceId: 7, ask: vi.fn() as never });
     expect(h.mock.calls[1].values).toContain(7);
+  });
+
+  it("a new Space's first fill is budgeted, and retried once after a wait when another run holds the lock", async () => {
+    const wait = vi.fn(async () => {});
+    h.mock.queue.push(CLAIMED, Array.from({ length: 20 }, (_, i) => rec(i + 1, [5])));
+    const ask = vi.fn(async () => ({ s_5: 0.1 }));
+    expect(await fillNewSpace(5, { ask: ask as never, wait })).toMatchObject({ calls: FIRST_FILL_CALLS, busy: false });
+    expect(ask).toHaveBeenCalledTimes(FIRST_FILL_CALLS);
+    expect(h.mock.calls[1].values).toContain(FIRST_FILL_CALLS); // never fetches more than it can judge
+    expect(wait).not.toHaveBeenCalled();
+
+    h.mock = makeMockDb();
+    h.mock.queue.push([], CLAIMED, []); // busy, then free on the retry
+    expect(await fillNewSpace(5, { ask: ask as never, wait })).toMatchObject({ busy: false });
+    expect(wait).toHaveBeenCalledWith(FIRST_FILL_RETRY_MS);
+
+    h.mock = makeMockDb(); // busy twice: give up, the hourly run finishes it
+    expect(await fillNewSpace(5, { ask: ask as never, wait })).toMatchObject({ busy: true });
+    expect(h.mock.calls.filter((c) => c.text.includes("insert into sync_cursors"))).toHaveLength(2);
   });
 
   it("does nothing while another run holds the lock, and releases its own lock", async () => {

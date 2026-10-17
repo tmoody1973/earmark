@@ -47,7 +47,7 @@ export default async function SpacePage({ params }: Props) {
           Spaces
         </Link>
         <SpaceHead space={view.space} />
-        <SpaceMembers spaceId={view.space.id} ideas={view.ideas} tips={view.tips} pending={view.space.pending} />
+        <SpaceMembers spaceId={view.space.id} ideas={view.ideas} tips={view.tips} pending={view.space.pending} sortingNow={view.sortingNow} />
       </main>
     </>
   );

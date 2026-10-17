@@ -5,7 +5,7 @@ import { HIDDEN_TIP_STATUSES } from "../garden/queries";
 import { toIdea } from "../links/candidates";
 import { ideaText } from "../links/judge";
 import { recEmbedText } from "../recs/embed-text";
-import { spaceKey, spaceQuestion } from "./criteria";
+import { SPACES_LOCK, spaceKey, spaceQuestion } from "./criteria";
 
 export { SPACE_MIN, spaceKey, spaceQuestion } from "./criteria";
 
@@ -58,7 +58,9 @@ async function pendingItems(limit: number, spaceId: number | null): Promise<Pend
       array_agg(s.id order by s.id) as space_ids, array_agg(s.rule_sentence order by s.id) as sentences
     from v cross join spaces s
     left join space_items si on si.space_id = s.id and si.item_type = v.item_type and si.item_id = v.item_id
-    where (si.space_id is null or (si.status = 'suggested' and si.judged_at < v.updated_at))
+    where (si.space_id is null
+        or (si.status = 'suggested' and (si.judged_at < v.updated_at
+          or (si.confidence is null and si.judged_at < now() - interval '6 hours'))))
       and (${spaceId}::bigint is null or s.id = ${spaceId})
     group by v.item_type, v.item_id, v.name, v.detail, v.timeline, v.rec_type, v.creator, v.updated_at
     order by v.updated_at desc, v.item_type, v.item_id
@@ -87,9 +89,25 @@ async function writeJudgements(item: PendingItem, spaceIds: number[], probs: num
       where space_items.status = 'suggested'`;
 }
 
+// A failed call backs its pairs off: a new pair gets a row with no answer (retried after 6 hours, see pendingItems); an
+// old suggestion keeps its last answer and waits for the item's next change. Either way it no longer sits first and
+// burns a call every run.
+async function backOff(item: PendingItem, spaceIds: number[]): Promise<void> {
+  const table = item.type === "idea" ? "idea" : "rec";
+  await db()`
+    insert into space_items (space_id, item_type, item_id, confidence, judged_at)
+    select t.space_id, ${table}, ${item.id}, null, now()
+    from unnest(${spaceIds}::bigint[]) as t(space_id)
+    join spaces s on s.id = t.space_id
+    where (${table} = 'idea' and exists (select 1 from idea_clusters where id = ${item.id}))
+       or (${table} = 'rec' and exists (select 1 from recommendations where id = ${item.id}))
+    on conflict (space_id, item_type, item_id) do update set judged_at = now()
+      where space_items.status = 'suggested'`;
+}
+
 // Runs never overlap (the hourly run and a new Space's first fill would judge the same pairs twice): a claimed row in
 // sync_cursors, taken only when free or stale. The lease outlives the longest run (40 calls × 20 s ≈ 13 min).
-const LOCK = "spaces_evaluate_lock";
+const LOCK = SPACES_LOCK;
 async function claimRun(token: string): Promise<boolean> {
   const rows = await db()`
     insert into sync_cursors (name, cursor) values (${LOCK}, ${token})
@@ -123,6 +141,24 @@ export async function evaluateSpaces(
   }
 }
 
+// A new Space's first fill runs in after() on the create request, so it must finish inside that function's limit
+// (maxDuration 300 s on /spaces): 10 calls × 20 s timeout = 200 s at worst, plus one 20 s wait when another run holds
+// the lock. The hourly run continues the rest; when both tries find the lock busy, it does all of it.
+export const FIRST_FILL_CALLS = 10;
+export const FIRST_FILL_RETRY_MS = 20_000;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export async function fillNewSpace(
+  spaceId: number,
+  opts: { ask?: typeof askBooleans; wait?: (ms: number) => Promise<void> } = {},
+): Promise<EvaluateResult> {
+  const once = () => evaluateSpaces({ spaceId, maxCalls: FIRST_FILL_CALLS, ask: opts.ask });
+  const first = await once();
+  if (!first.busy) return first;
+  await (opts.wait ?? sleep)(FIRST_FILL_RETRY_MS);
+  return once();
+}
+
 async function run(maxCalls: number, spaceId: number | null, ask: typeof askBooleans): Promise<EvaluateResult> {
   const out: EvaluateResult = { calls: 0, pairs: 0, failed: 0, skipped: 0, busy: false };
   const perSpace = new Map<number, number>();
@@ -147,6 +183,11 @@ async function run(maxCalls: number, spaceId: number | null, ask: typeof askBool
         out.failed++;
         failuresInARow++;
         console.error(`[spaces] judge failed ${item.type}=${item.id} spaces=${chunk.map((s) => s.id).join(",")} error=${errName(err)}`);
+        try {
+          await backOff(item, chunk.map((s) => s.id));
+        } catch (e) {
+          console.error(`[spaces] back-off failed ${item.type}=${item.id} error=${errName(e)}`);
+        }
       }
     }
     if (halted()) break;

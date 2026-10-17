@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isOwner } from "@/agent/lib/owner";
 import { setLinkStatus, type LinkKey } from "@/agent/lib/garden/backlinks";
 import * as spaces from "@/agent/lib/garden/spaces";
-import { evaluateSpaces, MAX_CALLS_PER_SPACE } from "@/agent/lib/spaces/evaluate";
+import { fillNewSpace } from "@/agent/lib/spaces/evaluate";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { getGardenVisit, saveGardenVisit, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
@@ -121,8 +121,9 @@ function spaceId(raw: unknown): number {
 }
 
 /**
- * A new Space from one sentence (NewSpaceForm). Earmark starts filling it once the response is on its way, bounded to
- * one Space's share of a run (the hourly evaluate-spaces schedule picks up the rest), and the new Space opens.
+ * A new Space from one sentence (NewSpaceForm). Earmark starts filling it once the response is on its way (fillNewSpace:
+ * 10 calls, one retry if another pass holds the lock; the hourly evaluate-spaces run does the rest; /spaces sets
+ * maxDuration so it fits), and the new Space opens.
  */
 export async function createSpace(_prev: SpaceFormState, form: FormData): Promise<SpaceFormState> {
   await requireOwner();
@@ -132,7 +133,7 @@ export async function createSpace(_prev: SpaceFormState, form: FormData): Promis
   if (id === null) return { error: "The garden is read-only right now. Nothing was saved." };
   after(async () => {
     try {
-      await evaluateSpaces({ spaceId: id, maxCalls: MAX_CALLS_PER_SPACE });
+      await fillNewSpace(id);
     } catch (err) {
       console.error(`[spaces] first fill failed space=${id} error=${err instanceof Error ? err.name : "unknown"}`);
     }

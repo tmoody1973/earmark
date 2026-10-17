@@ -28,26 +28,26 @@ function reduce(view: Items, op: Op): Items {
   };
 }
 
-// How often a Space still being sorted reloads itself, and for how long (the first fill takes about a minute; what is
-// left after it waits for the hourly run, so the page stops asking).
+// While a pass is sorting this Space the page reloads itself; once none is (sortingNow false: what is left waits for
+// the hourly run) it stops asking and says so. The cap is a backstop for a pass that never lets go.
 const REFRESH_MS = 8_000;
 const REFRESH_TIMES = 15;
 
-export function SpaceMembers({ spaceId, ideas, tips, pending }: Items & { spaceId: number; pending: number }) {
+export function SpaceMembers({ spaceId, ideas, tips, pending, sortingNow }: Items & { spaceId: number; pending: number; sortingNow: boolean }) {
   const router = useRouter();
   const [view, apply] = useOptimistic<Items, Op>({ ideas, tips }, reduce);
   const [, startTransition] = useTransition();
   const [said, setSaid] = useState("");
 
   useEffect(() => {
-    if (pending === 0) return;
+    if (!sortingNow) return;
     let n = 0;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
       if (++n >= REFRESH_TIMES) window.clearInterval(timer);
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [pending, router]);
+  }, [sortingNow, pending, router]);
 
   function act(key: SpaceItemKey, title: string, verdict: "keep" | "remove") {
     if (verdict === "remove") document.getElementById("space-h")?.focus(); // the item leaves: hold focus on the Space's name
@@ -69,10 +69,15 @@ export function SpaceMembers({ spaceId, ideas, tips, pending }: Items & { spaceI
   return (
     <>
       <p role="status" className="visually-hidden">{said}</p>
-      {pending > 0 && (
+      {pending > 0 && sortingNow && (
         <p className="space-sorting" data-testid="space-sorting">
           <span className="space-sorting-dot" aria-hidden="true" />
           Still sorting {sorting}. This page fills in as Earmark goes.
+        </p>
+      )}
+      {pending > 0 && !sortingNow && (
+        <p className="space-sorting" data-testid="space-sorting">
+          {sorting} still to sort. Earmark will finish sorting this within the hour.
         </p>
       )}
       {empty && pending === 0 && (

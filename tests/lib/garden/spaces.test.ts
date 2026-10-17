@@ -36,6 +36,8 @@ describe("listSpaces", () => {
     expect(q.values).toContain(SPACE_MIN);
     expect(q.values).toContainEqual(HIDDEN_TIP_STATUSES);
     expect(q.text).toMatch(/stage <> 'dismissed' and c\.mention_count > 0/);
+    // still to sort: never judged, or a call that failed and waits for its retry
+    expect(q.text).toMatch(/si\.space_id is null or si\.confidence is null/);
   });
 });
 
@@ -49,6 +51,12 @@ describe("spaceCounts", () => {
 });
 
 describe("getSpace", () => {
+  it("is not sorting now when nothing is left to sort (no extra query)", async () => {
+    h.mock.queue.push([spaceRow({ pending: 0 })], [], []);
+    expect((await getSpace(3))!.sortingNow).toBe(false);
+    expect(h.mock.calls.some((c) => c.text.includes("sync_cursors"))).toBe(false);
+  });
+
   it("is null for a Space that does not exist", async () => {
     h.mock.queue.push([]);
     expect(await getSpace(99)).toBeNull();
@@ -58,6 +66,7 @@ describe("getSpace", () => {
   it("returns the members, Tarik's keeps first, from visible items only, with the shelf's columns", async () => {
     h.mock.queue.push(
       [spaceRow()],
+      [{ sorting: true }],
       [{ member_status: "accepted", id: 4, title: "A weekly record store visit", stage: "sprouting", mention_count: 2,
         last_mentioned_at: "2026-10-15T00:00:00Z", pinned: false, flagged: false, confirmed: true, timeline: [], dismissed_at: [] }],
       [{ member_status: "suggested", id: 9, type: "book", canonical_name: "Sample Novel", creator: "A. Writer", year_or_address: null,
@@ -68,7 +77,12 @@ describe("getSpace", () => {
     expect(view!.space.id).toBe(3);
     expect(view!.ideas).toEqual([expect.objectContaining({ status: "accepted", plant: expect.objectContaining({ id: 4, title: "A weekly record store visit" }) })]);
     expect(view!.tips).toEqual([expect.objectContaining({ status: "suggested", rec: expect.objectContaining({ id: 9, name: "Sample Novel" }) })]);
-    const [, ideas, tips] = h.mock.calls;
+    // sorting now: a pass holds the lock, or the Space is new enough that its first fill is about to start
+    expect(view!.sortingNow).toBe(true);
+    const [, sorting, ideas, tips] = h.mock.calls;
+    expect(sorting.text).toMatch(/from sync_cursors where name = \? and updated_at > now\(\) - interval '15 minutes'/);
+    expect(sorting.values).toContain("spaces_evaluate_lock");
+    expect(sorting.text).toMatch(/created_at > now\(\) - interval '30 seconds'/);
     for (const q of [ideas, tips]) {
       expect(q.text).toMatch(/si\.status = 'accepted' or \(si\.status = 'suggested' and si\.confidence >= /);
       expect(q.text).toMatch(/order by si\.status = 'accepted' desc/);
