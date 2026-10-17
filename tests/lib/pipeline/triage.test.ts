@@ -84,6 +84,14 @@ describe("triageWindow", () => {
     expect(KIND_CRITERIA.rec_by_user).toContain("is rec_to_user, not this option");
   });
 
+  // M2-T10: Jev called 30 work-talk runs rec_to_user and 22 idea_by_user. Naming a thing at work is not recommending it.
+  it("keeps the work-talk boundary cases (naming a tool or company while working is neither)", () => {
+    expect(KIND_CRITERIA.neither).toContain("we exported the chart from Datawrapper");
+    expect(KIND_CRITERIA.neither).toContain("Naming a thing is not recommending it");
+    expect(KIND_CRITERIA.rec_to_user).toContain("for their own use or enjoyment");
+    expect(KIND_CRITERIA.idea_by_user).toContain("must say what would be made or done");
+  });
+
   it("uses NaN probabilities when the provider omits them", async () => {
     const model = new MockDecisionModel({
       doDecide: async () => ({

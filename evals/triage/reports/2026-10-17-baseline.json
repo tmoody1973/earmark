@@ -1,0 +1,1895 @@
+{
+  "date": "2026-10-17",
+  "labeledCount": 48,
+  "triageModel": "typesafe-ai/jev-1.13.0",
+  "models": {
+    "typesafe-ai/jev-1.13.0": {
+      "model": "typesafe-ai/jev-1.13.0",
+      "n": 48,
+      "accuracy": 0.5347222222222222,
+      "recPrecision": 0.06666666666666667,
+      "ideaPrecision": 0.40540540540540543,
+      "recTypeAccuracy": 0.75,
+      "jokingAccuracy": 1,
+      "flipRate": 0.14583333333333334,
+      "ece": 0.1799998125,
+      "brier": 0.2201944444444443,
+      "reliability": [
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 6,
+          "meanConfidence": 0.355,
+          "accuracy": 0.166667
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 14,
+          "meanConfidence": 0.455714,
+          "accuracy": 0.285714
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 32,
+          "meanConfidence": 0.53875,
+          "accuracy": 0.28125
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 18,
+          "meanConfidence": 0.651111,
+          "accuracy": 0.555556
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 20,
+          "meanConfidence": 0.7405,
+          "accuracy": 0.4
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 19,
+          "meanConfidence": 0.848947,
+          "accuracy": 0.578947
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 35,
+          "meanConfidence": 0.986,
+          "accuracy": 0.971429
+        }
+      ],
+      "inputTokens": 215700,
+      "costUsd": 0.0090594,
+      "subsets": {
+        "work_talk": {
+          "n": 21,
+          "accuracy": 0.15873015873015872,
+          "predicted": {
+            "idea_by_user": 22,
+            "neither": 10,
+            "rec_to_user": 30,
+            "rec_by_user": 1
+          }
+        },
+        "room_wide": null
+      },
+      "predictions": [
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.59
+        },
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.53
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.75
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.88
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.76
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.72
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.69
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.52
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.53
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.67
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.83
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.85
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.53
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.61
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.37
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.37
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.51
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.62
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.48
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.85
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.89
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.95
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.3
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.37
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.34
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.68
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.8
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.73
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.85
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.83
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.94
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.45
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.51
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.65
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.62
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.53
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.62
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.47
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.45
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.41
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.44
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.45999999999999996
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.44
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.44
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.51
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.6
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.58
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.72
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.74
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.56
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.5
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.51
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.82
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.7
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.85
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.75
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.74
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.79
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.76
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.87
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.89
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.59
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.48
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.54
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.55
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.63
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.38
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.68
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.57
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.49
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.46
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.43
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.5
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.65
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.53
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.66
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.69
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.5
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.7
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.88
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.86
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.81
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.87
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.94
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.95
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.67
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.78
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.73
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.87
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.82
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.77
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.52
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.54
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.52
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.61
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.48
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.57
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.72
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.68
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.72
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.93
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.95
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.91
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.81
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.69
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.78
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.74
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.71
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        }
+      ]
+    },
+    "openai/gpt-6-luna-decisions": {
+      "model": "openai/gpt-6-luna-decisions",
+      "n": 48,
+      "accuracy": 0.7013888888888888,
+      "recPrecision": 0,
+      "ideaPrecision": 0.3333333333333333,
+      "recTypeAccuracy": 0.5416666666666666,
+      "jokingAccuracy": 1,
+      "flipRate": 0.10416666666666667,
+      "ece": 0.14361109027777777,
+      "brier": 0.1999861111111111,
+      "reliability": [
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 1,
+          "meanConfidence": 0.38,
+          "accuracy": 1
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 7,
+          "meanConfidence": 0.45,
+          "accuracy": 0.571429
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 14,
+          "meanConfidence": 0.540714,
+          "accuracy": 0.428571
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 8,
+          "meanConfidence": 0.64,
+          "accuracy": 0.5
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 19,
+          "meanConfidence": 0.739474,
+          "accuracy": 0.473684
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 29,
+          "meanConfidence": 0.846897,
+          "accuracy": 0.586207
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 66,
+          "meanConfidence": 0.968333,
+          "accuracy": 0.909091
+        }
+      ],
+      "inputTokens": 223089,
+      "costUsd": 0.022308900000000003,
+      "subsets": {
+        "work_talk": {
+          "n": 21,
+          "accuracy": 0.7301587301587301,
+          "predicted": {
+            "neither": 46,
+            "idea_by_user": 14,
+            "rec_to_user": 2,
+            "rec_by_user": 1
+          }
+        },
+        "room_wide": null
+      },
+      "predictions": [
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.61
+        },
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.5
+        },
+        {
+          "id": "11260875-148",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.78
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.88
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.99
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.7
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.57
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.51
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.93
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.79
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.51
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.73
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.92
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.93
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.6
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.83
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.74
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.43
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.59
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.73
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.59
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.7
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.91
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.62
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.47
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.91
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.88
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.9
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.92
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.7
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.9
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.94
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.96
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.82
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.79
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.55
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.71
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.64
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.9
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.87
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.7
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.55
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.89
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.84
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.96
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.88
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.58
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.83
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.83
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "neither",
+          "confidence": 0.8
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "neither",
+          "confidence": 0.8
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "neither",
+          "confidence": 0.41
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.76
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.76
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.78
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.85
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.51
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.95
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.9
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.87
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.96
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.82
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.87
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.81
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.86
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.83
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.78
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.54
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.83
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.54
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.89
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.69
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.88
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.85
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.65
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.73
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "neither",
+          "confidence": 0.69
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.71
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.5
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.74
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.96
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.38
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.48
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.86
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.42
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.72
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.83
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.62
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.53
+        },
+        {
+          "id": "11078797-208",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.49
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.82
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.45
+        },
+        {
+          "id": "11078797-209",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.81
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.95
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11260875-7",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11192589-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11338188-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11189950-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.92
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.86
+        },
+        {
+          "id": "11078797-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.94
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11191233-3",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.94
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.93
+        },
+        {
+          "id": "11078797-1",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.95
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11331219-0",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.97
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.87
+        },
+        {
+          "id": "11333494-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.95
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        },
+        {
+          "id": "11333494-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.99
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 1
+        },
+        {
+          "id": "11260875-6",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.98
+        }
+      ]
+    }
+  }
+}
