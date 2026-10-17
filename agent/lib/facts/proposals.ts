@@ -147,7 +147,16 @@ async function reconcile(listAll: ReturnType<typeof lazyBeeFacts>, text: string)
  * re-posted. It is reconciled against ALL of Bee's facts (unconfirmed and confirmed): a match is adopted, no match means
  * the owner deleted it (or the post never landed), so the proposal is marked rejected and never re-proposed.
  */
-export async function writePendingProposals(bee: BeeClient = createBeeClient()): Promise<number> {
+// Tarik's rule: nothing writes to his real Bee unless BEE_TODO_WRITES is "on" (same check as sync/bee-todos.ts).
+// Off: no Bee call, no claim, rows stay pending for the next run with the switch on.
+export async function writePendingProposals(
+  bee: BeeClient = createBeeClient(),
+  env: Record<string, string | undefined> = process.env,
+): Promise<number> {
+  if (env.BEE_TODO_WRITES !== "on") {
+    console.log("[earmark] fact-proposals skipped: BEE_TODO_WRITES off");
+    return 0;
+  }
   const pending = (await db()`
     select id, text, kind, evidence_ids from fact_proposals
     where status = 'pending' and bee_fact_id is null order by id limit ${MAX_WRITES_PER_RUN}`) as { id: number | string; text: string; kind: string; evidence_ids: number[] }[];
