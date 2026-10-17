@@ -1,7 +1,8 @@
 import type { Route, TriageResult } from "../types";
 
 // Chosen from the labeled eval for Jev (M2-T10, docs/decisions/009). PRD starting points were 0.85 / 0.5.
-// ponytail: 48 labels; below 0.6 Jev's rec/idea calls were 1 of 21 right, above 0.9 rests on a handful. Re-tune as labels grow.
+// ponytail: 48 labels; below 0.6 Jev's rec/idea calls were 1/14, 1/21 and 0/36 right over three runs; above 0.9 rests on
+// 2 predictions. Re-tune on fresh labels (the eve gate needs n >= 5 accepted per class).
 export const ACCEPT_ABOVE = 0.9;
 export const DROP_BELOW = 0.6;
 

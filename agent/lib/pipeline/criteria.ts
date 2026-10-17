@@ -8,8 +8,10 @@ export const KIND_CRITERIA = {
   neither:
     "Anything else: small talk, logistics, news, questions that do not tell anyone to try a named thing (e.g. 'did you move the car'), " +
     "opinions, complaints, plans and tasks, or a mention of a thing without telling anyone to try it. " +
-    "Work talk is neither: describing, discussing, praising, building, testing or using a named company, publication, website, " +
-    "tool, app or product while working, status updates, goals, strategy and planning remarks. Naming a thing is not recommending it. " +
+    "Talking about work is neither: describing, discussing, praising, building, testing or using a named company, publication, " +
+    "website, tool, app or product while talking about work; status updates; goals, strategy and planning remarks. " +
+    "Naming a thing is not recommending it. But at work too, a proposal naming what to make or air is idea_by_user, not neither, " +
+    "and telling someone to try a named thing for themselves is rec_to_user. " +
     "Examples that are neither: 'we exported the chart from Datawrapper'; 'the Slack integration broke again'; " +
     "'I built the prototype in Figma, it's awesome'; 'our numbers on Spotify were up this month'; 'we need to reach a younger audience'. " +
     "Also neither: sponsor or underwriting messages, station promos, 'subscribe to my channel', " +
@@ -30,6 +32,7 @@ export const KIND_CRITERIA = {
     "— or enthusiastically praises such a named thing to them as worth trying ('Kopp's has the best custard in town'). " +
     "Typical wording: 'you have to try…', 'you'd love…', 'check out…', 'you should read…'. " +
     "Also choose this when someone says a named thing was recommended to them ('Dana told me to check out…'). " +
+    "A recommendation at work counts like any other: a colleague saying 'you have to try the new ramen place' is this option. " +
     "The thing must be named in `window`. A general category without a name ('you should read more') does not count. " +
     "'Have you heard X?' counts only when a line also praises X or tells someone to try it. " +
     "Not this option: naming or praising a tool, company or product while talking about work, with no line telling the listener " +
@@ -38,7 +41,7 @@ export const KIND_CRITERIA = {
   rec_by_user:
     "A speaker recommends a named thing to a broadcast audience or to a group with no single recipient: on-air, listener-facing " +
     "or presenter-style wording ('this next song…', 'listeners, go see…', 'folks, you need to hear…', " +
-    "'if you shoot video, you'll want to see this'), or 'everyone should…', 'you all should…'. " +
+    "'everyone watching, you'll want to see this'), or 'everyone should…', 'you all should…'. " +
     "A recommendation to one person who replies is rec_to_user, not this option.",
 } as const;
 
