@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { HIDDEN_TIP_STATUSES, toRecCard, type GardenRecRow, type RecCardData } from "../garden/queries";
+import { HIDDEN_TIP_STATUSES, credit, toRecCard, type GardenRecRow, type RecCardData } from "../garden/queries";
 import { newShareToken } from "../privacy/tokens";
 
 // Publishing a Space (FR-42, M5-T14): a link-only page at /s/<token>. The page reads live, so nothing here copies item text.
@@ -69,9 +69,12 @@ export async function setIndexable(id: number, on: boolean): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** Records (or clears) a recommender's OK to be named. Only for someone who gave a tip that is public in this Space. */
+/**
+ * Records (or clears) a recommender's OK to be named. Granting needs a tip that is public in this Space; revoking never
+ * does (consent is global, and taking a name off must always work).
+ */
 export async function setNameConsent(spaceId: number, recommenderId: number, on: boolean): Promise<boolean> {
-  if (!(await acceptedTips(spaceId)).some((r) => Number(r.recommender_id) === recommenderId)) return false;
+  if (on && !(await acceptedTips(spaceId)).some((r) => Number(r.recommender_id) === recommenderId)) return false;
   const rows = await db()`
     update recommenders set public_name_consent_at = ${on ? new Date().toISOString() : null}::timestamptz
     where id = ${recommenderId} returning id`;
@@ -94,6 +97,13 @@ export async function getPublishState(id: number): Promise<PublishState | null> 
     if (!who) continue;
     const seen = people.get(who.id);
     people.set(who.id, { id: who.id, firstName: who.firstName, consent: r.consent, tips: (seen?.tips ?? 0) + 1 });
+  }
+  // Consent is global: anyone named on any published Space shows here too, so the owner can always revoke.
+  const named = (await db()`select id, first_name from recommenders where public_name_consent_at is not null order by first_name`) as
+    Array<{ id: number | string; first_name: string }>;
+  for (const n of named) {
+    const who = credit({ recommender_id: Number(n.id), first_name: n.first_name });
+    if (who && !people.has(who.id)) people.set(who.id, { id: who.id, firstName: who.firstName, consent: true, tips: 0 });
   }
   return { id: Number(s.id), name: s.name, token: s.published_token, indexable: s.indexable, people: [...people.values()] };
 }

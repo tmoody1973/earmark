@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { consentAction, indexableAction, publishAction, unpublishAction } from "./actions";
 
+const SAVE_FAILED = "Couldn’t save that; reload and try again.";
+
 interface Props {
   spaceId: number;
   url: string | null;
@@ -87,8 +89,9 @@ export function PublishPanel({ spaceId, url, path, published, indexable, people 
             onChange={(e) => {
               const next = e.target.checked; // read before the await: the controlled box snaps back meanwhile
               run("indexing", async () => {
-              await indexableAction(spaceId, next);
-              return next ? "Search engines may list this page." : "Search engines are asked not to list this page.";
+                const { changed } = await indexableAction(spaceId, next);
+                if (!changed) return SAVE_FAILED;
+                return next ? "Search engines may list this page." : "Search engines are asked not to list this page.";
               });
             }}
           />
@@ -115,12 +118,15 @@ export function PublishPanel({ spaceId, url, path, published, indexable, people 
                     onChange={(e) => {
                       const next = e.target.checked; // read before the await: the controlled box snaps back meanwhile
                       run("consent", async () => {
-                      await consentAction(spaceId, p.id, next);
-                      return next ? `${p.firstName} will be named.` : `${p.firstName} will not be named.`;
+                        const { changed } = await consentAction(spaceId, p.id, next);
+                        if (!changed) return SAVE_FAILED;
+                        return next ? `${p.firstName} will be named.` : `${p.firstName} will not be named.`;
                       });
                     }}
                   />
-                  <span>{p.firstName} ({p.tips} {p.tips === 1 ? "tip" : "tips"}): They said yes to being named</span>
+                  <span>
+                    {p.firstName} ({p.tips === 0 ? "Named on your published Spaces" : `${p.tips} ${p.tips === 1 ? "tip" : "tips"}`}): They said yes to being named
+                  </span>
                 </label>
               </li>
             ))}

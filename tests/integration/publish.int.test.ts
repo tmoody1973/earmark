@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
-import { getPublishedSpace, publishSpace, setNameConsent, unpublishSpace } from "../../agent/lib/spaces/publish";
+import { getPublishState, getPublishedSpace, publishSpace, setNameConsent, unpublishSpace } from "../../agent/lib/spaces/publish";
 
 // Real Neon test branch (needs TEST_DATABASE_URL; skipped otherwise). Synthetic rows only ("IT publish …"), all removed after.
 describe.skipIf(!process.env.TEST_DATABASE_URL)("Publishing a Space on the Neon test branch (M5-T14)", { timeout: 60_000 }, () => {
@@ -62,6 +62,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Publishing a Space on the Neon 
     expect((await getPublishedSpace(token!))?.tips[0].recommender?.firstName).toBe("ITPublishAnn");
     await setNameConsent(space, person, false);
     expect((await getPublishedSpace(token!))?.tips[0].recommender).toBeNull();
+
+    // consent is global: revoking works after the person's last kept tip has left the Space
+    await setNameConsent(space, person, true);
+    await c.query(`update space_items set status = 'removed' where space_id = $1 and item_id = $2`, [space, names.kept]);
+    expect(await setNameConsent(space, person, true)).toBe(false); // granting needs a public tip here
+    expect(await setNameConsent(space, person, false)).toBe(true);
+    expect((await c.query(`select public_name_consent_at from recommenders where id = $1`, [person])).rows[0].public_name_consent_at).toBeNull();
+    const state = await getPublishState(space);
+    expect(state?.people.find((p) => p.id === person)).toBeUndefined();
 
     expect(await unpublishSpace(space)).toBe(true);
     expect(await getPublishedSpace(token!)).toBeNull();
