@@ -1,6 +1,6 @@
 // Forget one item everywhere (M3-T11, FR-30, decision 011).
 //   pnpm forget <rec|idea|mention> <id>          dry run: read-only, prints ids and table counts
-//   pnpm forget <rec|idea|mention> <id> --yes    one Postgres transaction, then Bee / Notion / Blob, then hooks
+//   pnpm forget <rec|idea|mention> <id> --yes    Bee / Notion / Blob, then one Postgres transaction, then hooks
 // Only ever the DATABASE_URL in .env.local. Prints ids, counts and err.name only, never text.
 import { pathToFileURL } from "node:url";
 import { Pool } from "@neondatabase/serverless";
@@ -28,11 +28,14 @@ async function main(): Promise<void> {
   try {
     const r = await forget(c, target, { yes, hooks: FORGET_HOOKS });
     if (!yes) console.log("DRY RUN (read-only, nothing deleted; add --yes to delete)");
-    for (const line of formatPlan(r.plan, yes)) console.log(line);
+    for (const line of formatPlan(r.plan, yes && !r.aborted)) console.log(line);
     if (!yes && r.plan.exists && FORGET_HOOKS.length) console.log(`  then hooks: ${FORGET_HOOKS.map((h) => h.name).join(", ")}`);
     for (const line of r.lines) console.log(`  ${line}`);
-    if (r.incomplete > 0) {
-      console.error(`[forget] ${r.incomplete} outside delete(s) not done; Earmark's own rows are already gone, so remove the ids above by hand`);
+    if (r.aborted) {
+      console.error("[forget] stopped before the database: nothing in Postgres was deleted. Fix the line above and run the same command again.");
+      process.exitCode = 1;
+    } else if (r.incomplete > 0) {
+      console.error(`[forget] ${r.incomplete} hook(s) failed after the database commit; see the lines above`);
       process.exitCode = 1;
     }
   } finally {

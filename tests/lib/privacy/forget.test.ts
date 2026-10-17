@@ -1,10 +1,94 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  executeExternal, formatPlan, planExternal, trashNotionPage, type ExternalDeps, type ForgetPlan,
+  executeForget, formatPlan, ForgetAbortedError, planForget, trashNotionPage, type ForgetDeps, type ForgetPlan,
 } from "../../../agent/lib/privacy/forget";
 import { parseForgetArgs } from "../../../scripts/forget";
 
-// Adapted from PostHog draft PR #8; external deletes now run after the Postgres commit (decision 011).
+// Spec tests from the M3-T11 brief (adapted from PostHog draft PR #8): outside deletes first, Postgres last (decision 011).
+const refs = { exists: true, beeTodoIds: [10, 11], beeFactIds: [5], notionPageIds: ["pg1"], blobUrls: ["https://blob/t.jpg"] };
+const target = { type: "rec" as const, id: 42 };
+
+describe("planForget", () => {
+  it("orders every external delete before the database delete", () => {
+    const steps = planForget(target, refs);
+    expect(steps.map((s) => s.kind)).toEqual(["bee_todo", "bee_todo", "bee_fact", "notion_page", "blob", "db"]);
+    expect(steps.at(-1)).toEqual({ kind: "db", target });
+  });
+  it("plans nothing for a missing item", () => {
+    expect(planForget(target, { ...refs, exists: false })).toEqual([]);
+  });
+});
+
+describe("executeForget", () => {
+  const deps = () => ({
+    deleteTodo: vi.fn(async () => {}), deleteFact: vi.fn(async () => {}),
+    trashNotionPage: vi.fn(async () => {}), deleteBlob: vi.fn(async () => {}), deleteRows: vi.fn(async () => {}),
+  });
+  const httpError = (status: number, name = "BeeApiError") => Object.assign(new Error(`secret body text ${status}`), { status, name });
+
+  it("runs every step and logs each", async () => {
+    const d = deps();
+    const log = await executeForget(planForget(target, refs), d);
+    expect(d.deleteTodo).toHaveBeenCalledTimes(2);
+    expect(d.deleteFact).toHaveBeenCalledWith(5);
+    expect(d.trashNotionPage).toHaveBeenCalledWith("pg1");
+    expect(d.deleteBlob).toHaveBeenCalledWith("https://blob/t.jpg");
+    expect(d.deleteRows).toHaveBeenCalledWith(target);
+    expect(log).toHaveLength(6);
+    expect(log).toEqual([
+      "deleted bee_todo 10", "deleted bee_todo 11", "deleted bee_fact 5", "deleted notion_page pg1", "deleted blob #1", "deleted postgres rec 42",
+    ]);
+  });
+
+  it("treats 'already gone' as success", async () => {
+    const d = deps();
+    d.deleteTodo.mockRejectedValueOnce(Object.assign(new Error("gone"), { status: 404 }));
+    await executeForget(planForget(target, refs), d);
+    expect(d.deleteRows).toHaveBeenCalled();
+  });
+
+  it("stops before touching Postgres when an external delete really fails", async () => {
+    const d = deps();
+    d.trashNotionPage.mockRejectedValueOnce(Object.assign(new Error("boom"), { status: 500 }));
+    await expect(executeForget(planForget(target, refs), d)).rejects.toThrow("boom");
+    expect(d.deleteRows).not.toHaveBeenCalled();
+  });
+
+  it("says which id failed by err.name only, with what was already done", async () => {
+    const d = deps();
+    d.trashNotionPage.mockRejectedValueOnce(httpError(500, "NotionApiError"));
+    const err = await executeForget(planForget(target, refs), d).catch((e) => e);
+    expect(err).toBeInstanceOf(ForgetAbortedError);
+    expect(err.lines).toEqual(["deleted bee_todo 10", "deleted bee_todo 11", "deleted bee_fact 5", "FAILED notion_page pg1 error=NotionApiError"]);
+    expect(err.lines.join("\n")).not.toContain("secret body text");
+    expect(d.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("aborts before Postgres when a service with refs is not configured", async () => {
+    const d: ForgetDeps = { ...deps(), trashNotionPage: null };
+    const err = await executeForget(planForget(target, refs), d).catch((e) => e);
+    expect(err.lines).toContain("skipped: notion not configured (NOTION_TOKEN) notion_page pg1");
+    expect(d.deleteRows).not.toHaveBeenCalled();
+  });
+
+  it("an unconfigured service with no refs of its kind is not a skip", async () => {
+    const d: ForgetDeps = { ...deps(), trashNotionPage: null, deleteBlob: null };
+    const log = await executeForget(planForget(target, { ...refs, notionPageIds: [], blobUrls: [] }), d);
+    expect(log.join("\n")).not.toContain("skipped");
+    expect(d.deleteRows).toHaveBeenCalledWith(target);
+  });
+
+  it("a Postgres failure is thrown as is, after the outside deletes (re-run: they 404 and count as done)", async () => {
+    const d = deps();
+    d.deleteRows.mockRejectedValueOnce(Object.assign(new Error("db down"), { name: "NeonDbError" }));
+    await expect(executeForget(planForget(target, refs), d)).rejects.toMatchObject({ name: "NeonDbError" });
+    for (const f of [d.deleteTodo, d.deleteFact, d.trashNotionPage, d.deleteBlob]) f.mockRejectedValue(httpError(404));
+    const log = await executeForget(planForget(target, refs), d);
+    expect(log.filter((l) => l.startsWith("already gone"))).toHaveLength(5);
+    expect(log.at(-1)).toBe("deleted postgres rec 42");
+  });
+});
+
 const plan: ForgetPlan = {
   target: { type: "rec", id: 42 },
   resolved: { type: "rec", id: 42 },
@@ -15,64 +99,6 @@ const plan: ForgetPlan = {
   recommender: { id: 9, firstName: "Maria", removed: true },
 };
 
-const deps = (): { [K in keyof ExternalDeps]: ReturnType<typeof vi.fn> } => ({
-  deleteTodo: vi.fn(async () => {}),
-  deleteFact: vi.fn(async () => {}),
-  trashNotionPage: vi.fn(async () => {}),
-  deleteBlob: vi.fn(async () => {}),
-});
-const httpError = (status: number, name = "BeeApiError") =>
-  Object.assign(new Error(`secret body text ${status}`), { status, name });
-
-describe("planExternal", () => {
-  it("lists Bee todos, Bee facts, Notion pages, then thumbnails", () => {
-    expect(planExternal(plan.refs).map((s) => s.kind)).toEqual(["bee_todo", "bee_todo", "bee_fact", "notion_page", "blob"]);
-  });
-  it("plans nothing when there are no outside copies", () => {
-    expect(planExternal({ beeTodoIds: [], beeFactIds: [], notionPageIds: [], blobUrls: [] })).toEqual([]);
-  });
-});
-
-describe("executeExternal", () => {
-  it("runs every step and logs each by id", async () => {
-    const d = deps();
-    const r = await executeExternal(planExternal(plan.refs), d as unknown as ExternalDeps);
-    expect(d.deleteTodo.mock.calls).toEqual([[10], [11]]);
-    expect(d.deleteFact).toHaveBeenCalledWith(5);
-    expect(d.trashNotionPage).toHaveBeenCalledWith("pg1");
-    expect(d.deleteBlob).toHaveBeenCalledWith("https://blob.test/maria-thumb.jpg");
-    expect(r.incomplete).toBe(0);
-    expect(r.lines).toEqual([
-      "deleted bee_todo 10", "deleted bee_todo 11", "deleted bee_fact 5", "deleted notion_page pg1", "deleted blob #1",
-    ]);
-  });
-
-  it("treats 404 as already gone", async () => {
-    const d = deps();
-    d.deleteTodo.mockRejectedValueOnce(httpError(404));
-    const r = await executeExternal(planExternal(plan.refs), d as unknown as ExternalDeps);
-    expect(r.lines[0]).toBe("already gone bee_todo 10");
-    expect(r.incomplete).toBe(0);
-  });
-
-  it("reports a real failure by id and err.name, keeps going, and never prints the error text", async () => {
-    const d = deps();
-    d.trashNotionPage.mockRejectedValueOnce(httpError(500, "NotionApiError"));
-    const r = await executeExternal(planExternal(plan.refs), d as unknown as ExternalDeps);
-    expect(r.lines).toContain("FAILED notion_page pg1 error=NotionApiError");
-    expect(d.deleteBlob).toHaveBeenCalled();
-    expect(r.incomplete).toBe(1);
-    expect(r.lines.join("\n")).not.toContain("secret body text");
-  });
-
-  it("skips a service that is not configured, says so, and counts it as not done", async () => {
-    const d = { ...deps(), trashNotionPage: null, deleteBlob: null };
-    const r = await executeExternal(planExternal(plan.refs), d as unknown as ExternalDeps);
-    expect(r.lines).toContain("skipped: notion not configured (NOTION_TOKEN) notion_page pg1");
-    expect(r.lines).toContain("skipped: blob not configured (BLOB_READ_WRITE_TOKEN) blob #1");
-    expect(r.incomplete).toBe(2);
-  });
-});
 
 describe("formatPlan", () => {
   it("prints ids and table counts only: no recommender name, no thumbnail URL", () => {
