@@ -74,6 +74,13 @@ describe("handlePhotoCapture", () => {
     expect(d.afterCreated).toHaveBeenCalledWith(42);
     expect((await res.json()).message).toBe("Earmarked: Promises (from Ann)");
   });
+  it("hands the rec-lane work to the injected defer (route passes Next's after)", async () => {
+    const { afterCreated: _drop, ...d } = deps();
+    const defer = vi.fn();
+    expect((await handlePhotoCapture(req(photoForm()), d as never, defer)).status).toBe(201);
+    expect(defer).toHaveBeenCalledTimes(1);
+    expect(typeof defer.mock.calls[0][0]).toBe("function");
+  });
   it("never stores an image when a person may be in it", async () => {
     const d = deps({ classify: vi.fn(async () => ({ itemProbability: 0.9, recType: "album", recTypeProbability: 0.9, personProbability: 0.35 })) });
     await handlePhotoCapture(req(photoForm()), d as never);

@@ -1,10 +1,9 @@
-import { after } from "next/server";
 import { z } from "zod";
 import { createBeeClient } from "../bee/client";
 import { getEnv } from "../env";
 import { parseLatLng, type LatLng } from "../geo";
 import type { AttributionSource, TranscriptWindow } from "../types";
-import { afterCaptureSaved } from "./after-save";
+import { afterCaptureSaved, deferOrRun, type Defer } from "./after-save";
 import { bearerMatches } from "./auth";
 import { attributeFromWindow, findConversationNear, pickWindowForCapture, type LinkedConversation } from "./link";
 import { saveCaptureRec } from "./save";
@@ -21,14 +20,14 @@ export interface SongDeps {
   afterCreated: (recId: number) => void;
 }
 
-function defaultDeps(): SongDeps {
+function defaultDeps(defer?: Defer): SongDeps {
   const bee = createBeeClient();
   return {
     findConversation: (at, where) => findConversationNear(bee, at, where),
     pickWindow: pickWindowForCapture,
     attribute: (w, s) => attributeFromWindow(w, s),
     save: saveCaptureRec,
-    afterCreated: (recId) => after(() => afterCaptureSaved(recId)),
+    afterCreated: (recId) => deferOrRun(defer, () => afterCaptureSaved(recId)),
   };
 }
 
@@ -83,7 +82,7 @@ const NO_ONE = { firstName: null as string | null, source: "none" as Attribution
 const fail = (error: string, status: number) => Response.json({ error }, { status });
 const errName = (e: unknown) => (e instanceof Error ? e.name : "unknown");
 
-export async function handleSongCapture(req: Request, overrides: Partial<SongDeps> = {}): Promise<Response> {
+export async function handleSongCapture(req: Request, overrides: Partial<SongDeps> = {}, defer?: Defer): Promise<Response> {
   const token = getEnv().EARMARK_CAPTURE_TOKEN;
   if (!token || !bearerMatches(req, token)) return new Response("unauthorized", { status: 401 });
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) return fail("JSON body required", 415);
@@ -101,7 +100,7 @@ export async function handleSongCapture(req: Request, overrides: Partial<SongDep
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "bad body", 400);
   const body = parsed.data;
 
-  const deps = { ...defaultDeps(), ...overrides };
+  const deps = { ...defaultDeps(defer), ...overrides };
   const at = body.captured_at ? new Date(body.captured_at) : new Date();
   const where = parseLatLng(body.lat ?? null, body.lng ?? null);
   const artist = body.artist ?? null;

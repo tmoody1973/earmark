@@ -1,11 +1,10 @@
 import { del, put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
-import { after } from "next/server";
 import { createBeeClient } from "../bee/client";
 import { getEnv } from "../env";
 import { parseLatLng, type LatLng } from "../geo";
 import type { AttributionSource, RecType, TranscriptWindow } from "../types";
-import { afterCaptureSaved } from "./after-save";
+import { afterCaptureSaved, deferOrRun, type Defer } from "./after-save";
 import { bearerMatches } from "./auth";
 import { classifyPhoto, readPhoto } from "./classify-photo";
 import { attributeFromWindow, findConversationNear, pickWindowForCapture, type LinkedConversation } from "./link";
@@ -29,7 +28,7 @@ export interface PhotoDeps {
   afterCreated: (recId: number) => void;
 }
 
-function defaultDeps(): PhotoDeps {
+function defaultDeps(defer?: Defer): PhotoDeps {
   const bee = createBeeClient();
   return {
     classify: classifyPhoto,
@@ -42,7 +41,7 @@ function defaultDeps(): PhotoDeps {
     putThumb: async (file) =>
       (await put(`thumbs/${randomUUID()}.jpg`, file, { access: "public", addRandomSuffix: true, contentType: "image/jpeg" })).url,
     deleteThumb: (url) => del(url),
-    afterCreated: (recId) => after(() => afterCaptureSaved(recId)),
+    afterCreated: (recId) => deferOrRun(defer, () => afterCaptureSaved(recId)),
   };
 }
 
@@ -65,7 +64,7 @@ function parseDate(v: FormDataEntryValue | null): Date | null {
 const fail = (error: string, status: number) => Response.json({ error }, { status });
 const errName = (e: unknown) => (e instanceof Error ? e.name : "unknown");
 
-export async function handlePhotoCapture(req: Request, overrides: Partial<PhotoDeps> = {}): Promise<Response> {
+export async function handlePhotoCapture(req: Request, overrides: Partial<PhotoDeps> = {}, defer?: Defer): Promise<Response> {
   const token = getEnv().EARMARK_CAPTURE_TOKEN;
   if (!token || !bearerMatches(req, token)) return new Response("unauthorized", { status: 401 });
   let form: FormData;
@@ -87,7 +86,7 @@ export async function handlePhotoCapture(req: Request, overrides: Partial<PhotoD
     if (!["image/jpeg", "image/png"].includes(thumb.type)) return fail(`unsupported thumb ${thumb.type}`, 400);
   }
 
-  const deps = { ...defaultDeps(), ...overrides };
+  const deps = { ...defaultDeps(defer), ...overrides };
   const takenAt = parseDate(form.get("taken_at")) ?? new Date();
   const where = parseLatLng(form.get("lat"), form.get("lng"));
   const bytes = new Uint8Array(await image.arrayBuffer());
