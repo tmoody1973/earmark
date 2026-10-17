@@ -24,6 +24,7 @@ export interface CaptureRec {
   saidAt: Date;
   confidence: number;
   source: Source;
+  status?: "new" | "needs_review"; // default "new"; an email forward that triage doubts is kept for review
   // Photo captures only: the photos row, written in the same transaction as the recommendation.
   photo?: { takenAt: Date; where: LatLng | null; conversationId: number | null; thumbnailUrl: string | null };
 }
@@ -105,7 +106,7 @@ export async function saveCaptureRec(rec: CaptureRec, opts: SaveOptions = {}): P
                                        image_url, links, apple_music_id)
           select ${rec.type}::text, ${rawText}::text, ${rec.canonicalName}::text, ${rec.creator}::text, (select id from r),
                  ${source}::text, ${excerpt}::text, ${rec.beeConversationId}::bigint, ${rec.saidAt.toISOString()}::timestamptz,
-                 ${rec.source}::text, 'new', ${rec.confidence}::real,
+                 ${rec.source}::text, ${rec.status ?? "new"}::text, ${rec.confidence}::real,
                  ${rec.imageUrl}::text, ${links}::jsonb, ${rec.appleMusicId}::text
           where exists (select 1 from ok)
           returning id

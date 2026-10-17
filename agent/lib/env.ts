@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const blankIsUnset = <T extends z.ZodType>(t: T) => z.preprocess((v) => (v === "" ? undefined : v), t);
+
 const EnvSchema = z.object({
   BEE_TOKEN: z.string().min(1),
   BEE_API_BASE: z.string().url().default("https://api.developer.bee.amazon.dev"),
@@ -13,6 +15,10 @@ const EnvSchema = z.object({
   PHOTO_DECISION_PROVIDER: z.enum(["gateway", "openai"]).default("gateway"),
   OPENAI_API_KEY: z.string().optional(), // only for PHOTO_DECISION_PROVIDER=openai
   EARMARK_CAPTURE_TOKEN: z.string().min(32).optional(), // bearer token for /api/capture/*; routes refuse everything while unset
+  // Email-in (Resend inbound). Blank is the same as unset; the route refuses everything until all three are set.
+  RESEND_API_KEY: blankIsUnset(z.string().min(1).optional()),
+  RESEND_WEBHOOK_SECRET: blankIsUnset(z.string().min(1).optional()),
+  EARMARK_OWNER_EMAIL: blankIsUnset(z.string().email().optional()), // only forwards from this address are accepted
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender
