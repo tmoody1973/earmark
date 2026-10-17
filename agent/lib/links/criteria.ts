@@ -7,7 +7,9 @@ export const MERGE_MIN = 0.8; // offer "same idea?" at or above this P(yes)
 // (a tip's text is a different shape from an idea's, so its floor is looser). Each item also meets at most
 // NEIGHBOURS_PER_ITEM nearest partners, so the knobs bound the work, not just the distance.
 export const IDEA_PAIR_MAX_DISTANCE = 0.55;
-export const REC_IDEA_MAX_DISTANCE = 0.7;
+// M4-T11 (prod, read-only): every visible tip's nearest idea sat 0.65–0.80 away (median 0.715), so 0.7 let 3 of 13 tips
+// reach Jev at all and none was shown. 0.75 lets 9 of 13 through (27 pairs, one-off ≈ 21 extra Jev calls ≈ $0.001).
+export const REC_IDEA_MAX_DISTANCE = 0.75;
 export const NEIGHBOURS_PER_ITEM = 5;
 
 // Jev reads literally (docs/research/triage-models.md §2): each instruction names the state fields and asks one
