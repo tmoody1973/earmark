@@ -82,6 +82,12 @@ Uses the same `EARMARK_CAPTURE_TOKEN` as photos. Build the "Earmark this song" S
 
 Only https `music.apple.com` links are accepted. A bad field returns 400 with the reason in `error`; a non-JSON body returns 415.
 
+## Capture an email
+
+Forward an email in which a friend recommends something to your Earmark address, `earmark@<your-id>.resend.app` (Resend dashboard, Emails, Receiving, the Receiving address menu). Resend calls `POST /api/email/inbound`; Earmark checks the Resend signature, fetches the email, saves the recommendation as source `email` and credits the friend named in the forwarded header (first name only). Only forwards sent **from your own address** are accepted; anything else is ignored. A forward the triage model doubts is saved as "needs review", not dropped. Resend retries are safe: each email id is processed once.
+
+Setup: in Resend, Webhooks, add an endpoint `https://<production-host>/api/email/inbound` for the `email.received` event and copy its signing secret; create an API key. Then set these in `.env.local` and in the Vercel project (the route refuses everything while any is blank): `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `EARMARK_OWNER_EMAIL` (your own address). The From address can be forged, so keep the receiving address private (decision 030).
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).

@@ -139,3 +139,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** high (duplicates in the inbox on the first real multi-earmark session).
 - **Workaround:** one earmark per moment: a rec within ±60 s of a rec from the other source, with the same normalized name (or the same recommender and type), is not stored; a short fragment is joined to the next utterance before matching the trigger; transcripts are sorted by `spoken_at`; an earmark voice note from the stream looks up its `created_at` over REST. If that lookup fails, the note falls back to its delivery time, so the ±60 s check can miss and a duplicate is possible (never a lost earmark). Fix round 1: ideas count once per moment (a mention from the other source on the same cluster within ±60 s is the same occasion), and pairing is one-to-one with the recommender+type fallback only between two deliberate earmarks.
 - **Suggestion:** link a journal to the conversation it was recorded during (or mark those utterances), return utterances in spoken order, and include `created_at` on stream journal events.
+
+## F-20 · Resend: the received-email webhook carries metadata only
+- **Task:** M5-T13 (MOO-923), email-in capture, read from the `resend@6.33.0` types and docs 2026-10-16 (not yet seen live).
+- **Expected vs actual:** expected the `email.received` webhook to include the message text. Actual: the event data is metadata only (email id, from, to, subject, attachments list); the body comes from a second call, `resend.emails.receiving.get(id)`. The fetched email has raw `headers` but no structured SPF/DKIM result, so the sender check can only look for an `Authentication-Results` header, and whether Resend adds one is unconfirmed.
+- **Severity:** low (one extra API call per email; the sender-authentication gap is recorded in decision 030).
+- **Workaround:** fetch the body after verifying the signature and claiming the email id; reject on a stated SPF/DKIM/DMARC failure in the headers.
+- **Suggestion:** include SPF/DKIM/DMARC verdicts as fields on the received email.
