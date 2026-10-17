@@ -12,6 +12,7 @@ vi.mock("../../agent/lib/garden/queries", () => ({
   getGardenView: vi.fn(async () => ({ plants: [], shelf: [], serverTime: new Date().toISOString(), newChips: [] })),
   getGardenVisit: vi.fn(async () => null),
   saveGardenVisit: vi.fn(async () => {}),
+  getMaybeTips: vi.fn(async () => ({ tips: [], more: 0 })),
 }));
 
 import { auth } from "@clerk/nextjs/server";
