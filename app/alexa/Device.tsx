@@ -22,26 +22,33 @@ export function Device() {
     setCanListen(!!(w.SpeechRecognition ?? w.webkitSpeechRecognition));
   }, []);
 
+  function stopSpeaking() {
+    audio.current?.pause();
+    window.speechSynthesis?.cancel();
+  }
+
   function speak(answer: string, mp3?: string) {
     const done = () => setPhase("idle");
-    setPhase("speaking");
-    if (mp3) {
-      const a = new Audio(`data:audio/mpeg;base64,${mp3}`);
-      audio.current = a;
-      a.onended = done;
-      a.play().catch(done);
-    } else if ("speechSynthesis" in window) {
+    const browserVoice = () => {
+      if (!("speechSynthesis" in window)) return done();
       const u = new SpeechSynthesisUtterance(answer);
       u.onend = done;
       u.onerror = done;
       window.speechSynthesis.speak(u);
-    } else done();
+    };
+    setPhase("speaking");
+    if (!mp3) return browserVoice();
+    const a = new Audio(`data:audio/mpeg;base64,${mp3}`);
+    audio.current = a;
+    a.onended = done;
+    a.play().catch(browserVoice); // Safari may block autoplay after the await
   }
 
   async function ask(question: string) {
     const q = question.trim().slice(0, 300);
     if (!q || phase === "thinking") return;
     setText("");
+    stopSpeaking();
     setPhase("thinking");
     // Prior turns give the follow-up its context; only the last 6 messages are sent and nothing is stored.
     const history = turns.flatMap((t) => [{ role: "user" as const, text: t.question }, { role: "assistant" as const, text: t.answer }]).slice(-6).map((m) => ({ ...m, text: m.text.slice(0, 600) }));
@@ -62,8 +69,7 @@ export function Device() {
     const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
     const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!Ctor) return;
-    audio.current?.pause();
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     const r = new Ctor();
     r.lang = "en-US";
     r.interimResults = false;

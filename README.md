@@ -122,7 +122,7 @@ Tools: `what_did_they_recommend` (person, period), `ready_ideas`, `search_earmar
 
 ## Alexa+ simulator
 
-Hackathon entrants do not get Alexa+ developer access, so `/alexa` (owner-only, linked from the Ideas page) simulates the Alexa+ experience (decision 036). Press the mic (Chrome or Safari) or type a question; `POST /api/alexa-sim` mints a service token server-side, connects to Earmark's own `/api/mcp` as a real MCP client (`@ai-sdk/mcp`, Streamable HTTP), lets a fast model call the tools, and returns a one-to-three sentence answer, the tools it used, and Polly "Ruth" audio (browser voice if Polly is not configured). Nothing is stored; logs carry tool names and counts only. The MCP server negotiates protocol version **2025-11-25** (supported: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05). Source: `agent/lib/alexa/sim.ts`, `app/alexa/`, `app/api/alexa-sim/route.ts`.
+Hackathon entrants do not get Alexa+ developer access, so `/alexa` (owner-only, linked from the Ideas page) simulates the Alexa+ experience (decision 036). Press the mic (Chrome or Safari) or type a question; `POST /api/alexa-sim` mints a service token server-side, connects to Earmark's own `/api/mcp` as a real MCP client (`@ai-sdk/mcp`, Streamable HTTP), lets a fast model call the tools, and returns a one-to-three sentence answer, the tools it used, and Polly "Ruth" audio (browser voice if Polly is not configured). Nothing is stored; logs carry tool names and counts only. The client offers 2026-07-28 and the session settles on **2025-11-25** (the server's latest) (supported: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05). Source: `agent/lib/alexa/sim.ts`, `app/alexa/`, `app/api/alexa-sim/route.ts`.
 
 ## Privacy and consent
 
