@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { BeeApiError, createBeeClient, toDate } from "../../../agent/lib/bee/client";
+import todoFixture from "../../fixtures/bee-todo.json";
 
 function fakeFetch(status: number, body: unknown) {
   return vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -115,12 +116,17 @@ describe("Bee deletes", () => {
   });
 });
 
-describe("getTodo (M5-T6)", () => {
-  it("GETs one todo and surfaces a 404 as BeeApiError", async () => {
-    const f = fakeFetch(200, JSON.stringify({ id: 9, text: "x", completed: true }));
-    expect(await createBeeClient(opts(f)).getTodo(9)).toMatchObject({ id: 9, completed: true });
-    expect(String(f.mock.calls[0][0])).toBe("https://bee.test/v1/todos/9");
-    const err = await createBeeClient(opts(fakeFetch(404, "not found"))).getTodo(9).catch((e) => e);
+// M3-T8: GET /v1/todos/:id returns a BARE todo (verified live by lane C, read-only); the fixture has exactly its keys.
+describe("Bee getTodo", () => {
+  it("reads one todo by id and parses the bare object", async () => {
+    const f = fakeFetch(200, todoFixture);
+    const todo = await createBeeClient(opts(f)).getTodo(4242);
+    expect(String(f.mock.calls[0]![0])).toBe("https://bee.test/v1/todos/4242");
+    expect(todo).toEqual({ id: 4242, text: todoFixture.text, completed: true, alarm_at: null });
+  });
+
+  it("surfaces a 404 as BeeApiError, like the other single-object reads", async () => {
+    const err = await createBeeClient(opts(fakeFetch(404, "not found"))).getTodo(7).catch((e) => e);
     expect(err).toBeInstanceOf(BeeApiError);
     expect(err.status).toBe(404);
   });
