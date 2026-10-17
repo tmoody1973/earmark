@@ -30,6 +30,7 @@ export default async function PublishPage({ params }: { params: Promise<{ id: st
       <PublishPanel
         spaceId={id}
         url={state.token ? spaceUrl(state.token) : null}
+        path={state.token ? `/s/${state.token}` : null}
         published={state.token !== null}
         indexable={state.indexable}
         people={state.people}

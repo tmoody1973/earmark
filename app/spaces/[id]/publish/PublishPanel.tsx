@@ -6,6 +6,8 @@ import { consentAction, indexableAction, publishAction, unpublishAction } from "
 interface Props {
   spaceId: number;
   url: string | null;
+  /** Relative /s/<token>, shown when the absolute base URL is not configured. */
+  path: string | null;
   published: boolean;
   indexable: boolean;
   people: Array<{ id: number; firstName: string; consent: boolean; tips: number }>;
@@ -13,7 +15,7 @@ interface Props {
 
 /* Publish / unpublish, the live URL (as text, with Copy), the indexing toggle, and the "said yes to being named" toggles.
    Every result is announced in one live region. Failures log the error name only. */
-export function PublishPanel({ spaceId, url, published, indexable, people }: Props) {
+export function PublishPanel({ spaceId, url, path, published, indexable, people }: Props) {
   const router = useRouter();
   const [said, setSaid] = useState("");
   const [pending, start] = useTransition();
@@ -49,9 +51,11 @@ export function PublishPanel({ spaceId, url, published, indexable, people }: Pro
         <h2 id="pub-link">{published ? "This Space is live" : "Not published"}</h2>
         {published ? (
           <>
-            {url ? <p className="r-meta" data-testid="publish-url"><code>{url}</code></p> : <p className="r-meta">Set EARMARK_PUBLIC_BASE_URL to show the full link.</p>}
+            <p className="r-meta" data-testid="publish-url"><code>{url ?? path}</code></p>
+            {!url && <p className="r-meta">Set EARMARK_PUBLIC_BASE_URL to show the full link to share.</p>}
             <p style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
               {url && <button type="button" onClick={copy}>Copy link</button>}
+              {!url && <a href={path ?? ""}>Open the page</a>}
               <button
                 type="button"
                 className="quiet"
@@ -80,10 +84,13 @@ export function PublishPanel({ spaceId, url, published, indexable, people }: Pro
             checked={indexable}
             disabled={pending}
             style={{ width: 24, height: 24 }}
-            onChange={(e) => run("indexing", async () => {
-              await indexableAction(spaceId, e.target.checked);
-              return e.target.checked ? "Search engines may list this page." : "Search engines are asked not to list this page.";
-            })}
+            onChange={(e) => {
+              const next = e.target.checked; // read before the await: the controlled box snaps back meanwhile
+              run("indexing", async () => {
+              await indexableAction(spaceId, next);
+              return next ? "Search engines may list this page." : "Search engines are asked not to list this page.";
+              });
+            }}
           />
           Let search engines list this page
         </label>
@@ -92,6 +99,7 @@ export function PublishPanel({ spaceId, url, published, indexable, people }: Pro
       <section aria-labelledby="pub-names">
         <h2 id="pub-names">Who is named</h2>
         <p className="r-meta">Only kept tips appear publicly. A first name shows under a tip only after you check “They said yes to being named” for that person, which you should do only once they have told you so.</p>
+        <p className="r-meta">Naming applies on every published Space where their tips appear. Earmark keeps one record per first name.</p>
         {people.length === 0 ? (
           <p className="r-meta">No kept tip has a recommender yet.</p>
         ) : (
@@ -104,10 +112,13 @@ export function PublishPanel({ spaceId, url, published, indexable, people }: Pro
                     checked={p.consent}
                     disabled={pending}
                     style={{ width: 24, height: 24 }}
-                    onChange={(e) => run("consent", async () => {
-                      await consentAction(spaceId, p.id, e.target.checked);
-                      return e.target.checked ? `${p.firstName} will be named.` : `${p.firstName} will not be named.`;
-                    })}
+                    onChange={(e) => {
+                      const next = e.target.checked; // read before the await: the controlled box snaps back meanwhile
+                      run("consent", async () => {
+                      await consentAction(spaceId, p.id, next);
+                      return next ? `${p.firstName} will be named.` : `${p.firstName} will not be named.`;
+                      });
+                    }}
                   />
                   <span>{p.firstName} ({p.tips} {p.tips === 1 ? "tip" : "tips"}): They said yes to being named</span>
                 </label>

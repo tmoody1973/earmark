@@ -58,9 +58,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Publishing a Space on the Neon 
     expect(JSON.stringify(view)).not.toMatch(/SECRET|IT publish idea/);
     expect(view?.tips[0].recommender).toBeNull(); // no consent yet
 
-    await setNameConsent(person, true);
+    await setNameConsent(space, person, true);
     expect((await getPublishedSpace(token!))?.tips[0].recommender?.firstName).toBe("ITPublishAnn");
-    await setNameConsent(person, false);
+    await setNameConsent(space, person, false);
     expect((await getPublishedSpace(token!))?.tips[0].recommender).toBeNull();
 
     expect(await unpublishSpace(space)).toBe(true);
