@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("../../../agent/lib/garden/queries", () => ({
   getGardenVisit: vi.fn(async () => null),
   saveGardenVisit: vi.fn(async () => {}),
+  setTipVerdict: vi.fn(async () => true),
 }));
 
 import { auth } from "@clerk/nextjs/server";
-import { getGardenVisit, saveGardenVisit } from "../../../agent/lib/garden/queries";
-import { recordGardenVisit } from "../../../app/garden/actions";
+import { revalidatePath } from "next/cache";
+import { getGardenVisit, saveGardenVisit, setTipVerdict } from "../../../agent/lib/garden/queries";
+import { keepTip, notATip, recordGardenVisit } from "../../../app/garden/actions";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
 
@@ -40,5 +43,35 @@ describe("recordGardenVisit", () => {
     vi.mocked(getGardenVisit).mockResolvedValueOnce({ seenBefore: null, lastVisit: "2026-10-01T00:00:00.000Z" });
     expect(await recordGardenVisit()).toEqual({ started: true });
     expect(saveGardenVisit).toHaveBeenCalledWith(expect.objectContaining({ seenBefore: "2026-10-01T00:00:00.000Z" }));
+  });
+});
+
+// The Maybe? pile (decision 025): Keep → on the shelf; Not a tip → gone. Each tap is also a label for the sorter.
+describe.each([["keepTip", keepTip, "kept"], ["notATip", notATip, "not_a_tip"]] as const)("%s", (_name, action, verdict) => {
+  it("refuses anyone but the owner, without touching the tip", async () => {
+    signedInAs("user_stranger");
+    await expect(action(7)).rejects.toThrow(/not found/i);
+    signedInAs(null);
+    await expect(action(7)).rejects.toThrow(/not found/i);
+    expect(setTipVerdict).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_VALUE, "7", null, undefined])("rejects the id %s without a write", async (id) => {
+    signedInAs("user_owner");
+    await expect(action(id as never)).rejects.toThrow(/invalid tip/i);
+    expect(setTipVerdict).not.toHaveBeenCalled();
+  });
+
+  it(`records "${verdict}" and refreshes the garden's pages`, async () => {
+    signedInAs("user_owner");
+    expect(await action(7)).toEqual({ changed: true });
+    expect(setTipVerdict).toHaveBeenCalledWith(7, verdict);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("reports a no-op when the tip was no longer a maybe", async () => {
+    signedInAs("user_owner");
+    vi.mocked(setTipVerdict).mockResolvedValueOnce(false);
+    expect(await action(7)).toEqual({ changed: false });
   });
 });
