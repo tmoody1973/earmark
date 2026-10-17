@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { afterAll, describe, expect, it } from "vitest";
 
 // Real Neon test on the `test` branch (TEST_DATABASE_URL, never production). Models are stubbed; the claim, save and release SQL is real.
@@ -11,6 +12,12 @@ const fakeDeps = (kind: string, name: string | null = NAME) => ({
   extractIdea: async () => ({ title: "T12 idea", excerpt: "newsletter idea" }),
   bee: {},
   now: () => createdAt,
+  // No Gateway: a unit-vector embedding, "nothing near, make a new idea", a stub note. Always a create, so it never joins a stored cluster.
+  compost: {
+    embedText: async () => Array.from({ length: 1536 }, (_, j) => (j === 1500 ? 1 : 0)),
+    chooseCluster: async () => ({ key: null }),
+    writeTimelineNote: async () => "stub",
+  },
 }) as never;
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", () => {
@@ -18,7 +25,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     const { db } = await import("../../agent/lib/db");
     const sql = db();
     await sql`delete from recommendations where bee_journal_id like ${JID + "%"}`;
-    await sql`delete from idea_clusters where id in (select cluster_id from idea_mentions where bee_journal_id like ${JID + "%"})`;
+    // Only clusters whose every mention is this test's (the fakes always create, so each is ours alone).
+    await sql`delete from idea_clusters where id in (select cluster_id from idea_mentions where bee_journal_id like ${JID + "%"})
+              and not exists (select 1 from idea_mentions m where m.cluster_id = idea_clusters.id and m.bee_journal_id not like ${JID + "%"})`;
     await sql`delete from recommenders where first_name_key = ${NAME.toLowerCase()}`;
     await sql`delete from processed_journals where bee_journal_id like ${JID + "%"}`;
   });
@@ -28,7 +37,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     const { db } = await import("../../agent/lib/db");
     const j = { id: JID, text: `Earmark that, ${NAME}'s ramen spot`, createdAt };
     const first = await processJournal(j, fakeDeps("neither"));
-    expect(first).toMatchObject({ created: "rec", saved: { ideaClusterIds: [], mentionIds: [] } });
+    expect(first).toMatchObject({ created: "rec", saved: { ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(await processJournal(j, fakeDeps("neither"))).toMatchObject({ created: null });
     const recs = await db()`select id, recommender_id, attribution_source, source, confidence from recommendations where bee_journal_id = ${JID}`;
     expect(recs).toHaveLength(1);
@@ -58,7 +67,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(c).toMatchObject({ item_type: "idea" });
     expect(c!.item_id).not.toBeNull();
     const [m] = await db()`select id, cluster_id from idea_mentions where bee_journal_id = ${idea}`;
-    expect(saved.saved).toEqual({ recIds: [], ideaClusterIds: [Number(m!.cluster_id)], mentionIds: [Number(m!.id)] });
+    expect(saved.saved).toEqual({ recIds: [], ideaClusterIds: [Number(m!.cluster_id)], mentionIds: [Number(m!.id)], bloomedClusterIds: [] });
     const none = `${JID}-d`;
     expect(await processJournal({ id: none, text: "remind me to call mom", createdAt }, fakeDeps("neither"))).toMatchObject({ created: null });
     const [n] = await db()`select item_type from processed_journals where bee_journal_id = ${none}`;
@@ -89,11 +98,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("processJournal (real Neon)", ()
     expect(await markJournalProcessed(id, { type: "none", id: null })).toBe(false); // done is final
   });
 
+  it("guarded release: deletes an unfinished journal claim but never a done one", async () => {
+    const { markJournalProcessed, releaseJournal } = await import("../../agent/lib/store/conversations");
+    const { db } = await import("../../agent/lib/db");
+    const sql = db();
+    const id = `${JID}-g`;
+    const exists = async () => (await sql`select 1 from processed_journals where bee_journal_id = ${id}`).length === 1;
+    expect(await markJournalProcessed(id, { type: "none", id: null })).toBe(true);
+    await releaseJournal(id);
+    expect(await exists()).toBe(false); // unfinished: released
+    expect(await markJournalProcessed(id, { type: "none", id: null }, true)).toBe(true); // done = true
+    await releaseJournal(id);
+    expect(await exists()).toBe(true); // done: kept (afterAll cleans up)
+  });
+
   it("a failure after the claim saves nothing and releases the claim", async () => {
     const { processJournal } = await import("../../agent/lib/pipeline/process-journal");
     const { isJournalProcessed } = await import("../../agent/lib/store/conversations");
     const id = `${JID}-e`;
-    const boom = { ...(fakeDeps("neither") as object), extractRecommendation: async () => { throw new Error("model down"); } } as never;
+    const boom = { ...(fakeDeps("neither") as object), extractRecommendation: async () => { throw new APICallError({ message: "model down", url: "https://x", requestBodyValues: {}, statusCode: 503 }); } } as never;
     await expect(processJournal({ id, text: "Earmark that, ramen", createdAt }, boom)).rejects.toThrow("model down");
     expect(await isJournalProcessed(id)).toBe(false);
   });

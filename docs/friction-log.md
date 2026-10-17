@@ -76,3 +76,66 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** high (more than half the garden was noise).
 - **Workaround:** a fourth Jev question, "is this advertising or broadcast media?", asked in the same call; ambient windows above 0.5 are dropped before extraction. Voice notes skip the check. After the re-run, 32 recommendations became 18; one station-ID item ("88.9") still got through.
 - **Suggestion:** Bee flags utterances that come from a speaker or device rather than a person in the room, or exposes speaker diarization so media audio becomes its own speaker.
+
+## F-11 · pgvector: no vector-times-scalar operator for a running-mean centroid
+- **Task:** M2-T4 (idea compost: a mention joining a cluster updates its centroid).
+- **Expected vs actual:** expected `centroid * n` / `/ (n + 1)` to keep a running mean in one UPDATE. pgvector has `+`, `-` and element-wise `*` between vectors, but no scalar multiply or divide.
+- **Severity:** low.
+- **Workaround:** the save statement sets the centroid to `avg()` over the cluster's accepted mention embeddings plus the new one (an exact mean, self-healing). Ceiling: two concurrent joins on one cluster can each miss the other's vector (the count stays exact).
+- **Suggestion:** pgvector scalar operators (`vector * real`), or a documented running-mean recipe.
+
+## F-12 · tsx: a one-off `.ts` outside the repo runs as CommonJS, so top-level await fails
+- **Task:** M2-T4 (read-only check of the real garden from a scratch script).
+- **Expected vs actual:** a scratch `.ts` file with top-level `await` failed with "Top-level await is currently not supported with the cjs output format": outside the repo there is no `"type": "module"` package.json. Renaming to `.mts` fixed it; the worktree guard also refuses `mv … && node …` compound commands, so each step had to run separately.
+- **Severity:** low.
+- **Workaround:** name scratch scripts `.mts`, or put them under `scripts/`.
+- **Suggestion:** tsx could hint at `.mts` in that error.
+
+## F-13 · Bee: `/v1/changes` response shape is undocumented and our own brief had it wrong
+- **Task:** M2-T3 (incremental sync).
+- **Expected vs actual:** the plan said the response nests cursor fields under `meta` and that a no-cursor call bootstraps about 10 h. The real response (one read-only call) has `next_cursor`, `since`, `until`, `updated`, `timezone` at the top level, lists hold bare numeric ids, and the no-cursor window is 24 h. Docs list the ids but show no schema.
+- **Severity:** medium (a parser written from the brief would have rejected every real response, so the cursor would never advance).
+- **Workaround:** probed the real endpoint first, recorded the shape in `docs/research/bee-api.md` and a redacted fixture; the schema test parses the fixture. Non-empty journals/todos/facts lists are still unseen, so ids are accepted as bare or `{id}`.
+- **Suggestion:** document the `/v1/changes` response schema and bootstrap window.
+
+## F-14 · Bee: the live `new-utterance` payload differs from the documented one
+- **Task:** M2-T6 (live bloom).
+- **Expected vs actual:** the realtime docs show `{"utterance":{"text","speaker"},"conversation_uuid"}` "with no timestamp, no utterance id". A 25-second read-only `bee stream --json` (2026-10-16, structure only) showed `utterance: {id, sample_id, start, end, text, spoken_at}` and NO `speaker`. The REST conversation has no `uuid` field, so the only documented link from a stream uuid to the REST id is the `new-conversation` event, which is lost if the relay was down when the conversation started.
+- **Severity:** medium (without a link, a live mention and the later completed pass of the same conversation would count as two occasions and could fake a bloom).
+- **Workaround:** the stream's `utterance.id` equals the REST utterance id in the still-capturing conversation's realtime transcription (3 of 3 ids matched on conversation 11333494), so an unmapped uuid is resolved by finding that id in the newest non-completed conversations and the pair is remembered. Schema keeps `speaker` defaulting to "Unknown" and `id` optional.
+- **Suggestion:** document the real payload, and include the numeric `conversation_id` on `new-utterance` (or a `uuid` on the REST conversation).
+
+## F-15 · Tooling: the worktree guard and the auto-mode classifier slowed a real-account check
+- **Task:** M2-T12 ("Earmark that" anywhere).
+- **Expected vs actual:** the worktree guard refused several plain commands (a heredoc-edit followed by `&&`, an inline `python3` chain), and the permission classifier denied deleting one prod row that my own verification run had created. Each cost a retry or a stop. Separately, `node` on PATH is v26 while the project needs Node 24, so every command needs the long fnm path.
+- **Severity:** low (minutes), except the denied delete, which leaves a known duplicate (rec 153) for a human to remove.
+- **Workaround:** one command per call, the Edit tool instead of scripted edits, and reporting the leftover row instead of forcing the delete.
+- **Suggestion:** put Node 24 first on PATH for this project, and when a real-account run might leave cleanup work, get the delete pre-approved with the run.
+
+## F-16 · Vercel: a CLI-created project has no framework preset, so `withEve` deploys only the agent
+- **Task:** first production deploy (M2-T2).
+- **Expected vs actual:** expected `vercel deploy --prod` to build the Next.js app plus the eve service, as `withEve` promises. Actual: the project's framework was `null`, so only `services/eve/*` was built; `/`, `/sign-in` and every Next.js route returned 404 while `/eve/v1/health` returned 200. Nothing in the deploy output warned about it.
+- **Severity:** high (looks like a healthy deploy).
+- **Workaround:** `vercel.json` with `{"framework":"nextjs"}`. (Patching the project through the API was refused by the permission classifier, and a committed file is the more reviewable fix anyway.)
+- **Suggestion:** `eve link` / `eve deploy` should set the Next.js preset when `next.config` uses `withEve`, or fail the build when the Next app is missing from the output.
+
+## F-17 · eve: Vercel cron jobs share one unguessable path; the dev trigger route does not exist in production
+- **Task:** confirming schedules as Vercel crons (M2-T2).
+- **Expected vs actual:** expected one cron entry per schedule. Actual: both schedules point at one `/eve/v1/cron/<random>` path (the schedule is picked by the `x-vercel-cron-schedule` header), so `vercel crons list` shows two rows with identical paths and `vercel crons run <path>` cannot choose a schedule. The path is the secret, which is good for protection (no `CRON_SECRET` needed) but hard to test by hand.
+- **Severity:** low.
+- **Workaround:** read the run's `[bee-changes] done` log line with `vercel logs`.
+- **Suggestion:** document that `maxDuration: "max"` is 800 s on Pro with Fluid Compute, and print schedule names in `vercel crons list`.
+
+## F-18 · Bee: neural search matches the topic word, not the idea
+- **Task:** M2-T7 (one-pager on bloom), live check on the test branch with Tarik's real Bee account (read-only search).
+- **Expected vs actual:** expected `POST /v1/search/conversations/neural` with the idea's title ("CRM for public radio stations", limit 5) to return Tarik's conversations about that idea, or nothing. Actual: it returned a conversation about a CRM for real-estate agents, and Sonnet (told to use only the material) dutifully listed it as a scope question in the draft. Whole call ~3 s, as documented.
+- **Severity:** low (the draft stays honest, but one bullet is noise).
+- **Workaround (fix round 1):** a Jev relevance gate keeps a note only when P(same_idea) ≥ 0.6 (facts: P(relevant) ≥ 0.6), and keeps no context at all if the gate fails. Live, on a later run with different neural results: 1 of 5 notes kept (p 0.79–0.81); four "Referenced in the Lorekeeper answer." notes dropped (p 0.48–0.56). A direct gate check scored two real-estate CRM notes at 0.00 and a public-radio CRM note at 1.00. The kept note still mentioned the real-estate CRM in passing, so the prompt now also says to use a note only for what it says about this idea. After that change, the draft had no real-estate content.
+- **Suggestion:** expose a relevance score on neural results (keyword results have `score`) so callers can apply a cutoff.
+
+## F-19 · Bee: one spoken earmark arrives twice, and the transcript is not in spoken order
+- **Task:** M2-T14 (MOO-938), real data 2026-10-16: five voice notes recorded while Bee was also recording conversation 11338188.
+- **Expected vs actual:** expected a voice note to be one capture. Actual: the same words were also in the ambient conversation transcript, a few seconds apart, so the 10-minute sync saved three of them twice (recs 159, 162, 163). Three more Bee behaviours made it worse: (1) diarization split the trigger word across two utterances and two speakers in the same second ("Earm" | "ark that."), so one earmark slipped past the matcher and was saved by ambient triage instead, credited "Anne" from the summary; (2) `GET /v1/conversations/:id` returns utterances out of spoken order (108 of 311 neighbouring pairs), so "the utterance after the trigger" was sometimes an unrelated line; (3) the stream's journal events carry no `created_at`, so a voice note processed from the stream was dated by its delivery, not when it was said.
+- **Severity:** high (duplicates in the inbox on the first real multi-earmark session).
+- **Workaround:** one earmark per moment: a rec within ±60 s of a rec from the other source, with the same normalized name (or the same recommender and type), is not stored; a short fragment is joined to the next utterance before matching the trigger; transcripts are sorted by `spoken_at`; an earmark voice note from the stream looks up its `created_at` over REST. If that lookup fails, the note falls back to its delivery time, so the ±60 s check can miss and a duplicate is possible (never a lost earmark). Fix round 1: ideas count once per moment (a mention from the other source on the same cluster within ±60 s is the same occasion), and pairing is one-to-one with the recommender+type fallback only between two deliberate earmarks.
+- **Suggestion:** link a journal to the conversation it was recorded during (or mark those utterances), return utterances in spoken order, and include `created_at` on stream journal events.

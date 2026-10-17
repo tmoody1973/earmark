@@ -41,8 +41,8 @@ console.log("run 1", first);
 const second = await processConversation(id);
 console.log("run 2", second);
 console.log("rows after", await counts());
-console.log("saved recs", await sql`select r.id, r.canonical_name, r.type, r.status, p.first_name as recommender, r.attribution_source
+console.log("saved recs", await sql`select r.id, r.canonical_name, r.type, r.status, p.first_name as recommender, r.attribution_source, r.source, r.deliberate_key
   from recommendations r left join recommenders p on p.id = r.recommender_id where r.bee_conversation_id = ${id}`);
-console.log("saved ideas", await sql`select c.id, c.title, c.stage, m.review_status
+console.log("saved ideas", await sql`select c.id, c.title, c.stage, m.review_status, m.source, m.deliberate_key
   from idea_mentions m join idea_clusters c on c.id = m.cluster_id where m.bee_conversation_id = ${id}`);
 console.log("done flag", await sql`select done from processed_conversations where bee_conversation_id = ${id}`);

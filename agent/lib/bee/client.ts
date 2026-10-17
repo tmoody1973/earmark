@@ -21,6 +21,7 @@ export function toDate(v: number | string | null | undefined): Date | null {
 }
 
 const UtteranceSchema = z.object({
+  id: z.number().optional(), // the same id the live stream sends with each new-utterance
   text: z.string(),
   speaker: z.string().default("Unknown"),
   spoken_at: Timestamp.nullable().optional(),
@@ -57,6 +58,64 @@ const TodoSchema = z.object({
   alarm_at: Timestamp.nullable().optional(),
 });
 const Cursor = z.string().nullable().optional().transform((c) => c ?? null);
+
+// GET /v1/changes (observed 2026-10-16): the cursor/window fields are TOP level (no `meta` wrapper) and the lists hold
+// bare numeric ids. A non-empty journals list has not been seen yet, so objects with an `id` are accepted too.
+const ChangeItemSchema = z.union([z.number(), z.string(), z.object({ id: z.union([z.number(), z.string()]) })]);
+const changeList = z.array(ChangeItemSchema).default([]);
+export const BeeChangesSchema = z.object({
+  next_cursor: z.string(),
+  since: z.number(),
+  until: z.number(),
+  updated: z.boolean(),
+  timezone: z.string(),
+  facts: changeList,
+  todos: changeList,
+  dailies: changeList,
+  conversations: changeList,
+  journals: changeList,
+});
+export type BeeChanges = z.infer<typeof BeeChangesSchema>;
+
+// Search shapes verified live (docs/research/bee-api.md §7). Neural ids are numbers, keyword ids strings.
+export const NeuralSearchSchema = z.object({
+  results: z.array(z.object({
+    id: z.number(),
+    started_at: Timestamp.nullish(),
+    stopped_at: Timestamp.nullish(),
+    link: z.string().nullish(),
+    locations: z.array(z.string()).default([]),
+    short_summary: z.string().nullish(),
+    detailed_summary: z.string().nullish(),
+  })),
+  total: z.number().optional(),
+  timezone: z.string().optional(),
+});
+export const KeywordSearchSchema = z.object({
+  results: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    score: z.number().optional(),
+    summary: z.string().nullish(),
+    snippet: z.string().nullish(),
+    title_snippet: z.string().nullish(),
+    created_at: Timestamp.nullish(),
+  })),
+  next_cursor: z.string().nullish(),
+  search_mode: z.string().optional(),
+  timezone: z.string().optional(),
+});
+const FactSchema = z.object({ id: z.number(), text: z.string(), tags: z.array(z.string()).default([]), created_at: Timestamp, confirmed: z.boolean() });
+export type NeuralSearchResult = z.infer<typeof NeuralSearchSchema>;
+export type KeywordSearchResult = z.infer<typeof KeywordSearchSchema>;
+export type BeeFact = z.infer<typeof FactSchema>;
+export type KeywordSearchOptions = {
+  filter?: "conversations" | "daily" | "facts" | "all";
+  sortBy?: "relevance" | "mostRecent";
+  since?: number;
+  until?: number;
+  limit?: number;
+};
 
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
 export type Conversation = z.infer<typeof ConversationSchema>;
@@ -98,6 +157,14 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     getJournal: (id: string) => call(`/v1/journals/${encodeURIComponent(id)}`, JournalSchema),
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
+    changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),
+    // `q`, not `query`: that name is the query-string helper above. signal: a caller's own timeout (default 15 s).
+    neuralSearch: (q: string, opts: { since?: number; until?: number; limit?: number } = {}, signal?: AbortSignal) =>
+      call("/v1/search/conversations/neural", NeuralSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
+    keywordSearch: (q: string, opts: KeywordSearchOptions = {}, signal?: AbortSignal) =>
+      call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
+    listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
+      call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
   };
 }
 

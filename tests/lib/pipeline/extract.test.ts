@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { generateText } from "ai";
-import { extractIdea, extractRecommendation } from "../../../agent/lib/pipeline/extract";
+import { extractIdea, extractRecommendation, notTheItself } from "../../../agent/lib/pipeline/extract";
 import { wordCount } from "../../../agent/lib/pipeline/excerpt";
 
 const fake = (output: unknown) => vi.fn(async () => ({ output })) as unknown as typeof generateText;
@@ -21,6 +21,34 @@ describe("extractRecommendation", () => {
       generateImpl: fake({ canonicalName: "Ardent", creator: null, recommenderName: "Bob", excerpt: "the broth is the reason to go" }),
     });
     expect(r.recommenderName).toBeNull();
+  });
+
+  it("never credits the item's own artist as the recommender (possessive name before the item)", async () => {
+    const t = "Unknown: I should listen to Jemetta Rose's new albums as a tribute to Sun Ra Records";
+    const r = await extractRecommendation({ text: t, summary: null }, {
+      model: "m",
+      generateImpl: fake({ canonicalName: "Jemetta Rose's new albums", creator: "Jemetta Rose", recommenderName: "Jemetta", excerpt: "I should listen to Jemetta Rose's new albums" }),
+    });
+    expect(r.recommenderName).toBeNull();
+    const viaCreator = await extractRecommendation({ text: t, summary: null }, {
+      model: "m",
+      generateImpl: fake({ canonicalName: "New albums", creator: "Jemetta Rose", recommenderName: "Jemetta", excerpt: "I should listen to Jemetta Rose's new albums" }),
+    });
+    expect(viaCreator.recommenderName).toBeNull();
+  });
+
+  it("notTheItself treats regex metacharacters literally", () => {
+    expect(notTheItself("A.n", { canonicalName: "Ann's place", creator: null })).toBe("A.n");
+    expect(notTheItself("Ann", { canonicalName: "Ann's place", creator: null })).toBeNull();
+    expect(notTheItself("(", { canonicalName: "x", creator: "y" })).toBe("(");
+  });
+
+  it("tells the model to keep a stated type or cuisine word in the title", async () => {
+    const generateImpl = fake({ canonicalName: "Omakase spot 1033", creator: null, recommenderName: null, excerpt: "x" });
+    await extractRecommendation({ text: "Unknown: x", summary: null }, { model: "m", generateImpl });
+    const args = vi.mocked(generateImpl).mock.calls[0]![0] as { instructions: string };
+    expect(args.instructions).toMatch(/type or cuisine word/);
+    expect(args.instructions).toContain("Omakase spot 1033");
   });
 
   it("accepts a name that only appears in Bee's summary", async () => {

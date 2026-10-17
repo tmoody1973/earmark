@@ -18,3 +18,16 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 docs/design/inspiration/*.png
+.vercel
+
+# M4 design: local-only, may contain real Bee-derived names (lane B)
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/build/
+.impeccable/critique/
+docs/design/screens/
+playwright/.clerk/
+playwright-report/
+
+# M2-T8: real speech windows for labeling, local only. Delete after Oct 23.
+evals/triage/data/
