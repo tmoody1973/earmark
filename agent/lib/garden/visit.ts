@@ -24,18 +24,23 @@ export function parseVisit(raw: string | null): VisitState | null {
   }
 }
 
-/** The baseline for this render (`since`; null on the first visit ever) and the record to store after it. */
-export function nextVisit(prev: VisitState | null, now: Date, gapMs = VISIT_GAP_MS): { since: string | null; next: VisitState } {
+/**
+ * The baseline for a look at `now` (`since`; null on the first visit ever), the record to store if that look is
+ * recorded, and whether it starts a new visit. The page only reads this; GardenLive records a look on mount and on
+ * return to the tab (recordGardenVisit), so a router.refresh() never counts.
+ */
+export function nextVisit(prev: VisitState | null, now: Date, gapMs = VISIT_GAP_MS): { since: string | null; next: VisitState; started: boolean } {
   const at = now.toISOString();
-  if (!prev) return { since: null, next: { seenBefore: null, lastVisit: at } };
+  if (!prev) return { since: null, next: { seenBefore: null, lastVisit: at }, started: true };
   const last = Date.parse(prev.lastVisit);
-  if (now.getTime() - last > gapMs) return { since: prev.lastVisit, next: { seenBefore: prev.lastVisit, lastVisit: at } };
-  return { since: prev.seenBefore, next: { seenBefore: prev.seenBefore, lastVisit: now.getTime() > last ? at : prev.lastVisit } };
+  if (now.getTime() - last > gapMs) return { since: prev.lastVisit, next: { seenBefore: prev.lastVisit, lastVisit: at }, started: true };
+  return { since: prev.seenBefore, next: { seenBefore: prev.seenBefore, lastVisit: now.getTime() > last ? at : prev.lastVisit }, started: false };
 }
 
+/** `from`: the recommender's first name, if any (search matches title + first name only). */
 export type NewChip =
-  | { key: string; kind: "rec"; type: RecType; title: string; meta: string; at: string; href: string }
-  | { key: string; kind: "bloom"; title: string; meta: string; at: string; href: string };
+  | { key: string; kind: "rec"; type: RecType; title: string; from: string | null; meta: string; at: string; href: string }
+  | { key: string; kind: "bloom"; title: string; from: null; meta: string; at: string; href: string };
 
 export interface BloomSince { clusterId: number; title: string; mentionCount: number; at: string }
 
@@ -46,12 +51,12 @@ const TYPE_WORD: Record<RecType, string> = {
 export const bloomMeta = (mentionCount: number) => `Bloomed · ${mentionCount} ${mentionCount === 1 ? "mention" : "mentions"}`;
 
 export function bloomChip(b: BloomSince): NewChip {
-  return { key: `idea-${b.clusterId}`, kind: "bloom", title: b.title, meta: bloomMeta(b.mentionCount), at: b.at, href: `/ideas/${b.clusterId}` };
+  return { key: `idea-${b.clusterId}`, kind: "bloom", title: b.title, from: null, meta: bloomMeta(b.mentionCount), at: b.at, href: `/ideas/${b.clusterId}` };
 }
 
 function recChip(c: RecCardData): NewChip {
   const from = c.recommender ? `from ${c.recommender.firstName} · ` : "";
-  return { key: `rec-${c.id}`, kind: "rec", type: c.type, title: c.name, meta: `${from}${TYPE_WORD[c.type]}`, at: c.createdAt, href: `/shelf#rec-${c.id}` };
+  return { key: `rec-${c.id}`, kind: "rec", type: c.type, title: c.name, from: c.recommender?.firstName ?? null, meta: `${from}${TYPE_WORD[c.type]}`, at: c.createdAt, href: `/shelf#rec-${c.id}` };
 }
 
 /** Tips caught (and not yet acted on) and ideas bloomed after `since`, newest first, one chip per item. */

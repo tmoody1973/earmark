@@ -9,6 +9,7 @@ describe("nextVisit", () => {
     expect(nextVisit(null, at("2026-10-20T18:00:00Z"))).toEqual({
       since: null,
       next: { seenBefore: null, lastVisit: "2026-10-20T18:00:00.000Z" },
+      started: true,
     });
   });
 
@@ -17,6 +18,7 @@ describe("nextVisit", () => {
     expect(nextVisit(prev, at("2026-10-20T18:00:00Z"))).toEqual({
       since: "2026-10-20T09:00:00.000Z",
       next: { seenBefore: "2026-10-20T09:00:00.000Z", lastVisit: "2026-10-20T18:00:00.000Z" },
+      started: true,
     });
   });
 
@@ -26,6 +28,7 @@ describe("nextVisit", () => {
     expect(nextVisit(prev, now)).toEqual({
       since: "2026-10-20T09:00:00.000Z",
       next: { seenBefore: "2026-10-20T09:00:00.000Z", lastVisit: now.toISOString() },
+      started: false,
     });
   });
 
@@ -69,9 +72,9 @@ describe("newSince", () => {
       [{ clusterId: 7, title: "Station crates", mentionCount: 3, at: "2026-10-20T11:30:00.000Z" }],
     );
     expect(chips).toEqual([
-      { key: "rec-3", kind: "rec", type: "film_tv", title: "Shogun", meta: "film / TV", at: "2026-10-20T12:00:00.000Z", href: "/shelf#rec-3" },
-      { key: "idea-7", kind: "bloom", title: "Station crates", meta: "Bloomed · 3 mentions", at: "2026-10-20T11:30:00.000Z", href: "/ideas/7" },
-      { key: "rec-2", kind: "rec", type: "album", title: "Acts of Faith", meta: "from Marcus · album", at: "2026-10-20T11:00:00.000Z", href: "/shelf#rec-2" },
+      { key: "rec-3", kind: "rec", type: "film_tv", title: "Shogun", from: null, meta: "film / TV", at: "2026-10-20T12:00:00.000Z", href: "/shelf#rec-3" },
+      { key: "idea-7", kind: "bloom", title: "Station crates", from: null, meta: "Bloomed · 3 mentions", at: "2026-10-20T11:30:00.000Z", href: "/ideas/7" },
+      { key: "rec-2", kind: "rec", type: "album", title: "Acts of Faith", from: "Marcus", meta: "from Marcus · album", at: "2026-10-20T11:00:00.000Z", href: "/shelf#rec-2" },
     ]);
   });
 

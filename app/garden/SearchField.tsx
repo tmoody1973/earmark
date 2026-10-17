@@ -1,7 +1,10 @@
 "use client";
+import { useEffect, useState } from "react";
 import { matchesQuery } from "@/agent/lib/garden/search";
 import { Icon } from "./cards/icons";
 import { useLive } from "./live";
+
+const STATUS_DEBOUNCE_MS = 400;
 
 export interface SearchEntry { key: string; fields: ReadonlyArray<string | null | undefined> }
 
@@ -11,9 +14,16 @@ export interface SearchEntry { key: string; fields: ReadonlyArray<string | null 
  */
 export function SearchField({ index }: { index: readonly SearchEntry[] }) {
   const live = useLive();
+  const query = live?.query ?? "";
+  // The list filters as he types; the spoken status waits for a pause, so a screen reader is not read every letter.
+  const [settled, setSettled] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setSettled(query.trim()), STATUS_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [query]);
   if (!live) return null;
-  const { query, setQuery } = live;
-  const q = query.trim();
+  const { setQuery } = live;
+  const q = settled;
   const hits = q ? new Set(index.filter((e) => matchesQuery(q, e.fields)).map((e) => e.key)).size : 0;
   return (
     <search className="garden-search">

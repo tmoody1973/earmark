@@ -4,7 +4,7 @@ import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
-import { newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
+import { NEW_ROW_MAX, newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
 
 export interface RecCardData {
   id: number;
@@ -142,15 +142,17 @@ export async function getGardenView(since: string | null = null): Promise<Garden
   return { plants, shelf, serverTime, newChips: newSince(since, shelf, blooms) };
 }
 
-// The latest bloom per idea after `since` (garden_events, M2-T6), for the "New since last time" row.
+// The newest blooms after `since` (garden_events, M2-T6), for the "New since last time" row: the latest bloom per
+// idea, then newest first across ideas, capped to what the row can show.
 export async function getBloomsSince(since: string | null): Promise<BloomSince[]> {
   const rows = (await db()`
-    select distinct on (e.cluster_id) e.cluster_id, e.created_at, c.title, c.mention_count
-    from garden_events e join idea_clusters c on c.id = e.cluster_id
-    where e.kind = 'bloom' and c.stage <> 'dismissed'
-      and (${since}::timestamptz is null or e.created_at > ${since}::timestamptz)
-    order by e.cluster_id, e.created_at desc
-    limit 50`) as Array<{ cluster_id: number; created_at: Date | string; title: string; mention_count: number }>;
+    select * from (
+      select distinct on (e.cluster_id) e.cluster_id, e.created_at, c.title, c.mention_count
+      from garden_events e join idea_clusters c on c.id = e.cluster_id
+      where e.kind = 'bloom' and c.stage <> 'dismissed'
+        and (${since}::timestamptz is null or e.created_at > ${since}::timestamptz)
+      order by e.cluster_id, e.created_at desc
+    ) b order by b.created_at desc limit ${NEW_ROW_MAX}`) as Array<{ cluster_id: number; created_at: Date | string; title: string; mention_count: number }>;
   return rows.map((r) => ({ clusterId: Number(r.cluster_id), title: r.title, mentionCount: Number(r.mention_count), at: iso(r.created_at)! }));
 }
 

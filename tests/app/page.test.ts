@@ -67,15 +67,13 @@ describe("garden page owner guard", () => {
     expect(find(tree, "GardenLive")?.props.initialSince).toBe(serverTime);
   });
 
-  it("compares against the last visit, then records this one only after the render", async () => {
+  it("compares against the last visit but never records one: a render (or router.refresh) is not a look", async () => {
     signedInAs("user_owner");
     vi.mocked(getGardenVisit).mockResolvedValueOnce({ seenBefore: null, lastVisit: "2026-10-01T00:00:00.000Z" });
     await Garden();
     expect(getGardenView).toHaveBeenCalledWith("2026-10-01T00:00:00.000Z");
     expect(saveGardenVisit).not.toHaveBeenCalled();
-    const job = vi.mocked(after).mock.calls[0]![0] as () => Promise<void>;
-    await job();
-    expect(saveGardenVisit).toHaveBeenCalledWith(expect.objectContaining({ seenBefore: "2026-10-01T00:00:00.000Z" }));
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("reads the garden for the owner", async () => {

@@ -4,7 +4,7 @@ import { makeMockDb } from "../../helpers/mock-db";
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
-import { getGardenView, getIdeaDetail, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
+import { getBloomsSince, getGardenView, getIdeaDetail, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
 
 const recRow = {
   id: 7, type: "album", canonical_name: "Promises", creator: "Floating Points",
@@ -120,6 +120,19 @@ describe("garden queries", () => {
     expect(view.newChips.map((c) => c.key)).toEqual(["rec-7", "idea-4"]);
     expect(h.mock.calls[2].text).toContain("e.kind = 'bloom'");
     expect(h.mock.calls[2].values).toContain(since);
+  });
+
+  it("keeps the NEWEST blooms (latest per idea, then newest first, capped to the row)", async () => {
+    h.mock.queue.push([
+      { cluster_id: 4, created_at: "2026-10-15T14:00:00Z", title: "B", mention_count: 3 },
+      { cluster_id: 2, created_at: "2026-10-15T10:00:00Z", title: "A", mention_count: 4 },
+    ]);
+    const blooms = await getBloomsSince(null);
+    expect(blooms.map((b) => b.clusterId)).toEqual([4, 2]);
+    const text = h.mock.calls[0].text.replace(/\s+/g, " ");
+    expect(text).toMatch(/distinct on \(e\.cluster_id\).*order by e\.cluster_id, e\.created_at desc/);
+    expect(text).toMatch(/\) b order by b\.created_at desc limit \?/); // newest across ideas, after the per-idea pick
+    expect(h.mock.calls[0].values.at(-1)).toBe(12);
   });
 
   it("reads the dismissed mention times with the plants", async () => {
