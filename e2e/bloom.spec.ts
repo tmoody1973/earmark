@@ -231,9 +231,16 @@ test("search narrows the page by title and first name, and the tabs mark where y
   await expect(page.locator("#garden-q-status")).toHaveText(/on this page/);
   await search.fill("zzzz no such thing");
   await expect(plantItem).toBeHidden();
-  await expect(page.locator("#garden-q-status")).toHaveText("Nothing here matches “zzzz no such thing”.");
+  await expect(page.locator("#garden-q-status")).toHaveText("Nothing here matches “zzzz no such thing”. Press Enter to search everything.");
   await search.fill("");
   await expect(plantItem).toBeVisible();
+
+  // Enter hands the words to memory-cue search, which also reads mention excerpts (Bee neural search can take ~3 s).
+  await search.fill("record shop");
+  await search.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=record\+shop$/);
+  await expect(page.locator(`#search .idea-bed [data-cluster-id="${id}"]`)).toBeVisible({ timeout: 15_000 });
+  await page.goto("/");
 
   const nav = page.getByRole("navigation", { name: "Garden sections" });
   await expect(nav.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");

@@ -7,6 +7,7 @@ export default defineConfig({
     // Real-database tests run only through `pnpm test:int` (vitest.int.config.ts), never by default,
     // so a DATABASE_URL in the shell can never point them at production.
     exclude: [...configDefaults.exclude, "tests/integration/**"],
+    setupFiles: ["tests/setup-env.ts"],
     environment: "node",
   },
 });

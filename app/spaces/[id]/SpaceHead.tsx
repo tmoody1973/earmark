@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { SpaceSummary } from "@/agent/lib/garden/spaces";
@@ -69,6 +70,7 @@ export function SpaceHead({ space }: { space: SpaceSummary }) {
         <div className="space-tools">
           <button ref={renameBtn} type="button" className="link-btn" onClick={() => setMode("rename")}>Rename</button>
           <button ref={deleteBtn} type="button" className="link-btn" onClick={() => setMode("delete")}>Delete</button>
+          <Link href={`/spaces/${space.id}/publish`} className="link-btn">Publish</Link>
         </div>
       )}
 

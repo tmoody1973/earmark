@@ -9,6 +9,7 @@ vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
   processConversation: vi.fn(async () => ({ skipped: false, ideas: 0, recs: 1, reviews: 0 })),
 }));
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
+vi.mock("../../../agent/lib/recs/nudges", () => ({ handleLocationUpdate: vi.fn(async () => "none") }));
 vi.mock("../../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
 vi.mock("../../../agent/lib/sync/handlers", () => ({ handleTodoChange: vi.fn(async () => {}), handleFactChange: vi.fn() }));
 
@@ -16,6 +17,7 @@ import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/l
 import { handleLiveUtterance } from "../../../agent/lib/pipeline/live";
 import { processConversation } from "../../../agent/lib/pipeline/process-conversation";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
+import { handleLocationUpdate } from "../../../agent/lib/recs/nudges";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
@@ -35,6 +37,13 @@ describe("handleBeeEvent", () => {
     expect(handleLiveUtterance).toHaveBeenCalledWith(
       { conversationUuid: "u2", speaker: "Unknown", text: "yo", utteranceId: 3766760407, spokenAt: new Date("2026-10-16T18:05:13.000Z") }, { now },
     );
+  });
+
+  it("hands update-location to the nudge handler with the event's location", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    await handleBeeEvent(evt("update-location", { conversation_id: 3, location: { latitude: 43.04, longitude: -87.91, name: "x" } }));
+    expect(handleLocationUpdate).toHaveBeenCalledWith({ latitude: 43.04, longitude: -87.91, name: "x" });
+    info.mockRestore();
   });
 
   it("still prunes when the live path fails", async () => {

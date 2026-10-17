@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { isTried } from "@/agent/lib/garden/ledger";
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import type { Rating, RecType } from "@/agent/lib/types";
@@ -61,6 +62,10 @@ export function RecCard({ card }: { card: RecCardData }) {
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
           {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
+          {/* Outside the title link (no nested <a>); card.recommender is already owner-guarded (credit). FR-24 */}
+          {card.rating === "loved" && card.recommender && (
+            <Link className="rec-thank" href={`/receipts/${card.id}`}>Thank {card.recommender.firstName}</Link>
+          )}
         </div>
       </div>
     </article>
