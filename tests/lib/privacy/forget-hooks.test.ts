@@ -18,13 +18,13 @@ vi.mock("../../../agent/lib/bee/client", async (orig) => ({
 const NAME = "Ann";
 let nudgeTodos: { bee_id: string }[] = [];
 const EPISODES = [
-  { id: "4", script_md: "Ann suggested a ramen spot.", audio_url: "https://blob.test/ann-4.mp3" },
-  { id: "5", script_md: "Only Annabel and Joanna.", audio_url: "https://blob.test/5.mp3" },
-  { id: "6", script_md: "no audio yet, but ann is named", audio_url: null },
+  { id: "4", week_of: "2026-10-04", script_md: "Ann suggested a ramen spot.", audio_url: "https://blob.test/ann-4.mp3" },
+  { id: "5", week_of: "2026-10-11", script_md: "Only Annabel and Joanna.", audio_url: "https://blob.test/5.mp3" },
+  { id: "6", week_of: "2026-09-27", script_md: "no audio yet, but ann is named", audio_url: null },
 ];
 const RUNS = [
-  { id: "7", output_md: "## Pitch\nAnn's ramen tip." },
-  { id: "8", output_md: "Nobody named, only Annabel." },
+  { id: "7", output_md: "## Pitch\nAnn's ramen tip.", created_at: new Date("2026-10-10T12:00:00Z") },
+  { id: "8", output_md: "Nobody named, only Annabel.", created_at: new Date("2026-10-13T12:00:00Z") },
 ];
 
 function fakeClient(fail?: RegExp) {
@@ -39,8 +39,8 @@ function fakeClient(fail?: RegExp) {
     }),
   };
 }
-const ctx = (c: ReturnType<typeof fakeClient>, firstName: string | null = NAME): ForgetHookContext =>
-  ({ c: c as never, target: { type: "rec", id: 1 }, recommenderFirstName: firstName, recommenderRemoved: true });
+const ctx = (c: ReturnType<typeof fakeClient>, firstName: string | null = NAME, savedAt: Date | null = null): ForgetHookContext =>
+  ({ c: c as never, target: { type: "rec", id: 1 }, recommenderFirstName: firstName, recommenderRemoved: true, savedAt });
 const hook = async (name: string) => {
   const { FORGET_HOOKS } = await import("../../../agent/lib/privacy/forget-hooks");
   const h = FORGET_HOOKS.find((x) => x.name === name);
@@ -120,7 +120,7 @@ describe("FORGET_HOOKS (lane C)", () => {
     const line = await (await hook("episodes")).run(ctx(c));
     expect(line).toBe("episodes 2 (ids 4, 6), audio 1");
     expect(c.query.mock.calls.map(([text, values]) => [text.replace(/\s+/g, " ").trim(), values])).toEqual([
-      ["select id, script_md, audio_url from episodes", []],
+      ["select id, week_of::text as week_of, script_md, audio_url from episodes", []],
       ["delete from episodes where id = $1", [4]],
       ["delete from episodes where id = $1", [6]],
     ]);
@@ -150,7 +150,7 @@ describe("FORGET_HOOKS (lane C)", () => {
     const c = fakeClient();
     expect(await (await hook("gardener_runs")).run(ctx(c))).toBe("gardener_runs 1 (ids 7)");
     expect(c.query.mock.calls.map(([text, values]) => [text.replace(/\s+/g, " ").trim(), values])).toEqual([
-      ["select id, output_md from gardener_runs", []],
+      ["select id, output_md, created_at from gardener_runs", []],
       ["delete from gardener_runs where id = $1", [7]],
     ]);
   });
@@ -159,9 +159,23 @@ describe("FORGET_HOOKS (lane C)", () => {
     await expect((await hook("gardener_runs")).run(ctx(fakeClient(/gardener_runs/)))).rejects.toMatchObject({ name: "NeonDbError" });
   });
 
-  it("without a recommender first name both hooks touch nothing and say 0", async () => {
+  it("an item with no recommender (an idea): deletes every episode from the Chicago week it was saved and every draft made after, named or not", async () => {
+    // Monday 2026-10-12 10:00 Chicago -> week of Sunday 2026-10-11: episode 5 only; drafts after it: 8 only
+    const idea = (c: ReturnType<typeof fakeClient>) => ({ ...ctx(c, null, new Date("2026-10-12T15:00:00Z")), target: { type: "idea", id: 3 } }) as ForgetHookContext;
     const c = fakeClient();
-    expect(await (await hook("episodes")).run(ctx(c, null))).toBe("episodes 0");
+    expect(await (await hook("gardener_runs")).run(idea(c))).toBe("gardener_runs 1 (ids 8)");
+    expect(await (await hook("episodes")).run(idea(c))).toBe("episodes 1 (ids 5), audio 1");
+    expect(log.at(-1)).toBe("blob https://blob.test/5.mp3");
+  });
+
+  it("a rec: the save-time sweep and the name match add up", async () => {
+    const c = fakeClient();
+    expect(await (await hook("episodes")).run(ctx(c, NAME, new Date("2026-10-12T15:00:00Z")))).toBe("episodes 3 (ids 4, 5, 6), audio 2");
+  });
+
+  it("with neither a name nor a save time both hooks touch nothing and say 0", async () => {
+    const c = fakeClient();
+    expect(await (await hook("episodes")).run(ctx(c, null))).toBe("episodes 0, audio 0");
     expect(await (await hook("gardener_runs")).run(ctx(c, null))).toBe("gardener_runs 0");
     expect(c.query).not.toHaveBeenCalled();
     expect(blob.del).not.toHaveBeenCalled();

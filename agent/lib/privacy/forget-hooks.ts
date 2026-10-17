@@ -16,14 +16,13 @@ const sqlOver = (c: PoolClient): Sql => async (strings, ...values) =>
   (await c.query(strings.reduce((text, s, i) => `${text}$${i}${s}`), values)).rows as Record<string, unknown>[];
 const ids = (xs: number[]) => (xs.length ? ` (ids ${xs.join(", ")})` : "");
 
-// Lane C (M5). Only a forgotten rec carries a recommender first name; anything else is "… 0".
+// Lane C (M5). Episodes and drafts go by the item's first-save time (any target) and, for a rec, its recommender's name.
 // Order matters: episodes is last because its Blob audio deletes cannot roll back if a later hook threw.
 export const FORGET_HOOKS: readonly ForgetHook[] = [
   {
     name: "gardener_runs",
     run: async (ctx) => {
-      if (!ctx.recommenderFirstName) return "gardener_runs 0";
-      const { runIds } = await forgetPersonInGardenerRuns(ctx.recommenderFirstName, { sql: sqlOver(ctx.c) });
+      const { runIds } = await forgetPersonInGardenerRuns(ctx.recommenderFirstName, { sql: sqlOver(ctx.c) }, ctx.savedAt);
       return `gardener_runs ${runIds.length}${ids(runIds)}`;
     },
   },
@@ -46,8 +45,7 @@ export const FORGET_HOOKS: readonly ForgetHook[] = [
   {
     name: "episodes",
     run: async (ctx) => {
-      if (!ctx.recommenderFirstName) return "episodes 0";
-      const r = await forgetPersonInEpisodes(ctx.recommenderFirstName, { sql: sqlOver(ctx.c), del: (url) => del(url) });
+      const r = await forgetPersonInEpisodes(ctx.recommenderFirstName, { sql: sqlOver(ctx.c), del: (url) => del(url) }, ctx.savedAt);
       return `episodes ${r.episodeIds.length}${ids(r.episodeIds)}, audio ${r.audioDeleted}`;
     },
   },

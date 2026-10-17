@@ -1,11 +1,16 @@
 import { BlobNotFoundError } from "@vercel/blob";
+import { weekOfSunday } from "../time";
 
-// FR-30 coverage for the M5 stores, run as hooks of lane A's `pnpm forget` (forget-hooks.ts) with the forgotten rec's
-// recommender first name, INSIDE its locked transaction: `sql` is a tag over that transaction's client, so a throw here
+// FR-30 coverage for the M5 stores, run as hooks of lane A's `pnpm forget` (forget-hooks.ts) with the forgotten item's
+// first-save time and (for a rec) its recommender's first name, INSIDE its locked transaction: `sql` is a tag over that transaction's client, so a throw here
 // rolls the whole forget back and a re-run retries. Fact proposals are not here: lane A's forget deletes them (by
 // evidence) and their Bee facts itself.
-//   forgetPersonInEpisodes(firstName)     -> every weekly episode whose script names the person, then its Blob audio
-//   forgetPersonInGardenerRuns(firstName) -> every gardener draft that names the person
+//   forgetPersonInEpisodes(firstName, savedAt)     -> every weekly episode that may hold the item, then its Blob audio
+//   forgetPersonInGardenerRuns(firstName, savedAt) -> every gardener draft that may hold the item
+// "May hold": neither table records its sources, and the text is model-written, so it can paraphrase the item (or
+// quote its excerpt) without naming it. Anything made after the item was first saved may hold it: episodes from the
+// Chicago week it was saved in (an episode's data is read during its week), drafts from that instant. Plus anything
+// naming the forgotten rec's recommender. Over-deleting the owner's own recap is the accepted cost.
 //   forgetPlaceNudges()                   -> bee_sync rows of nudges whose place_nudges row cascaded away with the rec,
 //                                            then their Bee todos (text holds a place name and a friend's first name)
 //   forgetRecReceipts()                   -> the same sweep for rec_receipts (todo text names a friend and a tip)
@@ -21,14 +26,18 @@ export interface ForgetEpisodeDeps {
 const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const namesRe = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, "iu");
 const alreadyGone = (err: unknown) => err instanceof BlobNotFoundError || (err as { status?: number } | null)?.status === 404;
+const nameRe = (firstName: string | null) => (firstName?.trim() ? namesRe(firstName.trim()) : null);
 
-export async function forgetPersonInEpisodes(firstName: string, deps: ForgetEpisodeDeps): Promise<{ episodeIds: number[]; audioDeleted: number }> {
-  const name = firstName.trim();
-  if (!name) return { episodeIds: [], audioDeleted: 0 };
-  const re = namesRe(name);
+export async function forgetPersonInEpisodes(
+  firstName: string | null, deps: ForgetEpisodeDeps, savedAt: Date | null = null,
+): Promise<{ episodeIds: number[]; audioDeleted: number }> {
+  const re = nameRe(firstName);
+  const since = savedAt ? weekOfSunday(savedAt) : null; // YYYY-MM-DD, so string order is date order
+  if (!re && !since) return { episodeIds: [], audioDeleted: 0 };
   // Loading every script is fine: there is one episode per week.
-  const rows = (await deps.sql`select id, script_md, audio_url from episodes`) as { id: number | string; script_md: string; audio_url: string | null }[];
-  const hits = rows.filter((r) => re.test(r.script_md));
+  const rows = (await deps.sql`select id, week_of::text as week_of, script_md, audio_url from episodes`) as
+    { id: number | string; week_of: string; script_md: string; audio_url: string | null }[];
+  const hits = rows.filter((r) => (since !== null && r.week_of >= since) || (re?.test(r.script_md) ?? false));
   for (const r of hits) await deps.sql`delete from episodes where id = ${Number(r.id)}`;
   // Blob last: its deletes cannot roll back, so they wait until every row delete has succeeded. Already gone = done;
   // any other failure throws, the rows come back, and a re-run deletes them and retries the audio.
@@ -45,14 +54,16 @@ export async function forgetPersonInEpisodes(firstName: string, deps: ForgetEpis
   return { episodeIds: hits.map((r) => Number(r.id)), audioDeleted };
 }
 
-// Gardener drafts (M5-T12) are model text built from the person's data, so any draft naming them is deleted outright.
-// Gardener definitions themselves are the owner's own words and are not touched.
-export async function forgetPersonInGardenerRuns(firstName: string, deps: Pick<ForgetEpisodeDeps, "sql">): Promise<{ runIds: number[] }> {
-  const name = firstName.trim();
-  if (!name) return { runIds: [] };
-  const re = namesRe(name);
-  const rows = (await deps.sql`select id, output_md from gardener_runs`) as { id: number | string; output_md: string }[];
-  const hits = rows.filter((r) => re.test(r.output_md));
+// Gardener drafts (M5-T12) are model text built from up to 60 recs and 30 ideas of any age, so every draft made after
+// the item was saved, or naming the person, is deleted outright. Gardener definitions are the owner's own words: kept.
+export async function forgetPersonInGardenerRuns(
+  firstName: string | null, deps: Pick<ForgetEpisodeDeps, "sql">, savedAt: Date | null = null,
+): Promise<{ runIds: number[] }> {
+  const re = nameRe(firstName);
+  if (!re && !savedAt) return { runIds: [] };
+  const rows = (await deps.sql`select id, output_md, created_at from gardener_runs`) as
+    { id: number | string; output_md: string; created_at: Date | string }[];
+  const hits = rows.filter((r) => (savedAt !== null && new Date(r.created_at) >= savedAt) || (re?.test(r.output_md) ?? false));
   for (const r of hits) await deps.sql`delete from gardener_runs where id = ${Number(r.id)}`;
   return { runIds: hits.map((r) => Number(r.id)) };
 }
