@@ -334,14 +334,15 @@ test("Maybe?: Keep moves a tip to the Shelf, Not a tip clears it, People never c
   // Keep: gone from Maybe at once, announced, focus moves on, and it lands on the shelf
   await card("The Remains of the Day").getByRole("button", { name: "Keep" }).click();
   await expect(card("The Remains of the Day")).toHaveCount(0);
-  await expect(page.getByRole("status")).toHaveText("Kept: The Remains of the Day");
+  // two polite regions on this page now (the Maybe? row's and the shelf cards'), so find it by its words
+  await expect(page.getByRole("status").filter({ hasText: /^Kept: The Remains of the Day$/ })).toHaveCount(1);
   expect(await page.evaluate(() => document.activeElement?.id ?? "")).toMatch(/^maybe-\d+-keep$/);
   await expect(shelfCard("The Remains of the Day")).toBeVisible();
 
   // Not a tip: gone, and stays gone
   await card("Weekly standup board").getByRole("button", { name: "Not a tip" }).click();
   await expect(card("Weekly standup board")).toHaveCount(0);
-  await expect(page.getByRole("status")).toHaveText("Removed: Weekly standup board");
+  await expect(page.getByRole("status").filter({ hasText: /^Removed: Weekly standup board$/ })).toHaveCount(1);
   await page.reload();
   await expect(card("Weekly standup board")).toHaveCount(0);
   await expect(shelfCard("Weekly standup board")).toHaveCount(0);
@@ -396,4 +397,133 @@ test("Maybe?: a maybe that arrives while Home is open shows up on the live refre
     await sql`delete from recommendations where raw_text = 'sample-maybe-live'`;
     await sql`update recommendations set status = 'needs_review' where id = any(${parked})`;
   }
+});
+
+// FR-22 (M3-T10): a card's "…" offers Try this, Tried it, a rating and Dismiss. Writes, so TEST branch only: it seeds
+// its own invented tips (raw_text = 'sample-tip-actions', re-runnable) from an invented recommender, Marisol.
+test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, and match People's counts", async ({ page }, info) => {
+  test.skip(process.env.E2E_REAL === "1", "writes: test branch only");
+  const sql = neon(process.env.TEST_DATABASE_URL!);
+  const width = info.project.name === "phone" ? 390 : 1440;
+  const dir = "test-results/screens";
+  const noOverflow = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const said = (text: string) => page.getByRole("status").filter({ hasText: new RegExp(`^${text}$`) });
+
+  await sql`delete from recommendations where raw_text = 'sample-tip-actions'`;
+  const marisol = (await sql`insert into recommenders (first_name) values ('Marisol')
+    on conflict (first_name_key) do update set first_name = excluded.first_name returning id`)[0].id as number;
+  const tips: Array<[string, string, string | null, string]> = [
+    ["album", "Spirit of Eden", "Talk Talk", "Headphones, lights off, start to finish."],
+    ["book", "The Dispossessed", "Ursula K. Le Guin", "Two worlds, one honest argument."],
+    ["other", "The Sunday crossword", null, "Do it in pen."],
+  ];
+  let minute = 0;
+  for (const [type, name, creator, why] of tips) {
+    await sql`insert into recommendations
+      (type, raw_text, canonical_name, creator, recommender_id, context_summary, excerpt, said_at, source, status, confidence)
+      values (${type}, 'sample-tip-actions', ${name}, ${creator}, ${marisol}, ${why}, 'sample excerpt',
+        now() - make_interval(mins => ${minute++}), 'ambient', 'new', 0.95)`;
+  }
+  const db = async (name: string) =>
+    (await sql`select status, rating from recommendations where raw_text = 'sample-tip-actions' and canonical_name = ${name}`)[0];
+
+  await signInAs(page, OWNER_EMAIL);
+  await page.goto("/shelf");
+  const card = (name: string) => page.getByTestId("rec-card").filter({ has: page.getByRole("heading", { name, exact: true }) });
+  const more = (name: string) => card(name).getByRole("button", { name: `Options for ${name}`, exact: true });
+  const choice = (name: string, label: string) => card(name).getByRole("button", { name: label, exact: true });
+
+  // closed: one quiet 44 px target per card, nothing else
+  const eden = more("Spirit of Eden");
+  const box = (await eden.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  await expect(choice("Spirit of Eden", "Try this")).toBeHidden();
+
+  // open: a new tip offers Try this, Tried it, Dismiss; focus goes to the first; Escape closes and returns focus
+  await eden.click();
+  await expect(eden).toHaveAttribute("aria-expanded", "true");
+  await expect(card("Spirit of Eden").getByRole("list").getByRole("button")).toHaveText(["Try this", "Tried it", "Dismiss"]);
+  for (const b of await card("Spirit of Eden").getByRole("list").getByRole("button").all()) {
+    expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await expect(choice("Spirit of Eden", "Try this")).toBeFocused();
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await loadImages(page);
+  await card("Spirit of Eden").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${dir}/m3-tip-menu-${width}.png` });
+  await page.keyboard.press("Escape");
+  await expect(eden).toHaveAttribute("aria-expanded", "false");
+  await expect(eden).toBeFocused();
+
+  // Try this → "To try" at once, announced, saved as queued (the Bee todo is the reconciler's, switch off here)
+  await eden.click();
+  await choice("Spirit of Eden", "Try this").click();
+  await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("To try");
+  await expect(said("Marked to try: Spirit of Eden")).toHaveCount(1);
+  await expect(eden).toBeFocused();
+  await expect.poll(() => db("Spirit of Eden")).toMatchObject({ status: "queued" });
+
+  // Tried it → Tried; then the menu offers the ratings; Loved it → the heart tag, and the choice shows as pressed
+  await eden.click();
+  await expect(card("Spirit of Eden").getByRole("list").getByRole("button")).toHaveText(["Tried it", "Dismiss"]);
+  await choice("Spirit of Eden", "Tried it").click();
+  await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Tried");
+  await expect.poll(() => db("Spirit of Eden")).toMatchObject({ status: "tried" });
+  await eden.click();
+  await expect(card("Spirit of Eden").getByRole("list").getByRole("button")).toHaveText(["Loved it", "It was fine", "Not for me"]); // no Dismiss once tried (decision 024)
+  await choice("Spirit of Eden", "Loved it").click();
+  await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Loved it");
+  await expect(said("Loved it: Spirit of Eden")).toHaveCount(1);
+  await expect.poll(() => db("Spirit of Eden")).toMatchObject({ status: "tried", rating: "loved" });
+  await eden.click();
+  await expect(choice("Spirit of Eden", "Loved it")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+
+  // a failed save puts the card back as it was, and says so
+  const shelfUrl = (url: URL) => url.pathname === "/shelf"; // one reference: unroute matches it by identity
+  await page.route(shelfUrl, (route) => (route.request().method() === "POST" ? route.abort() : route.continue()));
+  await more("The Dispossessed").click();
+  await choice("The Dispossessed", "Tried it").click();
+  await expect(said("Couldn't save that. The Dispossessed is back as it was; try again.")).toHaveCount(1);
+  await expect(card("The Dispossessed").locator(".rec-tag")).toHaveCount(0);
+  await page.unroute(shelfUrl);
+  expect(await db("The Dispossessed")).toMatchObject({ status: "new", rating: null });
+
+  // marked tried elsewhere (Bee, Notion) while this page is open: Try this is refused by its from-guard and says so
+  await sql`update recommendations set status = 'tried' where raw_text = 'sample-tip-actions' and canonical_name = 'The Dispossessed'`;
+  await more("The Dispossessed").click();
+  await choice("The Dispossessed", "Try this").click();
+  await expect(said("Nothing changed — it was updated elsewhere")).toHaveCount(1);
+  await expect(card("The Dispossessed").locator(".rec-tag")).toHaveText("Tried"); // the refreshed card shows the truth
+  expect(await db("The Dispossessed")).toMatchObject({ status: "tried" });
+
+  // Dismiss → gone at once, announced, focus moves to another card's "…", and it stays gone
+  await more("The Sunday crossword").click();
+  await choice("The Sunday crossword", "Dismiss").click();
+  await expect(card("The Sunday crossword")).toHaveCount(0);
+  await expect(said("Dismissed: The Sunday crossword")).toHaveCount(1);
+  expect(await page.evaluate(() => document.activeElement?.className ?? "")).toBe("tip-more");
+  await expect.poll(() => db("The Sunday crossword")).toMatchObject({ status: "dismissed" });
+  await page.reload();
+  await expect(card("The Sunday crossword")).toHaveCount(0);
+  await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Loved it");
+
+  // People counts what the cards say (decision 024): 2 tips (the dismissed one is gone), both tried, loved 1
+  await page.goto(`/people/${marisol}`);
+  await expect(page.locator(".person-head p")).toHaveText("2 tips · 2 tried · loved 1");
+  await expect(more("The Dispossessed")).toBeVisible(); // the person page offers the same menu
+
+  // 320 px: the open list stays on screen and nothing scrolls sideways
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/shelf");
+  for (const name of ["Spirit of Eden", "The Dispossessed"]) {
+    await more(name).click();
+    const list = (await card(name).getByRole("list").boundingBox())!;
+    expect(list.x).toBeGreaterThanOrEqual(0);
+    expect(list.x + list.width).toBeLessThanOrEqual(320);
+    await page.keyboard.press("Escape");
+  }
+  await noOverflow();
 });

@@ -100,6 +100,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec status core on the Neon tes
     expect((await setRecStatus(id, "thanked", "garden", { effects: [] })).changed).toBe(true);
   });
 
+  it("a shelf card's choices (setTipChoice, FR-22): each guarded, a repeat tap a no-op, effects deferred", async () => {
+    const { setTipChoice } = await import("../../agent/lib/garden/queries");
+    const later: Array<() => Promise<void>> = [];
+    const defer = (fn: () => Promise<void>) => { later.push(fn); }; // never run: no Bee nudge from a test
+    const tip = await addRec("new");
+    expect(await setTipChoice(tip, "queue", { defer })).toBe(true);
+    expect(await setTipChoice(tip, "queue", { defer })).toBe(false);
+    expect((await row(tip)).status).toBe("queued");
+    expect(later).toHaveLength(1); // the queued change's effects were handed to defer, not awaited
+    expect(await setTipChoice(tip, "tried", { defer })).toBe(true);
+    expect(await setTipChoice(tip, "queue", { defer })).toBe(false); // a tried tip never goes back on the try list
+    expect(await setTipChoice(tip, "loved", { defer })).toBe(true);
+    expect(await setTipChoice(tip, "loved", { defer })).toBe(false);
+    expect(await row(tip)).toMatchObject({ status: "tried", rating: "loved" });
+    expect((await counts()).recs_loved).toBeGreaterThanOrEqual(1);
+    expect(await setTipChoice(tip, "dismiss", { defer })).toBe(false); // a tried tip keeps its giver's counts
+    expect((await row(tip)).status).toBe("tried");
+    const untried = await addRec("queued");
+    expect(await setTipChoice(untried, "dismiss", { defer })).toBe(true);
+    expect((await row(untried)).status).toBe("dismissed");
+    expect(await setTipChoice(untried, "loved", { defer })).toBe(false); // no rating lands on a hidden tip
+    const maybe = await addRec("needs_review");
+    expect(await setTipChoice(maybe, "dismiss", { defer })).toBe(false); // maybes have their own row
+    expect(await setTipChoice(maybe, "tried", { defer })).toBe(false);
+    expect(await setTipChoice(maybe, "fine", { defer })).toBe(false);
+    expect(await row(maybe)).toMatchObject({ status: "needs_review", rating: null });
+    expect((await row(untried)).rating).toBeNull();
+  });
+
   it("getRec returns the tip with typed fields from the real schema", async () => {
     const { getRec } = await import("../../agent/lib/store/rec-rows");
     const id = await addRec("new");

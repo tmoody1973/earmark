@@ -22,6 +22,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${literata.variable} ${figtree.variable}`}>
       <body>
         <ClerkProvider>{children}</ClerkProvider>
+        {/* The shelf cards' one polite region (app/garden/cards/TipActions.tsx): it outlives a dismissed card. */}
+        <p id="tip-announcer" role="status" className="visually-hidden" />
       </body>
     </html>
   );

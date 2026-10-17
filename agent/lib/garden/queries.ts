@@ -2,11 +2,12 @@ import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import { firstNameOnly } from "../pipeline/attribution";
-import { setRecStatus, type SetStatusOptions } from "../recs/status";
+import { HIDDEN_TIP_STATUSES, setRecRating, setRecStatus, type SetStatusOptions } from "../recs/status";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
+import { TIP_MOVES, type TipChoice } from "./tip";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
 import { NEW_ROW_MAX, newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
 
@@ -113,11 +114,8 @@ export function toPlant(r: PlantRow): PlantView {
   };
 }
 
-/**
- * The one visibility rule for tips (decision 025): the shelf, the taste ledger and a person's page all hide these.
- * needs_review tips (Earmark wasn't sure) live only in the Maybe? row until Tarik keeps or clears them.
- */
-export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
+/** The one visibility rule for tips (decision 025), defined with the status core and re-exported for the garden. */
+export { HIDDEN_TIP_STATUSES };
 
 // Explicit column lists on purpose: raw_text and excerpts never reach the shelf through this path.
 // focusRecId: a Bee todo's link (/shelf?rec=<id>, M3-T7) names one tip; it is added after the newest 60 when older,
@@ -176,6 +174,21 @@ export async function setTipVerdict(
   if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
   const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict, ...opts });
   return changed;
+}
+
+/**
+ * A shelf card's choice (FR-22): a move (Try this, Tried, Dismiss) through setRecStatus with its from-guard, or a
+ * rating through setRecRating. False means nothing changed. Status effects (the Bee todo nudge) run through `defer`.
+ */
+export async function setTipChoice(
+  id: number, choice: TipChoice, opts: Pick<SetStatusOptions, "defer"> = {},
+): Promise<boolean> {
+  if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
+  if (choice === "queue" || choice === "tried" || choice === "dismiss") {
+    const { next, from } = TIP_MOVES[choice];
+    return (await setRecStatus(id, next, "garden", { from, ...opts })).changed;
+  }
+  return (await setRecRating(id, choice, "garden", opts)).changed;
 }
 
 // Every idea still growing (dismissed ones live only on their own page), in garden order.

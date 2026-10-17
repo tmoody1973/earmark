@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { isTried } from "@/agent/lib/garden/ledger";
+import type { ComponentProps, ReactNode } from "react";
 import type { RecCardData } from "@/agent/lib/garden/queries";
-import type { Rating, RecType } from "@/agent/lib/types";
+import type { RecType } from "@/agent/lib/types";
 import { Artwork } from "./Artwork";
 import { Icon } from "./icons";
+import { TipCard, TipMenu, TipTag } from "./TipActions";
 import "./cards.css";
 
 export const TYPE_LABEL: Record<RecType, string> = {
@@ -14,39 +15,27 @@ export const TYPE_LABEL: Record<RecType, string> = {
 /** A place's address is its "creator line"; everything else names its maker. */
 export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card.yearOrAddress : card.creator);
 
-const RATING_LABEL: Record<Rating, string> = { loved: "Loved it", fine: "It was fine", not_for_me: "Not for me" };
-
-function TriedTag({ card }: { card: RecCardData }) {
-  if (card.rating) {
-    return (
-      <span className={`rec-tag rec-tag--${card.rating}`}>
-        {card.rating === "loved" && <Icon name="heart" size={14} />}
-        {RATING_LABEL[card.rating]}
-      </span>
-    );
-  }
-  if (!isTried(card)) return null; // thanked counts as tried, as in the taste ledger
-  return <span className="rec-tag"><Icon name="check" size={14} />Tried</span>;
-}
-
 /**
  * One tip on the shelf. Every variant shares this anatomy; only the artwork differs (Artwork.tsx), and "other"
  * tips are compact note cards with no artwork box. Art sits above the text, never under it. The whole card
  * opens the item's link when it has one.
+ * `actions`: the owner's "…" (Try this, Tried, a rating, Dismiss; FR-22). Off by default, so a page someone else
+ * reads (a Space) never offers them, and gets a plain article with no client state.
  */
-export function RecCard({ card }: { card: RecCardData }) {
+export function RecCard({ card, actions = false }: { card: RecCardData; actions?: boolean }) {
   const note = card.variant === "note";
   const subline = cardSubline(card);
   const titleId = `rec-${card.id}-title`;
   const classes = ["rec-card", note && "rec-card--note", card.link && "rec-card--linked"];
-  return (
-    <article
-      id={`rec-${card.id}`}
-      className={classes.filter(Boolean).join(" ")}
-      data-testid="rec-card"
-      data-variant={card.variant}
-      aria-labelledby={titleId}
-    >
+  const article: ComponentProps<"article"> & { "data-testid": string; "data-variant": string } = {
+    id: `rec-${card.id}`,
+    className: classes.filter(Boolean).join(" "),
+    "data-testid": "rec-card",
+    "data-variant": card.variant,
+    "aria-labelledby": titleId,
+  };
+  const body: ReactNode = (
+    <>
       {!note && <Artwork card={card} />}
       <div className="rec-body">
         <p className="rec-type">
@@ -58,7 +47,7 @@ export function RecCard({ card }: { card: RecCardData }) {
         </h3>
         {subline && <p className="rec-sub">{subline}</p>}
         {card.why && <p className="rec-why">“{card.why}”</p>}
-        <TriedTag card={card} />
+        <TipTag status={card.status} rating={card.rating} />
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
           {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
@@ -66,8 +55,15 @@ export function RecCard({ card }: { card: RecCardData }) {
           {card.rating === "loved" && card.recommender && (
             <Link className="rec-thank" href={`/receipts/${card.id}`}>Thank {card.recommender.firstName}</Link>
           )}
+          {actions && <TipMenu />}
         </div>
       </div>
-    </article>
+    </>
+  );
+  if (!actions) return <article {...article}>{body}</article>;
+  return (
+    <TipCard tip={{ id: card.id, name: card.name, status: card.status, rating: card.rating }} {...article}>
+      {body}
+    </TipCard>
   );
 }
