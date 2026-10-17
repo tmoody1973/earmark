@@ -86,10 +86,13 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
       // isNewBloom (stage.ts) in SQL, and savedIds applies isNewBloom to the same two values.
       // ponytail: two concurrent joins on one cluster may each miss the other's vector in the mean (count stays exact);
       // recompute centroids in a nightly job if live and backfill ever overlap on one idea.
+      // The mention's id is drawn first (nid) so its timeline line can name it (mention_id, M4-T6: merge, undo and
+      // forget match lines by mention, ideas/timeline-match.ts).
       return [
-        txn`with m as (
-              insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
-              values (${plan.clusterId}::bigint,
+        txn`with nid as (select nextval(pg_get_serial_sequence('idea_mentions', 'id')) as id),
+            m as (
+              insert into idea_mentions (id, cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
+              values ((select id from nid), ${plan.clusterId}::bigint,
                       coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
                       coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
                       ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${excerpt}::text, ${v}::vector,
@@ -105,7 +108,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
                               union all select ${v}::vector) s),
                 first_mentioned_at = least(first_mentioned_at, ${item.spokenAt}::timestamptz),
                 last_mentioned_at = greatest(last_mentioned_at, ${item.spokenAt}::timestamptz),
-                timeline = coalesce(timeline, '[]'::jsonb) || ${entry}::jsonb,
+                timeline = coalesce(timeline, '[]'::jsonb) || jsonb_set(${entry}::jsonb, '{0,mention_id}', to_jsonb((select id from nid))),
                 updated_at = now()
               where id = ${plan.clusterId}::bigint
               returning old.stage as prev_stage, new.stage as next_stage
@@ -121,13 +124,15 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
     const v = plan?.embedding ? toVectorLiteral(plan.embedding) : null;
     const entry = timelineEntryJson(item.spokenAt, plan?.timelineNote ?? NOTE_FIRST);
     return [
-      txn`with c as (
+      txn`with nid as (select nextval(pg_get_serial_sequence('idea_mentions', 'id')) as id),
+          c as (
             insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, centroid, timeline)
-            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector, ${entry}::jsonb)
+            values (${item.extraction.title}, 'compost', ${counted}::int, ${item.spokenAt}::timestamptz, ${item.spokenAt}::timestamptz, ${v}::vector,
+                    jsonb_set(${entry}::jsonb, '{0,mention_id}', to_jsonb((select id from nid))))
             returning id
           ), m as (
-            insert into idea_mentions (cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
-            select c.id,
+            insert into idea_mentions (id, cluster_id, bee_conversation_id, bee_conversation_uuid, bee_journal_id, deliberate_key, excerpt, embedding, spoken_at, confidence, review_status, source)
+            select (select id from nid), c.id,
                    coalesce(${convId}::bigint, (select bee_conversation_id from bee_conversation_map where conversation_uuid = ${convUuid}::text)),
                    coalesce(${convUuid}::text, (select conversation_uuid from bee_conversation_map where bee_conversation_id = ${convId}::bigint)),
                    ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${excerpt}::text, ${v}::vector,
