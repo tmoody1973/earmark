@@ -2,6 +2,7 @@ import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import { firstNameOnly } from "../pipeline/attribution";
+import { setRecStatus } from "../recs/status";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
@@ -120,7 +121,9 @@ export function toPlant(r: PlantRow): PlantView {
 export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
 
 // Explicit column lists on purpose: raw_text and excerpts never reach the shelf through this path.
-export async function getShelf(): Promise<RecCardData[]> {
+// focusRecId: a Bee todo's link (/shelf?rec=<id>, M3-T7) names one tip; it is added after the newest 60 when older,
+// unless it is hidden (dismissed/composted), so the link always lands on its card.
+export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
@@ -129,7 +132,14 @@ export async function getShelf(): Promise<RecCardData[]> {
     where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
     order by r.said_at desc
     limit 60`) as GardenRecRow[];
-  return recs.map(toRecCard);
+  if (focusRecId === undefined || recs.some((r) => Number(r.id) === focusRecId)) return recs.map(toRecCard);
+  const focus = (await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      p.id as recommender_id, p.first_name
+    from recommendations r left join recommenders p on p.id = r.recommender_id
+    where r.id = ${focusRecId} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])`) as GardenRecRow[];
+  return [...recs, ...focus].map(toRecCard);
 }
 
 // ---- the Maybe? pile (decision 025) ----
@@ -157,15 +167,14 @@ export async function getMaybeTips(): Promise<MaybePile> {
 export type TipVerdict = "kept" | "not_a_tip";
 const VERDICT_STATUS: Record<TipVerdict, RecStatus> = { kept: "new", not_a_tip: "dismissed" };
 
-/** Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. */
+/**
+ * Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. Goes through
+ * the status core (M3-T2) so the change gets its side effects; status and verdict are still one statement.
+ */
 export async function setTipVerdict(id: number, verdict: TipVerdict): Promise<boolean> {
   if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
-  const rows = await db()`
-    update recommendations set status = ${VERDICT_STATUS[verdict]}, user_verdict = ${verdict}, user_verdict_at = now(),
-      updated_at = now()
-    where id = ${id} and status = 'needs_review'
-    returning id`;
-  return rows.length > 0;
+  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict });
+  return changed;
 }
 
 // Every idea still growing (dismissed ones live only on their own page), in garden order.

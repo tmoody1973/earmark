@@ -10,7 +10,7 @@ import { databaseUrl } from "./resort";
 
 const USAGE = "usage: pnpm forget <rec|idea|mention> <id> [--yes]  (a dry run unless --yes)";
 const TYPES = new Set(["rec", "idea", "mention"]);
-const SAFE_ERRORS = new Set(["ForgetRefsChangedError", "ForgetTimelineError", "ForgetHookError", "ForgetDraftInFlightError"]);
+const SAFE_ERRORS = new Set(["ForgetRefsChangedError", "ForgetTimelineError", "ForgetHookError", "ForgetDraftInFlightError", "ForgetMergedError"]);
 
 export function parseForgetArgs(argv: readonly string[]): { target: ForgetTarget; yes: boolean } {
   const [type = "", rawId = "", ...flags] = argv;
