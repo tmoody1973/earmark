@@ -58,9 +58,9 @@ beforeEach(() => {
 });
 
 describe("FORGET_HOOKS (lane C)", () => {
-  it("registers gardener_runs and place_nudges before episodes, so the Blob delete is the last thing the transaction does", async () => {
+  it("registers gardener_runs, place_nudges and rec_receipts before episodes, so the Blob delete is the last thing the transaction does", async () => {
     const { FORGET_HOOKS } = await import("../../../agent/lib/privacy/forget-hooks");
-    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "place_nudges", "episodes"]);
+    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "place_nudges", "rec_receipts", "episodes"]);
   });
 
   it("place_nudges: deletes the orphaned nudge bee_sync rows (every day's) in the transaction, then their Bee todos; line has ids only", async () => {
@@ -89,6 +89,30 @@ describe("FORGET_HOOKS (lane C)", () => {
     expect(await (await hook("place_nudges")).run(ctx(fakeClient()))).toBe("place_nudges 1 (bee todos 99)");
     bee.deleteTodo.mockRejectedValueOnce(new BeeApiError(503, "/v1/todos/99", "down"));
     await expect((await hook("place_nudges")).run(ctx(fakeClient()))).rejects.toThrow("Bee API 503");
+  });
+
+  it("rec_receipts: deletes the orphaned receipt bee_sync rows in the transaction, then their Bee todos; line has ids only", async () => {
+    nudgeTodos = [{ bee_id: "55" }];
+    const c = fakeClient();
+    const line = await (await hook("rec_receipts")).run(ctx(c));
+    expect(line).toBe("rec_receipts 1 (bee todos 55)");
+    const q = c.query.mock.calls[0]![0].replace(/\s+/g, " ");
+    expect(q).toContain("not exists (select 1 from rec_receipts n where n.id = s.entity_id)");
+    expect(q).toContain("s.entity_type = 'rec_receipt'");
+    expect(c.query.mock.calls[0]![1]).toEqual([]);
+    expect(log.filter((l) => l.startsWith("bee todo"))).toEqual(["bee todo 55"]);
+  });
+
+  it("rec_receipts: only a rec target; a Bee 404 is already gone; any other failure throws", async () => {
+    const { BeeApiError } = await import("../../../agent/lib/bee/client");
+    const c0 = fakeClient();
+    expect(await (await hook("rec_receipts")).run({ ...ctx(c0), target: { type: "idea", id: 1 } } as ForgetHookContext)).toBe("rec_receipts 0");
+    expect(c0.query).not.toHaveBeenCalled();
+    nudgeTodos = [{ bee_id: "55" }];
+    bee.deleteTodo.mockRejectedValueOnce(new BeeApiError(404, "/v1/todos/55", "gone"));
+    expect(await (await hook("rec_receipts")).run(ctx(fakeClient()))).toBe("rec_receipts 1 (bee todos 55)");
+    bee.deleteTodo.mockRejectedValueOnce(new BeeApiError(503, "/v1/todos/55", "down"));
+    await expect((await hook("rec_receipts")).run(ctx(fakeClient()))).rejects.toThrow("Bee API 503");
   });
 
   it("episodes: deletes only episodes naming the person through ctx.c with $n parameters, then their audio last", async () => {

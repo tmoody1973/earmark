@@ -1,0 +1,39 @@
+/* Rec receipts: phone-first, one column, the garden's tokens (globals.css). Owner page + public card. */
+.receipts {
+  max-width: 40rem; margin: 0 auto; overflow-wrap: anywhere;
+  padding: calc(2rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 4rem max(1rem, env(safe-area-inset-left));
+}
+.receipts h1 { font-family: var(--serif); font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; text-wrap: balance; }
+.receipts h2 { font-size: 1.0625rem; font-weight: 600; margin: 2rem 0 0.75rem; }
+.receipts .lede, .receipts .r-meta { color: var(--ink-2); font-size: 0.9375rem; }
+.r-form { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.r-form label { font-size: 0.9375rem; }
+.r-form textarea, .r-form input {
+  font: inherit; box-sizing: border-box; width: 100%; padding: 0.5rem 0.75rem; min-height: 44px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: 10px;
+}
+.r-form textarea { font-family: var(--serif); line-height: 1.45; resize: vertical; }
+.r-form .r-meta, .r-form .r-status { margin: 0; }
+.r-status { min-height: 1.5em; font-size: 0.9375rem; color: var(--ink-2); }
+.receipts button {
+  font: inherit; min-height: 44px; padding: 0 1rem; border-radius: 999px; cursor: pointer; justify-self: start;
+  background: var(--ink); color: var(--surface); border: 1px solid var(--ink);
+}
+.receipts button.quiet { background: transparent; color: var(--ink); border-color: var(--hairline-strong); }
+.receipts button:disabled { opacity: 0.55; cursor: default; }
+
+/* Public card: one calm card on the ground, quiet like the garden (docs/design/shape-space-page.md). */
+.receipt-card {
+  max-width: 28rem; margin: 0 auto; box-sizing: border-box; overflow-wrap: anywhere;
+  padding: calc(2.5rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 3rem max(1rem, env(safe-area-inset-left));
+}
+.receipt-message { font-family: var(--serif); font-size: 1.375rem; line-height: 1.45; margin: 0 0 2rem; text-wrap: pretty; }
+.receipt-card figure {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1rem; align-items: center;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-card); padding: 1rem;
+}
+.receipt-card figure:not(:has(img)) { grid-template-columns: 1fr; }
+.receipt-card img { width: 5rem; height: 5rem; object-fit: cover; border-radius: var(--radius-art); background: var(--art-ground); }
+.receipt-card figcaption { font-family: var(--serif); line-height: 1.35; }
+.receipt-card figcaption span { color: var(--ink-2); font-size: 0.9375rem; }
+.receipt-footer { margin: 2rem 0 0; font-size: 0.8125rem; color: var(--ink-3); }

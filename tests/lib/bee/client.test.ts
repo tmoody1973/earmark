@@ -114,3 +114,14 @@ describe("Bee deletes", () => {
     expect(err.status).toBe(404);
   });
 });
+
+describe("getTodo (M5-T6)", () => {
+  it("GETs one todo and surfaces a 404 as BeeApiError", async () => {
+    const f = fakeFetch(200, JSON.stringify({ id: 9, text: "x", completed: true }));
+    expect(await createBeeClient(opts(f)).getTodo(9)).toMatchObject({ id: 9, completed: true });
+    expect(String(f.mock.calls[0][0])).toBe("https://bee.test/v1/todos/9");
+    const err = await createBeeClient(opts(fakeFetch(404, "not found"))).getTodo(9).catch((e) => e);
+    expect(err).toBeInstanceOf(BeeApiError);
+    expect(err.status).toBe(404);
+  });
+});
