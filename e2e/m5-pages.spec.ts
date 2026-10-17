@@ -19,7 +19,7 @@ async function signIn(page: Page) {
 async function phoneCheck(page: Page, path: string) {
   await page.goto(path);
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
-  await expect(page.locator("h1, main.receipt-card")).toBeVisible(); // /r/<token> is a card with no h1 by design
+  await expect(page.locator("h1").first()).toBeVisible();
   const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(scroll, "no horizontal scroll").toBeLessThanOrEqual(client);
   const small = await page.evaluate(() =>
