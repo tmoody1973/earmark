@@ -112,8 +112,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("reversible re-sort on the Neon 
     const { rows: backup } = await c.query(`select count(*)::int as n from resort_backup where run_id = $1`, [run.runId]);
     expect(backup[0].n).toBe(run.moves.length + run.clusters.length);
 
+    const applied = await snapshot();
+    const again = await resort(c, { apply: true, scope });
+    expect(again).toEqual({ runId: null, moves: [], clusters: [] }); // a second apply finds nothing to move
+    expect(await snapshot()).toEqual(applied);
+
     const undone = await undoResort(c, run.runId!);
     expect(undone.skipped).toBe(0);
+    expect(await snapshot()).toEqual(before);
+
+    const undoneAgain = await undoResort(c, run.runId!); // every row already holds its old status
+    expect(undoneAgain).toMatchObject({ restored: [], clusters: [] });
     expect(await snapshot()).toEqual(before);
   });
 
