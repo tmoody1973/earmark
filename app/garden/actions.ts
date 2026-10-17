@@ -1,6 +1,7 @@
 "use server";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { isOwner } from "@/agent/lib/owner";
 import { setLinkStatus, type LinkKey } from "@/agent/lib/garden/backlinks";
@@ -30,7 +31,7 @@ export async function recordGardenVisit(): Promise<{ started: boolean }> {
 async function verdict(id: unknown, v: TipVerdict): Promise<{ changed: boolean }> {
   await requireOwner();
   if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw new Error("invalid tip id");
-  const changed = await setTipVerdict(id, v);
+  const changed = await setTipVerdict(id, v, { defer: after }); // status effects (Bee) run after the response
   revalidatePath("/", "layout"); // Home, Shelf and People all read these tips
   return { changed };
 }

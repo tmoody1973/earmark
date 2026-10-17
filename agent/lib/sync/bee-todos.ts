@@ -8,7 +8,6 @@
 // Bee first, then Postgres: sync state is saved only after Bee succeeded. Kill switch: writes only when
 // BEE_TODO_WRITES=on. Logs carry ids and err.name only; todo text never holds transcript text (todo-text.ts).
 import { randomUUID } from "node:crypto";
-import { after } from "next/server";
 import { BeeApiError, createBeeClient, type BeeClient, type Todo } from "../bee/client";
 import { db } from "../db";
 import type { StatusChange } from "../recs/status-effects";
@@ -93,21 +92,12 @@ export async function drainTodoQueue(deps: Partial<DrainDeps> = {}): Promise<Dra
 
 /**
  * The "bee-todos" status effect: a tip entering or leaving "queued" runs the reconciler now, not at the next tick.
- * Inside a request the drain goes to after() so a tap never waits on Bee; outside one (scripts, schedules) after()
- * throws and the drain is awaited. A failure is only logged: the scheduled reconciler is the guarantee.
+ * A garden tap never waits on it: the server actions pass setRecStatus a `defer` (after()). No next/* import here:
+ * eve evaluates this module outside Next. A failure is only logged: the scheduled reconciler is the guarantee.
  */
-export async function beeTodoEffect(
-  c: StatusChange,
-  drain: () => Promise<unknown> = drainTodoQueue,
-  later: (fn: () => Promise<unknown>) => void = after,
-): Promise<void> {
+export async function beeTodoEffect(c: StatusChange, drain: () => Promise<unknown> = drainTodoQueue): Promise<void> {
   if (c.previous !== "queued" && c.next !== "queued") return;
-  const run = () => drain().catch((err: unknown) => console.error(`[bee-todos] nudge failed error=${errName(err)}`));
-  try {
-    later(run);
-  } catch {
-    await run();
-  }
+  await drain().catch((err: unknown) => console.error(`[bee-todos] nudge failed error=${errName(err)}`));
 }
 
 async function reconcile(d: DrainDeps): Promise<DrainCounts> {

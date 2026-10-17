@@ -48,7 +48,7 @@ const RECOMMENDER_COUNTS: StatusEffect = {
 // notion: M3-T2b when NOTION_TOKEN exists — registers its push in STATUS_EFFECTS (status-effects.ts), as M3-T7's
 // bee-todos does; nothing here changes.
 async function afterStatusChange(change: StatusChange, effects: readonly StatusEffect[]): Promise<void> {
-  for (const fx of [RECOMMENDER_COUNTS, ...effects]) {
+  for (const fx of effects) {
     try {
       await fx.run(change);
     } catch (err) {
@@ -64,6 +64,11 @@ export interface SetStatusOptions {
   verdict?: "kept" | "not_a_tip";
   /** Tests inject their own; defaults to STATUS_EFFECTS. */
   effects?: readonly StatusEffect[];
+  /**
+   * Runs the effects later instead of awaiting them. The Next.js server actions pass after() so a tap never waits on
+   * Bee; agent code (schedules, tools) must never import next/*, since eve evaluates it outside Next.
+   */
+  defer?: (fn: () => Promise<void>) => void;
 }
 
 const assertRecId = (id: number) => {
@@ -88,12 +93,16 @@ export async function setRecStatus(
   if (!rows[0]) return { changed: false, previous: null };
   const previous = rows[0].previous as RecStatus;
   const recommenderId = rows[0].recommender_id == null ? null : Number(rows[0].recommender_id);
-  await afterStatusChange({ recId, previous, next, origin, recommenderId }, opts.effects ?? STATUS_EFFECTS);
+  const change: StatusChange = { recId, previous, next, origin, recommenderId };
+  await afterStatusChange(change, [RECOMMENDER_COUNTS]);
+  const effects = () => afterStatusChange(change, opts.effects ?? STATUS_EFFECTS);
+  if (opts.defer) opts.defer(effects);
+  else await effects();
   return { changed: true, previous };
 }
 
 export async function setRecRating(
-  recId: number, rating: Rating | null, origin: StatusOrigin, opts: Pick<SetStatusOptions, "effects"> = {},
+  recId: number, rating: Rating | null, origin: StatusOrigin, opts: Pick<SetStatusOptions, "effects" | "defer"> = {},
 ): Promise<void> {
   assertRecId(recId);
   const rows = await db()`
