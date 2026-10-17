@@ -22,7 +22,8 @@ const FIELDS = [
   { name: "q", label: "What it was about", placeholder: "the ramen place" },
 ] as const;
 
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
+// Capped here too (searchEarmarks clamps again): the form values are echoed back into inputs and the URL.
+const one = (v: string | string[] | undefined, max: number) => (Array.isArray(v) ? v[0] : v)?.trim().slice(0, max).trim() || undefined;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // One search for a who / where / when / what cue (memory-cue search, FR-36). A plain GET form: the cue is in the
@@ -31,7 +32,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
   const sp = await searchParams;
-  const p = { who: one(sp.who), where: one(sp.where), when: one(sp.when), q: one(sp.q) };
+  const p = { who: one(sp.who, 40), where: one(sp.where, 80), when: one(sp.when, 40), q: one(sp.q, 120) };
   const asked = Boolean(p.who || p.where || p.when || p.q);
   const range = p.when ? parseWhen(p.when) : null;
   const badWhen = Boolean(p.when && !range);
