@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";
 interface Turn { question: string; answer: string; toolsUsed: string[] }
@@ -7,20 +7,21 @@ interface Recognition { lang: string; interimResults: boolean; onresult: ((e: { 
 type RecognitionCtor = new () => Recognition;
 
 const SORRY = "Sorry, I couldn't reach your garden just now.";
+// Speech support is a fixed browser fact: false on the server, read once on the client (no setState in an effect).
+const noSubscribe = () => () => {};
+const browserCanListen = () => {
+  const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
+  return !!(w.SpeechRecognition ?? w.webkitSpeechRecognition);
+};
 const PHASE_LABEL: Record<Phase, string> = { idle: "Ready", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
 
 export function Device() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
-  const [canListen, setCanListen] = useState(false);
+  const canListen = useSyncExternalStore(noSubscribe, browserCanListen, () => false);
   const rec = useRef<Recognition | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
-    setCanListen(!!(w.SpeechRecognition ?? w.webkitSpeechRecognition));
-  }, []);
 
   function stopSpeaking() {
     audio.current?.pause();
