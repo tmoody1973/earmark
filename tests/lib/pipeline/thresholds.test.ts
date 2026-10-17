@@ -1,20 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { JOKING_MAX, routeByConfidence, windowRoute } from "../../../agent/lib/pipeline/thresholds";
+import { ACCEPT_ABOVE, DROP_BELOW, JOKING_MAX, routeByConfidence, windowRoute } from "../../../agent/lib/pipeline/thresholds";
 import type { TriageResult } from "../../../agent/lib/types";
 
 describe("routeByConfidence", () => {
   it.each([
     [0.99, "accept"],
-    [0.8500001, "accept"],
-    [0.85, "review"],
-    [0.7, "review"],
-    [0.5, "review"],
-    [0.4999, "drop"],
+    [ACCEPT_ABOVE + 1e-7, "accept"],
+    [ACCEPT_ABOVE, "review"],
+    [(ACCEPT_ABOVE + DROP_BELOW) / 2, "review"],
+    [DROP_BELOW, "review"],
+    [DROP_BELOW - 1e-4, "drop"],
     [0, "drop"],
     [Number.NaN, "drop"],
     [Number.POSITIVE_INFINITY, "drop"],
   ])("%s → %s", (p, route) => {
     expect(routeByConfidence(p)).toBe(route);
+  });
+});
+
+// M2-T10, decision 009: chosen from the labeled eval (evals/triage/reports/2026-10-17.md), not the PRD starting points.
+describe("tuned thresholds", () => {
+  it("accepts only above 0.9 and drops below 0.6", () => {
+    expect(ACCEPT_ABOVE).toBe(0.9);
+    expect(DROP_BELOW).toBe(0.6);
   });
 });
 

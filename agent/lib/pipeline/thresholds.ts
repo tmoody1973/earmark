@@ -1,8 +1,10 @@
 import type { Route, TriageResult } from "../types";
 
-// Starting points from the PRD (FR-05); M2's eval harness tunes them per model.
-export const ACCEPT_ABOVE = 0.85;
-export const DROP_BELOW = 0.5;
+// Chosen from the labeled eval for Jev (M2-T10, docs/decisions/009). PRD starting points were 0.85 / 0.5.
+// ponytail: 48 labels; below 0.6 Jev's rec/idea calls were 1/14, 1/21 and 0/36 right over three runs; above 0.9 rests on
+// 2 predictions. Re-tune on fresh labels (the eve gate needs n >= 5 accepted per class).
+export const ACCEPT_ABOVE = 0.9;
+export const DROP_BELOW = 0.6;
 
 // A capture (photo/song) links to a transcript window only when the model is at least this sure it is the one.
 export const WINDOW_PICK_MIN = 0.5;
