@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { approveReceipt, chicagoLocalToUtc, deferReceipt, draftReceipt, ReceiptError } from "@/agent/lib/recs/receipts";
 import { requireOwner } from "@/app/gardeners/owner";
 
@@ -25,7 +26,7 @@ export async function draftAction(recId: number, _prev: ReceiptResult): Promise<
 export async function approveAction(recId: number, receiptId: number, message: string): Promise<{ url: string } | { error: string }> {
   await requireOwner();
   try {
-    const url = await approveReceipt(recId, receiptId, message);
+    const url = await approveReceipt(recId, receiptId, message, after);
     revalidatePath(`/receipts/${recId}`);
     return { url };
   } catch (err) {

@@ -65,14 +65,17 @@ export async function draftReceipt(recId: number, generateImpl: typeof generateT
 /** The public link for a receipt's share token. */
 export const receiptUrl = (token: string) => `${requireEnv("EARMARK_PUBLIC_BASE_URL")}/r/${token}`;
 
-export async function approveReceipt(recId: number, receiptId: number, message: string): Promise<string> {
+// `defer`: the server action passes Next's after() so the tap never waits on status side effects (Bee); agent/ never imports next/*.
+export async function approveReceipt(
+  recId: number, receiptId: number, message: string, defer?: (fn: () => Promise<void>) => void,
+): Promise<string> {
   const clean = message.trim().slice(0, 280);
   if (!clean) throw new ReceiptError("The note is empty; write something first");
   const [row] = (await db()`
     update rec_receipts set message = ${clean}, approved_at = now(), sent_via = 'link'
     where id = ${receiptId} and recommendation_id = ${recId} returning share_token, recommendation_id`) as { share_token: string; recommendation_id: number | string }[];
   if (!row) throw new ReceiptError(`receipt ${receiptId} not found`);
-  await setRecStatus(Number(row.recommendation_id), "thanked", "garden");
+  await setRecStatus(Number(row.recommendation_id), "thanked", "garden", { defer });
   return receiptUrl(row.share_token);
 }
 
