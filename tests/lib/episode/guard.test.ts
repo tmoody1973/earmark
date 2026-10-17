@@ -48,7 +48,8 @@ describe("checkText: allowlists and patterns", () => {
   });
   it("catches Unicode, hyphenated, apostrophe and particle surnames, and 'by/from First Last'", () => {
     for (const sn of ["O’Brien", "Müller", "Smith-Jones", "de la Cruz", "O'Brien"]) expect(c(`Marcus ${sn} suggested it.`)).toContain("surname");
-    expect(c("It was recommended by Priya Rao.")).toContain("unknown_name");
+    expect(c("It was recommended by Marcus Webb.")).toContain("surname");
+    expect(c("A tip from Milwaukee Public Radio.")).toEqual([]); // first word is not on the list
     expect(c("A tip from Ann Smith.")).toContain("surname");
   });
 });

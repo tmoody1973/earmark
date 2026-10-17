@@ -45,31 +45,35 @@ export const catalogStrings = (data: EpisodeData): string[] => {
 export const namesPerson = (text: string, name: string | undefined): boolean =>
   !!name && new RegExp(`(?<![\\p{L}\\p{N}])${esc(name)}(?![\\p{L}\\p{N}])`, "iu").test(text);
 
-export function checkText(text: string, data: EpisodeData, owner: string | undefined): Reason[] {
-  const reasons = new Set<Reason>();
-  if (namesPerson(text, owner)) reasons.add("owner");
+export interface Issue { reason: Reason; phrase: string }
+
+// Offending phrases are for the in-memory model request ONLY: never log them, throw them or return them to callers.
+export function findIssues(text: string, data: EpisodeData, owner: string | undefined): Issue[] {
+  const issues: Issue[] = [];
+  const add = (reason: Reason, phrase: string) => issues.push({ reason, phrase });
+  if (owner && namesPerson(text, owner)) add("owner", owner);
 
   for (const re of QUOTES) {
-    for (const m of text.matchAll(re)) if (wordsIn(m[1] ?? "") > MAX_EXCERPT_WORDS) reasons.add("excerpt");
+    for (const m of text.matchAll(re)) {
+      if (wordsIn(m[1] ?? "") > MAX_EXCERPT_WORDS) add("excerpt", `${(m[1] ?? "").trim().split(/\s+/).slice(0, 8).join(" ")}...`);
+    }
   }
 
   const names = recommenderNames(data);
   const known = new Set(names);
   const catalog = catalogStrings(data);
   const inCatalog = (phrase: string) => catalog.some((c) => c.includes(phrase));
+  // Also covers "recommended by / from <First> <Last>": the surname follows a first name from the list.
   for (const n of names) {
     for (const m of text.matchAll(new RegExp(`(?<![\\p{L}])${esc(n)}\\s+(${SURNAME})`, "gu"))) {
-      if (!inCatalog(m[0])) reasons.add("surname"); // "Ann Arbor" is fine only when a catalog title says so
+      if (!inCatalog(m[0])) add("surname", m[0]); // "Ann Arbor" is fine only when a catalog title says so
     }
   }
   for (const m of text.matchAll(new RegExp(`(?<![\\p{L}])(\\p{Lu}\\p{Ll}+)\\s+(?:${SPEAKS})\\b`, "gu"))) {
     const w = m[1];
-    if (!known.has(w) && !NOT_NAMES.has(w.toLowerCase()) && w.toLowerCase() !== owner?.toLowerCase()) reasons.add("unknown_name");
+    if (!known.has(w) && !NOT_NAMES.has(w.toLowerCase()) && w.toLowerCase() !== owner?.toLowerCase()) add("unknown_name", w);
   }
-  // "recommended by Marcus Webb", "from Marcus Webb": a full name whose first name is not on the week's list.
-  for (const m of text.matchAll(new RegExp(`(?:(?:${SPEAKS})\\s+by|from)\\s+(\\p{Lu}\\p{Ll}+)\\s+(${SURNAME})`, "gu"))) {
-    const phrase = `${m[1]} ${m[2]}`;
-    if (!known.has(m[1]) && !inCatalog(phrase)) reasons.add("unknown_name");
-  }
-  return [...reasons];
+  return issues;
 }
+
+export const checkText = (text: string, data: EpisodeData, owner: string | undefined): Reason[] => [...new Set(findIssues(text, data, owner).map((i) => i.reason))];
