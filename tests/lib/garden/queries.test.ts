@@ -7,7 +7,7 @@ const status = vi.hoisted(() => ({
   setRecStatus: vi.fn(async () => ({ changed: true, previous: "needs_review" })),
   setRecRating: vi.fn(async () => ({ changed: true })),
 }));
-vi.mock("../../../agent/lib/recs/status", () => status);
+vi.mock("../../../agent/lib/recs/status", async (orig) => ({ ...(await orig<object>()), ...status }));
 
 import {
   HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipChoice, setTipVerdict, toPlant,
@@ -232,7 +232,7 @@ describe("setTipChoice", () => {
   it.each([
     ["queue", "queued", ["new"]],
     ["tried", "tried", ["new", "queued"]],
-    ["dismiss", "dismissed", ["new", "queued", "tried", "thanked"]],
+    ["dismiss", "dismissed", ["new", "queued"]],
   ] as const)("%s moves the tip to %s, only from a status the shelf shows", async (choice, next, from) => {
     expect(await setTipChoice(7, choice, { defer })).toBe(true);
     expect(status.setRecStatus).toHaveBeenCalledWith(7, next, "garden", { from, defer });

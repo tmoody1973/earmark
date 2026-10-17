@@ -16,19 +16,10 @@ type State = { status: RecStatus; rating: Rating | null; gone: boolean };
 const TipContext = createContext<{ tip: Tip; state: State; choose: (c: TipChoice) => void } | null>(null);
 const useTip = () => use(TipContext)!;
 
-// One polite region for every card on the page, outside React's tree, so "Dismissed: …" is still read after the card
-// (and its list item) is gone. ponytail: a DOM node, not a provider: the shelf, Home and People share it unchanged.
-const ANNOUNCER = "tip-announcer";
-function ensureAnnouncer() {
-  if (document.getElementById(ANNOUNCER)) return;
-  const p = document.createElement("p");
-  p.id = ANNOUNCER;
-  p.className = "visually-hidden";
-  p.setAttribute("role", "status");
-  document.body.append(p);
-}
+// One polite region for every card, rendered by the root layout (#tip-announcer), so "Dismissed: …" is still read
+// after the card (and its list item) is gone.
 function announce(text: string) {
-  const p = document.getElementById(ANNOUNCER);
+  const p = document.getElementById("tip-announcer");
   if (!p) return;
   p.textContent = ""; // cleared first, so the same message twice (a repeat failure) is read again
   requestAnimationFrame(() => { p.textContent = text; });
@@ -37,7 +28,6 @@ function announce(text: string) {
 export function TipCard({ tip, children, ...article }: { tip: Tip; children: ReactNode } & ComponentProps<"article">) {
   const [state, apply] = useOptimistic<State, TipChoice>({ status: tip.status, rating: tip.rating, gone: false }, applyChoice);
   const [, startTransition] = useTransition();
-  useEffect(ensureAnnouncer, []);
 
   function choose(choice: TipChoice) {
     startTransition(async () => {
@@ -60,9 +50,12 @@ export function TipCard({ tip, children, ...article }: { tip: Tip; children: Rea
   );
 }
 
-/** The quiet tag: the rating, else Tried (thanked counts, as in the taste ledger), else To try. */
-export function TipTag() {
-  const { state } = useTip();
+/**
+ * The quiet tag: the rating, else Tried (thanked counts, as in the taste ledger), else To try. Inside a TipCard it
+ * follows the card's optimistic state; on a read-only card (no TipCard) it shows the tip as saved.
+ */
+export function TipTag(saved: { status: RecStatus; rating: Rating | null }) {
+  const state = use(TipContext)?.state ?? saved;
   if (state.rating) {
     return (
       <span className={`rec-tag rec-tag--${state.rating}`}>
@@ -80,7 +73,7 @@ export function TipTag() {
  * The card's one secondary control: "…" opens a short list over the card (a disclosure, not an ARIA menu, so Tab and
  * Enter work as everywhere else). Escape, a tap outside, or focus leaving closes it. Choosing closes it too.
  */
-export function TipMenu({ titleId }: { titleId: string }) {
+export function TipMenu() {
   const { tip, state, choose } = useTip();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -108,6 +101,7 @@ export function TipMenu({ titleId }: { titleId: string }) {
 
   function pick(choice: TipChoice) {
     setOpen(false);
+    if (choice === state.rating) { more.current?.focus(); return; } // the rating it already has: nothing to save
     if (choice === "dismiss") {
       // the card is about to go: focus moves to the next card's "…" (or the one before), never to the page top
       const all = Array.from(document.querySelectorAll<HTMLButtonElement>(".tip-more"));
@@ -125,8 +119,7 @@ export function TipMenu({ titleId }: { titleId: string }) {
         ref={more}
         type="button"
         className="tip-more"
-        aria-label="Options"
-        aria-describedby={titleId}
+        aria-label={`Options for ${tip.name}`}
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((o) => !o)}

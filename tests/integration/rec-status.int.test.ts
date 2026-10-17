@@ -115,12 +115,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec status core on the Neon tes
     expect(await setTipChoice(tip, "loved", { defer })).toBe(false);
     expect(await row(tip)).toMatchObject({ status: "tried", rating: "loved" });
     expect((await counts()).recs_loved).toBeGreaterThanOrEqual(1);
-    expect(await setTipChoice(tip, "dismiss", { defer })).toBe(true);
-    expect((await row(tip)).status).toBe("dismissed");
+    expect(await setTipChoice(tip, "dismiss", { defer })).toBe(false); // a tried tip keeps its giver's counts
+    expect((await row(tip)).status).toBe("tried");
+    const untried = await addRec("queued");
+    expect(await setTipChoice(untried, "dismiss", { defer })).toBe(true);
+    expect((await row(untried)).status).toBe("dismissed");
+    expect(await setTipChoice(untried, "loved", { defer })).toBe(false); // no rating lands on a hidden tip
     const maybe = await addRec("needs_review");
     expect(await setTipChoice(maybe, "dismiss", { defer })).toBe(false); // maybes have their own row
     expect(await setTipChoice(maybe, "tried", { defer })).toBe(false);
-    expect((await row(maybe)).status).toBe("needs_review");
+    expect(await setTipChoice(maybe, "fine", { defer })).toBe(false);
+    expect(await row(maybe)).toMatchObject({ status: "needs_review", rating: null });
+    expect((await row(untried)).rating).toBeNull();
   });
 
   it("getRec returns the tip with typed fields from the real schema", async () => {
