@@ -89,6 +89,18 @@ describe("handleLocationUpdate", () => {
     await expect(handleLocationUpdate(HERE, d)).rejects.toThrow("bee down");
     expect(d.release).toHaveBeenCalledWith(41);
   });
+  it("rethrows the original error when releasing the claim fails too, logging only the release error's name", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = {
+      ...base(),
+      createTodo: vi.fn<NudgeDeps["createTodo"]>(async () => { throw new Error("bee down"); }),
+      release: vi.fn(async () => { throw Object.assign(new Error("secret text"), { name: "NeonDbError" }); }),
+    };
+    await expect(handleLocationUpdate(HERE, d)).rejects.toThrow("bee down");
+    expect(JSON.stringify(err.mock.calls)).toContain("NeonDbError");
+    expect(JSON.stringify(err.mock.calls)).not.toContain("secret text");
+    err.mockRestore();
+  });
   it("ignores locations with no saved place nearby", async () => {
     const d = { ...base(), candidates: vi.fn(async () => [far]) };
     expect(await handleLocationUpdate({ latitude: 43.0418, longitude: -87.9097 }, d)).toBe("none");
