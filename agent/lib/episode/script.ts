@@ -11,7 +11,7 @@ export const MIN_WORDS = 700; // hard floor; the retry asks for 850-1100, so onl
 export const MAX_WORDS = 1100;
 
 const MAX_ATTEMPTS = 3; // first draft plus two retries
-const FIX_TEXT: Record<Reason, string> = {
+export const FIX_TEXT: Record<Reason, string> = {
   owner: "Never name the owner; the listener is only \"you\".",
   excerpt: "Keep every quotation to 25 words or fewer.",
   surname: "Use first names only; never add a surname.",
