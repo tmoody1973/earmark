@@ -26,6 +26,13 @@ const recRow = {
 describe("garden queries", () => {
   beforeEach(() => { h.mock = makeMockDb(); });
 
+  it("a video tip is a screen card that opens what the rec lane stored: the video, else a YouTube search", () => {
+    const video = { ...recRow, type: "video", canonical_name: "The Art of Code", creator: "Dylan Beattie", image_url: null };
+    const search = "https://www.youtube.com/results?search_query=The%20Art%20of%20Code%20Dylan%20Beattie";
+    expect(toRecCard({ ...video, links: { primary: search } })).toMatchObject({ variant: "screen", link: search });
+    expect(toRecCard({ ...video, links: { youtube: "https://youtu.be/x", urls: ["https://youtu.be/x"] } }).link).toBe("https://youtu.be/x");
+  });
+
   it("maps a rec row to card data", () => {
     const card = toRecCard(recRow);
     expect(card).toMatchObject({

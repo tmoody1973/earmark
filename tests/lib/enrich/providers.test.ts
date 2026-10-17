@@ -102,14 +102,15 @@ describe("keyed providers (documented shapes)", () => {
 
 describe("registry: provider per type, keyed ones only when their env is set", () => {
   const none = {};
-  it("keyless today: music → MusicBrainz, book → Open Library, other → Wikipedia, podcast → iTunes", () => {
+  it("keyless today: music → MusicBrainz, book → Open Library, other → Wikipedia, podcast → iTunes, video → YouTube oEmbed", () => {
     expect(providerFor("album", none)?.name).toBe("musicbrainz");
     expect(providerFor("book", none)?.name).toBe("openlibrary");
     expect(providerFor("other", none)?.name).toBe("wikipedia");
     expect(providerFor("podcast", none)?.name).toBe("itunes");
     expect(providerFor("film_tv", none)).toBeNull();
     expect(providerFor("place", none)).toBeNull();
-    expect(enabledTypes(none)).toEqual(["album", "song", "artist", "book", "podcast", "other"]);
+    expect(providerFor("video", none)?.name).toBe("youtube");
+    expect(enabledTypes(none)).toEqual(["album", "song", "artist", "book", "podcast", "video", "other"]);
   });
   it("keys switch TMDB, Places and Podcast Index on", () => {
     const env = { TMDB_API_KEY: "t", GOOGLE_PLACES_API_KEY: "g", PODCAST_INDEX_KEY: "k", PODCAST_INDEX_SECRET: "s" };
@@ -117,6 +118,6 @@ describe("registry: provider per type, keyed ones only when their env is set", (
     expect(providerFor("place", env)?.name).toBe("places");
     expect(providerFor("podcast", env)?.name).toBe("podcastindex");
     expect(providerFor("podcast", { PODCAST_INDEX_KEY: "k" })?.name).toBe("itunes"); // half a key pair = not configured
-    expect(enabledTypes(env)).toHaveLength(8);
+    expect(enabledTypes(env)).toHaveLength(9);
   });
 });

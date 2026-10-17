@@ -17,6 +17,11 @@ describe("formatTodoText", () => {
       .toBe("Earmark · Visit: Promises (Oct 12) https://earmark.test/shelf?rec=7#rec-7");
   });
 
+  it("a video tip is watched", () => {
+    expect(formatTodoText({ ...rec, type: "video", creator: null, recommender_first_name: null }, "https://earmark.test"))
+      .toBe("Earmark · Watch: Promises (Oct 12) https://earmark.test/shelf?rec=7#rec-7");
+  });
+
   it("dates in Central time (a late-evening tip keeps its local day)", () => {
     expect(formatTodoText({ ...rec, said_at: new Date("2026-10-13T03:30:00Z") }, "x")).toContain("(Ann, Oct 12)");
   });

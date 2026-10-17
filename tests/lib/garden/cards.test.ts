@@ -12,6 +12,7 @@ describe("cardVariant", () => {
     expect(cardVariant("place")).toBe("map");
     expect(cardVariant("podcast")).toBe("tile");
     expect(cardVariant("film_tv")).toBe("poster");
+    expect(cardVariant("video")).toBe("screen");
     expect(cardVariant("other")).toBe("note");
   });
 });
@@ -54,7 +55,7 @@ describe("cardArtwork (the no-image fallback)", () => {
     expect(cardArtwork({ ...base, variant: "artist", imageUrl: "https://x/face.jpg" })).toEqual({ kind: "none" });
   });
   it("falls back to the typographic state for every other variant without an image", () => {
-    for (const variant of ["cover", "spine", "tile", "poster", "note"] as const) {
+    for (const variant of ["cover", "spine", "tile", "poster", "screen", "note"] as const) {
       expect(cardArtwork({ ...base, variant })).toEqual({ kind: "none" });
     }
   });
