@@ -14,11 +14,13 @@ vi.mock("../../agent/lib/garden/queries", () => ({
   saveGardenVisit: vi.fn(async () => {}),
   getMaybeTips: vi.fn(async () => ({ tips: [], more: 0 })),
 }));
+vi.mock("../../agent/lib/garden/serendipity", () => ({ getSerendipity: vi.fn(async () => null) }));
 
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
 import { getGardenView, getGardenVisit, saveGardenVisit } from "../../agent/lib/garden/queries";
+import { getSerendipity } from "../../agent/lib/garden/serendipity";
 import Garden from "../../app/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
@@ -50,6 +52,7 @@ describe("garden page owner guard", () => {
       expect(notFound).toHaveBeenCalled();
       expect(getGardenView).not.toHaveBeenCalled();
       expect(getGardenVisit).not.toHaveBeenCalled();
+      expect(getSerendipity).not.toHaveBeenCalled();
     },
   );
 
@@ -82,5 +85,17 @@ describe("garden page owner guard", () => {
     await Garden();
     expect(getGardenView).toHaveBeenCalledOnce();
     expect(notFound).not.toHaveBeenCalled();
+  });
+
+  it("hands Serendipity its one pick", async () => {
+    signedInAs("user_owner");
+    const pick = { type: "idea", id: 3, title: "A show", note: "Heard 5 days ago", plant: {} } as never;
+    vi.mocked(getSerendipity).mockResolvedValueOnce(pick);
+    vi.mocked(getGardenView).mockResolvedValueOnce({
+      plants: [{ id: 5 }] as never, shelf: [{ id: 9 }] as never, serverTime: new Date().toISOString(), newChips: [],
+    });
+    expect(find(await Garden(), "Serendipity")?.props.pick).toBe(pick);
+    // never a card already on Home
+    expect(getSerendipity).toHaveBeenCalledWith(expect.any(Date), [{ type: "idea", id: 5 }, { type: "rec", id: 9 }]);
   });
 });

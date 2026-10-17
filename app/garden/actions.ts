@@ -13,6 +13,7 @@ import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
 import { TIP_CHOICES, type TipChoice } from "@/agent/lib/garden/tip";
 import { nextVisit } from "@/agent/lib/garden/visit";
+import { compostTip, keepItem, restIdea, undoCompostTip, type CompostResult, type ItemRef } from "@/agent/lib/garden/serendipity";
 
 async function requireOwner(): Promise<void> {
   const { userId } = await auth();
@@ -198,5 +199,52 @@ export async function removeSpaceItem(key: spaces.SpaceItemKey): Promise<{ chang
   await requireOwner();
   const changed = await spaces.setSpaceItemStatus(spaceItemKey(key), "removed");
   revalidatePath("/spaces", "layout");
+  return { changed };
+}
+
+// ---- Serendipity (M4-T8, FR-34, decision 029) ----
+
+const ItemRefSchema = z.strictObject({ type: z.enum(["rec", "idea"]), id: Id });
+const UndoSchema = z.strictObject({ id: Id, previous: z.enum(["new", "queued"]) });
+
+function serendipityId(raw: unknown): number {
+  const parsed = Id.safeParse(raw);
+  if (!parsed.success) throw new Error("invalid item");
+  return parsed.data;
+}
+
+/** Keep it: it stays where it is, and Serendipity moves on to the next forgotten thing. */
+export async function keepSerendipity(ref: ItemRef): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const parsed = ItemRefSchema.safeParse(ref);
+  if (!parsed.success) throw new Error("invalid item");
+  const changed = await keepItem(parsed.data);
+  revalidatePath("/");
+  return { changed };
+}
+
+/** Not now (an idea): it rests out of Serendipity for a couple of months, still in the garden and still growing. */
+export async function notNowSerendipity(ideaId: number): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await restIdea(serendipityId(ideaId));
+  revalidatePath("/");
+  return { changed };
+}
+
+/** Let it compost (a tip): composted, and its Bee todo is cleared after the response. Undoable for an hour. */
+export async function compostSerendipity(recId: number): Promise<CompostResult> {
+  await requireOwner();
+  const result = await compostTip(serendipityId(recId), { defer: after });
+  revalidatePath("/", "layout"); // the shelf loses it too
+  return result;
+}
+
+/** Undo a tip's compost from Serendipity. A no-op past the hour, or for a tip composted anywhere else. */
+export async function undoCompostSerendipity(ref: { id: number; previous: "new" | "queued" }): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const parsed = UndoSchema.safeParse(ref);
+  if (!parsed.success) throw new Error("invalid item");
+  const changed = await undoCompostTip(parsed.data.id, parsed.data.previous, { defer: after });
+  revalidatePath("/", "layout");
   return { changed };
 }

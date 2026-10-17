@@ -87,7 +87,7 @@ test("ideas grow as plants on the garden, and each opens its own page", async ({
   await signInAs(page, OWNER_EMAIL);
 
   await page.goto("/");
-  const homePlants = page.locator("#garden").getByTestId("plant");
+  const homePlants = page.locator("#garden section[aria-labelledby=ideas-h]").getByTestId("plant"); // the Ideas zone, not Serendipity
   await expect(homePlants.first()).toBeVisible();
   expect(await homePlants.count()).toBeLessThanOrEqual(6);
   for (const p of await homePlants.all()) {
