@@ -205,6 +205,8 @@ test("a look is recorded on mount, and a live refresh is not a look", async ({ p
   await signIn(page);
   await page.goto("/");
   await expect.poll(lastVisit, { timeout: 10_000 }).not.toBe(before); // the mount recorded a look
+  // Dev Strict Mode runs the mount effect twice: two looks land ~100 ms apart. Let them settle before reading.
+  await page.waitForTimeout(1_500);
   const atMount = await lastVisit();
 
   // A mention on a visible idea refreshes the page (newest timeline line) and must leave the record alone.
