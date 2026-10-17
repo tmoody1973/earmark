@@ -1,0 +1,411 @@
+{
+  "created": "2026-10-17T02:20:38.059Z",
+  "count": 1,
+  "offset": 0,
+  "release-groups": [
+    {
+      "id": "970f689d-1778-4953-b3ed-48d057625724",
+      "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+      "score": 100,
+      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+      "artist-credit-id": "241b5f28-c2d0-3f56-bf6e-a6ca5093dd16",
+      "count": 12,
+      "title": "Promises",
+      "first-release-date": "2020-11-24",
+      "primary-type": "Album",
+      "artist-credit": [
+        {
+          "joinphrase": ", ",
+          "name": "Floating Points",
+          "artist": {
+            "id": "69d9c5ba-7bba-4cb7-ab32-8ccc48ad4f97",
+            "name": "Floating Points",
+            "sort-name": "Floating Points",
+            "aliases": [
+              {
+                "sort-name": "SS",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "SS",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Shepherd, Samuel Thomas",
+                "type-id": "d4dcd0c0-b341-3612-a332-c0ce797b25cf",
+                "name": "Samuel Thomas Shepherd",
+                "locale": null,
+                "type": "Legal name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Shepherd, Sam",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "Sam Shepherd",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Floatingpoints",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "Floatingpoints",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              }
+            ]
+          }
+        },
+        {
+          "joinphrase": " & ",
+          "name": "Pharoah Sanders",
+          "artist": {
+            "id": "b3a0912a-a62a-4388-9368-7cb21ed5caf9",
+            "name": "Pharoah Sanders",
+            "sort-name": "Sanders, Pharoah",
+            "disambiguation": "US jazz saxophonist",
+            "aliases": [
+              {
+                "sort-name": "Sanders, Farrell Lee",
+                "type-id": "d4dcd0c0-b341-3612-a332-c0ce797b25cf",
+                "name": "Farrell Lee Sanders",
+                "locale": null,
+                "type": "Legal name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "ファラオ・サンダース",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "ファラオ・サンダース",
+                "locale": "ja",
+                "type": "Artist name",
+                "primary": true,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Pharaoh Sanders",
+                "name": "Pharaoh Sanders",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              }
+            ]
+          }
+        },
+        {
+          "name": "The London Symphony Orchestra",
+          "artist": {
+            "id": "38712b4c-0fd4-4c65-8c7a-45676fecc973",
+            "name": "London Symphony Orchestra",
+            "sort-name": "London Symphony Orchestra",
+            "aliases": [
+              {
+                "sort-name": "Lontoon sinfoniaorkesteri",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "Lontoon sinfoniaorkesteri",
+                "locale": "fi",
+                "type": "Artist name",
+                "primary": true,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Orchestre symphonique de Londres",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "Orchestre symphonique de Londres",
+                "locale": "fr",
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra, The",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "The London Symphony Orchestra",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra, Roy",
+                "name": "London Symphony Orchestra, Roy",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London S O",
+                "name": "London S O",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphany Orchestra",
+                "name": "London Symphany Orchestra",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "LSO",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "LSO",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra (LSO)",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "London Symphony Orchestra (LSO)",
+                "locale": null,
+                "type": "Artist name",
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "ロンドンこうきょうがくだん",
+                "name": "ロンドン交響楽団",
+                "locale": "ja",
+                "type": null,
+                "primary": true,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "Лондонский симфонический оркестр",
+                "name": "Лондонский симфонический оркестр",
+                "locale": "ru",
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra, The",
+                "name": "London Symphony Orchestra, The",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphonic Orchestra",
+                "name": "London Symphonic Orchestra",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra and Chorus",
+                "name": "London Symphony Orchestra and Chorus",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "L.S.O.",
+                "name": "L.S.O.",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "The London Symfony Orchestra",
+                "name": "The London Symfony Orchestra",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestr",
+                "name": "London Symphony Orchestr",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "The London Symphonic Orchestra",
+                "name": "The London Symphonic Orchestra",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony",
+                "name": "London Symphony",
+                "locale": null,
+                "type": null,
+                "primary": null,
+                "begin-date": null,
+                "end-date": null
+              },
+              {
+                "sort-name": "London Symphony Orchestra",
+                "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+                "name": "London Symphony Orchestra",
+                "locale": "en",
+                "type": "Artist name",
+                "primary": true,
+                "begin-date": null,
+                "end-date": null
+              }
+            ]
+          }
+        }
+      ],
+      "releases": [
+        {
+          "id": "9f279a47-778f-44fe-a9ff-4ca61dae26c8",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "548322af-25a9-4ead-80ad-c4f0752293ec",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "dc0aeb04-1abe-4d81-9d04-91430fde9b5b",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "db83f092-ace9-48bc-9bd2-66e834ff08e8",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "433aabc8-f42e-4400-a4ae-2f6322f05948",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "f27dba9d-a46e-4f41-80ac-8e43d27e1152",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "56b45f69-4541-4b12-9c03-9a2a99559d73",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "8117b7b2-5d90-40e7-aae1-da89844bfa02",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "115d3d33-8c82-4129-adaf-bc1b844e35af",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "0a81992c-b8d6-43c5-8509-d74fd2846590",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "3c62ecb0-5ebc-43b3-8cd6-4056d0d3682b",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        },
+        {
+          "id": "7469bd0f-e697-4234-88b8-61efc77c8062",
+          "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+          "title": "Promises",
+          "status": "Official"
+        }
+      ],
+      "tags": [
+        {
+          "count": 2,
+          "name": "electronic"
+        },
+        {
+          "count": 1,
+          "name": "instrumental"
+        },
+        {
+          "count": 1,
+          "name": "ambient"
+        },
+        {
+          "count": 5,
+          "name": "jazz"
+        },
+        {
+          "count": 1,
+          "name": "instrumental jazz"
+        },
+        {
+          "count": 2,
+          "name": "third stream"
+        },
+        {
+          "count": 1,
+          "name": "plattentests.de"
+        },
+        {
+          "count": 1,
+          "name": "musikexpress.de"
+        },
+        {
+          "count": 1,
+          "name": "ph_4_stars"
+        }
+      ]
+    }
+  ]
+}
