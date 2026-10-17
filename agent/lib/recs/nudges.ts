@@ -113,7 +113,8 @@ export async function handleLocationUpdate(
     // Each day's nudge is its own entity (place_nudges.id), so forget can find every day's Bee todo.
     result = await deps.createTodo({ entityType: "place_nudge", entityId: nudgeId, text, alarmAt: now.toISOString() });
   } catch (err) {
-    await deps.release(nudgeId); // a failed write gives the day back so the next location event retries
+    // a failed write gives the day back so the next location event retries; a failing release must not hide `err`
+    await deps.release(nudgeId).catch((e: unknown) => console.error(`[earmark] nudge release failed error=${e instanceof Error ? e.name : "unknown"}`));
     throw err;
   }
   if ("skipped" in result) {

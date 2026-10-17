@@ -81,6 +81,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
   });
 
   afterAll(async () => {
+    await c.query(`delete from bee_sync where entity_type = 'place_nudge' and bee_id = $1`, [beeId(9)]);
     await c.query(`delete from recommendations where id = any($1::bigint[])`, [recIds]);
     await c.query(`delete from idea_clusters where id = any($1::bigint[])`, [clusterIds]);
     await c.query(`delete from spaces where id = any($1::bigint[])`, [spaceIds]);
@@ -426,12 +427,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
       await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [nid, bee]);
       return nid;
     };
+    // negative control: a live nudge of a DIFFERENT rec must survive, Bee todo included
+    const otherRec = await addRec(null);
+    const otherNudge = Number((await one(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, date '2026-10-18', $2) returning id`, [otherRec, beeId(9)])).id);
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [otherNudge, beeId(9)]);
     const nudgeIds = [await nudge("2026-10-18", beeId(7)), await nudge("2026-10-19", beeId(8))];
 
     const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
     expect(r.lines).toContain(`hook place_nudges: place_nudges 2 (bee todos ${beeId(7)}, ${beeId(8)})`);
     expect(beeDel.mock.calls).toEqual([[beeId(7)], [beeId(8)]]);
     expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = any($1::bigint[])`, [nudgeIds])).toBe(0);
+    expect(beeDel.mock.calls.flat()).not.toContain(beeId(9));
+    expect(await count(`place_nudges where id = $1`, [otherNudge])).toBe(1);
+    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge])).toBe(1);
+    // clean up now: a lingering pending rec would be picked up by the enrichment int test sweeping the shared test DB
+    await c.query(`delete from bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge]);
+    await c.query(`delete from recommendations where id = $1`, [otherRec]);
     expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
     expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
     expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
