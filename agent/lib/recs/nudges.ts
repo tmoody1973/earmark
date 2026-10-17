@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { getEnv, ownerFirstName } from "../env";
 import { distanceMeters, type LatLng } from "../geo";
-import { credit, HIDDEN_TIP_STATUSES } from "../garden/queries";
+import { credit } from "../garden/queries";
 import { createEarmarkTodo } from "../sync/bee-todos"; // M3-T7 (generic Earmark todo, 10-open cap)
 
 // FR-16: Bee reports where the owner is; near a saved place tip, make one Bee todo, at most once per place per day.
@@ -17,13 +17,16 @@ export interface PlaceCandidate {
 
 export interface NudgeDeps {
   candidates: (at: LatLng, radiusM: number) => Promise<PlaceCandidate[]>;
-  claim: (recId: number, day: string) => Promise<boolean>;
-  release: (recId: number, day: string) => Promise<void>;
-  setTodoId: (recId: number, day: string, todoId: number) => Promise<void>;
+  claim: (recId: number, day: string) => Promise<number | null>; // the new place_nudges row id, null = already claimed
+  release: (nudgeId: number) => Promise<void>;
+  setTodoId: (nudgeId: number, todoId: number) => Promise<void>;
   createTodo: typeof createEarmarkTodo;
   now: () => Date;
   radiusM: number;
 }
+
+// Only tips not yet acted on: a tried or thanked place is not worth a daily "you're near" buzz.
+export const NUDGE_STATUSES = ["new", "queued"] as const;
 
 export function nearestWithin(candidates: PlaceCandidate[], at: LatLng, radiusM: number) {
   let best: (PlaceCandidate & { distanceM: number }) | null = null;
@@ -68,20 +71,22 @@ function defaultDeps(): NudgeDeps {
         select r.id, r.canonical_name, r.lat, r.lng, p.id as recommender_id, p.first_name
         from recommendations r left join recommenders p on p.id = r.recommender_id
         where r.type = 'place' and r.lat is not null and r.lng is not null
-          and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
+          and r.status = any(${NUDGE_STATUSES as unknown as string[]}::text[])
           and r.lat between ${at.lat - dLat} and ${at.lat + dLat}
           and r.lng between ${at.lng - dLng} and ${at.lng + dLng}`;
       return (rows as unknown as CandidateRow[]).map((r) => toCandidate(r));
     },
-    claim: async (recId, day) =>
-      (await db()`
+    claim: async (recId, day) => {
+      const [row] = await db()`
         insert into place_nudges (recommendation_id, nudged_on) values (${recId}, ${day}::date)
-        on conflict do nothing returning recommendation_id`).length > 0,
-    release: async (recId, day) => {
-      await db()`delete from place_nudges where recommendation_id = ${recId} and nudged_on = ${day}::date`;
+        on conflict do nothing returning id`;
+      return row ? Number(row.id) : null;
     },
-    setTodoId: async (recId, day, todoId) => {
-      await db()`update place_nudges set bee_todo_id = ${todoId} where recommendation_id = ${recId} and nudged_on = ${day}::date`;
+    release: async (nudgeId) => {
+      await db()`delete from place_nudges where id = ${nudgeId}`;
+    },
+    setTodoId: async (nudgeId, todoId) => {
+      await db()`update place_nudges set bee_todo_id = ${todoId} where id = ${nudgeId}`;
     },
     createTodo: createEarmarkTodo,
     now: () => new Date(),
@@ -95,19 +100,29 @@ export async function handleLocationUpdate(
 ): Promise<"nudged" | "none" | "already" | "capped"> {
   const deps = { ...defaultDeps(), ...overrides };
   const at = { lat: loc.latitude, lng: loc.longitude };
+  // ponytail: only the nearest place is tried; a second saved place in range waits for the next location event
   const hit = nearestWithin(await deps.candidates(at, deps.radiusM), at, deps.radiusM);
   if (!hit) return "none";
   const now = deps.now();
   const day = chicagoDate(now);
-  if (!(await deps.claim(hit.id, day))) return "already";
+  const nudgeId = await deps.claim(hit.id, day);
+  if (nudgeId === null) return "already";
   const text = `Earmark · You're near ${hit.canonicalName}${hit.recommenderName ? ` — ${hit.recommenderName} recommended it` : ""}`;
-  const result = await deps.createTodo({ entityType: "place_nudge", entityId: hit.id, text, alarmAt: now.toISOString() });
+  let result: Awaited<ReturnType<NudgeDeps["createTodo"]>>;
+  try {
+    // Each day's nudge is its own entity (place_nudges.id), so forget can find every day's Bee todo.
+    result = await deps.createTodo({ entityType: "place_nudge", entityId: nudgeId, text, alarmAt: now.toISOString() });
+  } catch (err) {
+    await deps.release(nudgeId); // a failed write gives the day back so the next location event retries
+    throw err;
+  }
   if ("skipped" in result) {
     // ponytail: "cap"/"off" keep the claim, so a capped place is not retried all day. "locked" is transient (another
-    // Bee todo writer is running), so its claim is released and the next location event can retry.
-    if (result.skipped === "locked") await deps.release(hit.id, day);
+    // Bee todo writer is running), so its claim is released and the next location event can retry. Each day makes its
+    // own todo, so an unfinished older nudge and today's both hold a cap slot.
+    if (result.skipped === "locked") await deps.release(nudgeId);
     return "capped";
   }
-  await deps.setTodoId(hit.id, day, result.todoId);
+  await deps.setTodoId(nudgeId, result.todoId);
   return "nudged";
 }

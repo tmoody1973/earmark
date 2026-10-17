@@ -420,13 +420,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const keep = await run("No one named.");
     blobDel.mockClear();
     beeDel.mockClear();
-    await c.query(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, date '2026-10-18', $2)`, [id, beeId(7)]);
-    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [id, beeId(7)]);
+    // a rec nudged on two days: each day is its own place_nudges row and its own Bee todo
+    const nudge = async (day: string, bee: number) => {
+      const nid = Number((await one(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, $2::date, $3) returning id`, [id, day, bee])).id);
+      await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [nid, bee]);
+      return nid;
+    };
+    const nudgeIds = [await nudge("2026-10-18", beeId(7)), await nudge("2026-10-19", beeId(8))];
 
     const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
-    expect(r.lines).toContain(`hook place_nudges: place_nudges 1 (bee todos ${beeId(7)})`);
-    expect(beeDel.mock.calls).toEqual([[beeId(7)]]);
-    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [id])).toBe(0);
+    expect(r.lines).toContain(`hook place_nudges: place_nudges 2 (bee todos ${beeId(7)}, ${beeId(8)})`);
+    expect(beeDel.mock.calls).toEqual([[beeId(7)], [beeId(8)]]);
+    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = any($1::bigint[])`, [nudgeIds])).toBe(0);
     expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
     expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
     expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
