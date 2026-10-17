@@ -178,7 +178,14 @@ describe("setRecRating", () => {
 
   it("does nothing more when the rating is unchanged or the tip is gone", async () => {
     h.mock.queue.push([]);
-    await setRecRating(7, "fine", "slack", { effects: [] });
+    expect(await setRecRating(7, "fine", "slack", { effects: [] })).toEqual({ changed: false });
     expect(h.mock.calls).toHaveLength(1);
+  });
+
+  it("says whether the rating changed, so the garden can tell a no-op from a save", async () => {
+    h.mock.queue.push([{ status: "tried", recommender_id: null }]);
+    expect(await setRecRating(7, "fine", "garden", { effects: [] })).toEqual({ changed: true });
+    h.mock.queue.push([{ status: "new", recommender_id: 3 }], [{ previous: "new", recommender_id: 3 }]);
+    expect(await setRecRating(7, "loved", "garden", { effects: [] })).toEqual({ changed: true });
   });
 });
