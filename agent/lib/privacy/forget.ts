@@ -1,6 +1,7 @@
 import { del } from "@vercel/blob";
 import { createBeeClient } from "../bee/client";
 import { db } from "../db";
+import { getClusterTimeline } from "../store/ideas";
 import { trashNotionPage } from "../notion/client";
 
 // FR-30: forget one rec, idea or mention everywhere. External deletes (Bee, Notion, Blob) run first; any failure other
@@ -103,19 +104,18 @@ export async function deleteRows(t: ForgetTarget): Promise<void> {
   const sql = db();
   const key = String(t.id);
   const withNotionSync = await hasNotionSync();
-  const rows = t.type === "rec" ? await sql`select recommender_id from recommendations where id = ${t.id}` : [];
-  const rid = rows[0]?.recommender_id == null ? null : Number(rows[0].recommender_id);
-  const notionSync = withNotionSync ? [sql`delete from notion_sync where entity_type = ${t.type} and entity_id = ${t.id}`] : [];
-  const shared = [
+  const shared = () => [
     sql`delete from links where (from_type = ${t.type} and from_id = ${key}) or (to_type = ${t.type} and to_id = ${key})`,
     sql`delete from space_items where item_type = ${t.type} and item_id = ${t.id}`,
     sql`delete from bee_sync where entity_type = ${t.type} and entity_id = ${t.id}`,
-    ...notionSync,
+    ...(withNotionSync ? [sql`delete from notion_sync where entity_type = ${t.type} and entity_id = ${t.id}`] : []),
   ];
   if (t.type === "idea") {
-    await sql.transaction([...shared, sql`delete from idea_clusters where id = ${t.id}`]);
+    await sql.transaction([...shared(), sql`delete from idea_clusters where id = ${t.id}`]);
     return;
   }
+  const rows = await sql`select recommender_id from recommendations where id = ${t.id}`;
+  const rid = rows[0]?.recommender_id == null ? null : Number(rows[0].recommender_id);
   // The recommender's first name was stored for their recs only: it goes with their last one, otherwise recount.
   const recommender = rid == null ? [] : [
     sql`delete from links where ((from_type = 'recommender' and from_id = ${String(rid)}) or (to_type = 'recommender' and to_id = ${String(rid)}))
@@ -125,9 +125,9 @@ export async function deleteRows(t: ForgetTarget): Promise<void> {
           recs_tried = (select count(*) from recommendations r where r.recommender_id = p.id and r.status in ('tried','thanked')),
           recs_loved = (select count(*) from recommendations r where r.recommender_id = p.id and r.rating = 'loved')
         where p.id = ${rid}`,
-    sql`delete from recommenders where id = ${rid} and recs_given = 0`,
+    sql`delete from recommenders where id = ${rid} and not exists (select 1 from recommendations where recommender_id = ${rid})`,
   ];
-  await sql.transaction([...shared, sql`delete from recommendations where id = ${t.id}`, ...recommender]);
+  await sql.transaction([...shared(), sql`delete from recommendations where id = ${t.id}`, ...recommender]);
 }
 
 // One mention leaves its idea: drop the timeline line written for it (paired by spoken_at, see growthSteps) and
@@ -138,9 +138,8 @@ async function deleteMention(id: number): Promise<void> {
   if (!rows[0]) return;
   const clusterId = Number(rows[0].cluster_id);
   const spokenAt = new Date(rows[0].spoken_at as string | Date).getTime();
-  const [cluster] = await sql`select timeline from idea_clusters where id = ${clusterId}`;
-  const timeline: Row[] = Array.isArray(cluster?.timeline) ? [...cluster.timeline] : [];
-  const at = timeline.findIndex((e) => Date.parse(String(e?.date)) === spokenAt);
+  const timeline = [...(await getClusterTimeline(clusterId))];
+  const at = timeline.findIndex((e) => Date.parse(e.date) === spokenAt);
   if (at !== -1) timeline.splice(at, 1);
   await sql`
     update idea_clusters c set
@@ -178,10 +177,10 @@ export async function forget(input: ForgetTarget, opts: { dryRun?: boolean } = {
   if (opts.dryRun) return [...head, ...steps.map((s) => `would delete ${JSON.stringify(s)}`)];
   const bee = createBeeClient();
   const log = await executeForget(steps, {
-    deleteTodo: (id) => bee.deleteTodo(id),
-    deleteFact: (id) => bee.deleteFact(id),
-    trashNotionPage: (pageId) => trashNotionPage(pageId),
-    deleteBlob: (url) => del(url),
+    deleteTodo: bee.deleteTodo,
+    deleteFact: bee.deleteFact,
+    trashNotionPage,
+    deleteBlob: del,
     deleteRows,
   });
   return [...head, ...log];
