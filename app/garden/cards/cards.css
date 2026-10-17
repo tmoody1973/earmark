@@ -1,0 +1,230 @@
+/* Shelf + rec cards. Tokens live in app/globals.css. Art always sits above text, never under it. */
+
+.shelf-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* Masonry (mymind-style) via multi-column: cards keep their own height, so short notes leave no holes.
+     Cards flow down each column in DOM order (newest first), so reading, Tab and screen-reader order all run
+     down column 1, then column 2, …: focus order matches what the eye follows. */
+  columns: 2;
+  column-gap: 0.75rem;
+}
+.shelf-grid > li { break-inside: avoid; margin: 0 0 0.75rem; min-width: 0; }
+
+.rec-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0.625rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  transition: border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+.rec-card--linked:hover { border-color: #cdc2b1; transform: translateY(-2px); }
+/* Unconfirmed tips look quieter: a light dashed outline on the ground, not a filled card. */
+.rec-card--unconfirmed { background: transparent; border-style: dashed; border-color: #ddd3c4; }
+/* "Other" tips are compact notes: no artwork box, a lightly tinted card. */
+.rec-card--note { background: #f9f4ec; }
+.rec-card--note .rec-body { padding-top: 0.25rem; }
+
+/* ---- artwork box: fixed square, so nothing shifts while images load ---- */
+.rec-art {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-art);
+  background: var(--art-ground);
+  container-type: inline-size;
+}
+.rec-art-fill { display: block; width: 100%; height: 100%; object-fit: cover; }
+.rec-art--stand { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.012 var(--hue)); }
+.rec-art-object,
+.jacket,
+.poster {
+  height: 86%;
+  width: auto;
+  aspect-ratio: 2 / 3;
+  border-radius: 2px 4px 4px 2px;
+  box-shadow: 0 1px 2px rgb(29 26 22 / 0.12), 0 8px 16px -8px rgb(29 26 22 / 0.3);
+}
+.rec-art-object { object-fit: cover; }
+
+/* ---- designed no-image states (typographic) ----
+   Sizes use cqw, not cqi: inside the vertical-rl spine title, cqi maps to the uncontained block axis and falls
+   back to the viewport. */
+.type-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  padding: 9cqw;
+  background: oklch(0.93 0.02 var(--hue));
+  color: var(--ink);
+}
+.type-art-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.type-art-sub { font-family: var(--sans); font-size: max(0.6875rem, 5.5cqw); line-height: 1.25; color: var(--ink-2); }
+
+/* artist: the name, set large, centered — no portraits, so the name is the artwork */
+.type-art--artist { align-items: center; justify-content: center; text-align: center; background: oklch(0.92 0.022 var(--hue)); }
+.type-art--artist .type-art-title { font-size: 11.5cqw; -webkit-line-clamp: 3; text-wrap: balance; }
+
+/* album / song / podcast / place without a picture: the type's glyph on a tinted ground (the body has the title) */
+.type-art--glyph { align-items: center; justify-content: center; color: var(--ink-3); }
+
+/* book / film: a jacket or poster standing on a pale ground */
+.type-art--stand { align-items: center; justify-content: center; padding: 0; background: oklch(0.95 0.012 var(--hue)); }
+.jacket {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9cqw 0 6cqw;
+  background:
+    linear-gradient(90deg, rgb(29 26 22 / 0.12) 0 7%, rgb(253 251 247 / 0.18) 7% 9%, transparent 9%),
+    oklch(0.78 0.045 var(--hue));
+}
+.jacket .type-art-title {
+  display: block;
+  writing-mode: vertical-rl;
+  font-size: 6.5cqw;
+  font-weight: 500;
+  max-height: 78%;
+  -webkit-line-clamp: unset;
+}
+.jacket .type-art-sub { font-size: max(0.5625rem, 3.6cqw); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); padding: 0 8%; text-align: center; }
+.poster {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2.5cqw;
+  padding: 7cqw;
+  background: oklch(0.31 0.045 var(--hue));
+}
+.poster .type-art-title { font-size: 6.5cqw; font-weight: 500; color: var(--surface); }
+.poster .type-art-sub { font-size: max(0.625rem, 4cqw); color: rgb(253 251 247 / 0.85); }
+@container (max-width: 12rem) {
+  .jacket .type-art-sub { display: none; }
+}
+
+/* ---- place map: one OSM tile, a pin at the exact spot, attribution on the map ----
+   Engines that still give container-type layout containment make the art box a stacking context, which would trap
+   the attribution under the card's stretched link. Lift the whole map above the link and let every click except
+   the attribution fall through to it, so the credit is clickable everywhere (e2e: "map credit" test). */
+.rec-art--map { z-index: 2; pointer-events: none; }
+.rec-pin { position: absolute; line-height: 0; transform: translate(-50%, -100%); filter: drop-shadow(0 1px 1px rgb(29 26 22 / 0.3)); }
+.rec-osm {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgb(253 251 247 / 0.92);
+  color: var(--ink);
+  white-space: nowrap;
+  font-size: 0.625rem;
+  line-height: 1;
+  pointer-events: auto;
+}
+/* inset, so the art box's overflow:hidden can't clip the focus ring */
+.rec-osm:focus-visible { outline-offset: -2px; }
+
+/* ---- text ---- */
+.rec-body { display: flex; flex-direction: column; flex: 1; padding: 0.75rem 0.25rem 0.125rem; }
+.rec-type {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rec-title {
+  margin: 0.375rem 0 0;
+  font-family: var(--serif);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.rec-link { color: inherit; text-decoration: none; }
+/* the whole card is the link's target; keep/dismiss and attribution sit above it */
+.rec-link::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: var(--radius-card); }
+.rec-link:focus-visible { outline: none; }
+.rec-link:focus-visible::after { outline: 2px solid var(--ink); outline-offset: 2px; }
+.rec-sub { margin: 0.125rem 0 0; font-family: var(--serif); font-size: 0.9375rem; line-height: 1.35; color: var(--ink-2); }
+.rec-why { margin: 0.5rem 0 0; font-family: var(--serif); font-size: 0.9375rem; line-height: 1.45; color: var(--ink-2); hanging-punctuation: first; }
+
+.rec-tag {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.625rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--sage-ground);
+  color: var(--sage-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.rec-tag--fine,
+.rec-tag--not_for_me { background: var(--art-ground); color: var(--ink-2); }
+
+/* the short hairline above "from Ann", drawn as a background so the row stays one flex line */
+.rec-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 0.5rem;
+  margin-top: auto;
+  padding-top: 1.25rem;
+  background: linear-gradient(var(--hairline), var(--hairline)) no-repeat left 0.625rem / 1.25rem 1px;
+}
+.rec-foot:empty { display: none; }
+.rec-from { margin: 0; font-size: 0.8125rem; color: var(--ink-3); }
+.rec-unconfirmed {
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+@media (min-width: 46rem) {
+  .shelf-grid { columns: 3; column-gap: 1rem; }
+  .shelf-grid > li { margin-bottom: 1rem; }
+  .rec-card { padding: 0.875rem; }
+  .rec-title { font-size: 1.3125rem; }
+}
+@media (min-width: 70rem) {
+  .shelf-grid { columns: 4; column-gap: 1.25rem; }
+  .shelf-grid > li { margin-bottom: 1.25rem; }
+  .rec-card { padding: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-card { transition: none; }
+  .rec-card--linked:hover { transform: none; }
+}

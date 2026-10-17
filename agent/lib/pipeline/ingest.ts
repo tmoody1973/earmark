@@ -1,6 +1,7 @@
 import { createBeeClient, toDate } from "../bee/client";
 import { parseEarmarkTrigger } from "../bee/trigger";
-import { isJournalComplete, type BeeEvent } from "../bee/events";
+import { conversationRef, isJournalComplete, type BeeEvent } from "../bee/events";
+import { shapeOf } from "../bee/webhook";
 import { draftBlooms } from "../ideas/one-pager";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
 import { handleLiveUtterance } from "./live";
@@ -59,8 +60,14 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
       }
       return;
     }
-    case "new-conversation":
-      return rememberConversationUuid(evt.data.conversation.uuid, evt.data.conversation.id);
+    case "new-conversation": {
+      const ref = conversationRef(evt.data);
+      if (!ref) {
+        console.warn(`[bee] new-conversation without id+uuid shape=${shapeOf(evt.data)}`);
+        return;
+      }
+      return rememberConversationUuid(ref.uuid, ref.id);
+    }
     case "update-conversation-summary": {
       const r = await processConversation(evt.data.conversation_id, deps);
       console.log(`[bee] conversation ${evt.data.conversation_id}`, r);

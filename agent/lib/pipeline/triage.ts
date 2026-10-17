@@ -12,11 +12,11 @@ export class SystemicTriageError extends Error {
   }
 }
 
-export function ordered(criteria: Record<string, string>, order: "fixed" | "shuffled"): Record<string, string> {
+export function ordered(criteria: Record<string, string>, order: "fixed" | "shuffled", random: () => number = Math.random): Record<string, string> {
   if (order === "fixed") return criteria;
   const keys = Object.keys(criteria);
   for (let i = keys.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [keys[i], keys[j]] = [keys[j]!, keys[i]!];
   }
   return Object.fromEntries(keys.map((k) => [k, criteria[k]!]));
@@ -24,7 +24,7 @@ export function ordered(criteria: Record<string, string>, order: "fixed" | "shuf
 
 export async function triageWindow(
   text: string,
-  opts: { model?: string; optionOrder?: "fixed" | "shuffled"; decideImpl?: typeof experimental_decide } = {},
+  opts: { model?: string; optionOrder?: "fixed" | "shuffled"; random?: () => number; decideImpl?: typeof experimental_decide } = {},
 ): Promise<TriageResult> {
   const model = opts.model ?? getEnv().TRIAGE_MODEL;
   const decide = opts.decideImpl ?? experimental_decide;
@@ -33,8 +33,8 @@ export async function triageWindow(
     model,
     state: { window: text },
     questions: {
-      kind: { type: "choice", instructions: KIND_INSTRUCTIONS, criteria: ordered(KIND_CRITERIA, order) },
-      rec_type: { type: "choice", instructions: REC_TYPE_INSTRUCTIONS, criteria: ordered(REC_TYPE_CRITERIA, order) },
+      kind: { type: "choice", instructions: KIND_INSTRUCTIONS, criteria: ordered(KIND_CRITERIA, order, opts.random) },
+      rec_type: { type: "choice", instructions: REC_TYPE_INSTRUCTIONS, criteria: ordered(REC_TYPE_CRITERIA, order, opts.random) },
       joking: { type: "boolean", instructions: JOKING_INSTRUCTIONS },
       broadcast: { type: "boolean", instructions: BROADCAST_INSTRUCTIONS },
     },
