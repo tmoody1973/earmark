@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeMockDb } from "../../helpers/mock-db";
 
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
-import { getBloomsSince, getGardenView, getIdeaDetail, getShelf, toPlant, toRecCard } from "../../../agent/lib/garden/queries";
+import {
+  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipVerdict, toPlant, toRecCard,
+} from "../../../agent/lib/garden/queries";
 
 const recRow = {
   id: 7, type: "album", canonical_name: "Promises", creator: "Floating Points",
@@ -53,13 +55,27 @@ describe("garden queries", () => {
     expect(plant).toMatchObject({ id: 1, level: "bloom", bloomed: true, pinned: true, flagged: true });
   });
 
-  it("loads plants then shelf; hides dismissed and composted tips but keeps unconfirmed ones (marked on the card)", async () => {
-    h.mock.queue.push([], [recRow, { ...recRow, id: 8, status: "needs_review" }]);
+  it("loads plants then shelf; the shelf shows only visible tips (one shared rule, decision 025)", async () => {
+    h.mock.queue.push([], [recRow]);
     const view = await getGardenView();
-    expect(view.shelf.map((c) => c.status)).toEqual(["new", "needs_review"]);
+    expect(view.shelf.map((c) => c.status)).toEqual(["new"]);
     expect(h.mock.calls[0].text).toContain("stage <> 'dismissed'");
-    expect(h.mock.calls[1].text).toContain("not in ('dismissed','composted')");
+    expect(h.mock.calls[1].text).toContain("r.status <> all(?::text[])");
+    expect(h.mock.calls[1].values).toContain(HIDDEN_TIP_STATUSES);
     expect(h.mock.calls[1].text).not.toContain("raw_text");
+  });
+
+  it("hides dismissed, composted and maybe (needs_review) tips: maybes live only in the Maybe? row", () => {
+    expect([...HIDDEN_TIP_STATUSES].sort()).toEqual(["composted", "dismissed", "needs_review"]);
+  });
+
+  it("matches the owner by first name even when the owner's full name is configured", () => {
+    process.env.EARMARK_OWNER_FIRST_NAME = "Tarik Moody";
+    try {
+      expect(toRecCard({ ...recRow, first_name: "Tarik" }).recommender).toBeNull();
+    } finally {
+      delete process.env.EARMARK_OWNER_FIRST_NAME;
+    }
   });
 
   it("reads the shelf alone with one query (the Shelf tab never loads plants)", async () => {
@@ -139,5 +155,51 @@ describe("garden queries", () => {
     h.mock.queue.push([], []);
     await getGardenView();
     expect(h.mock.calls[0].text).toContain("review_status = 'dismissed'");
+  });
+
+  it("reads the Maybe? pile: needs_review only, newest first, 12 at most, and how many more wait", async () => {
+    h.mock.queue.push([{ ...recRow, status: "needs_review", total: 15 }, { ...recRow, id: 8, status: "needs_review", total: 15 }]);
+    const pile = await getMaybeTips();
+    expect(pile.tips.map((t) => t.id)).toEqual([7, 8]);
+    expect(pile.more).toBe(13);
+    const text = h.mock.calls[0].text.replace(/\s+/g, " ");
+    expect(text).toContain("r.status = 'needs_review'");
+    expect(text).toMatch(/order by r\.said_at desc, r\.id desc limit \?/);
+    expect(h.mock.calls[0].values.at(-1)).toBe(12);
+    expect(text).not.toContain("raw_text");
+    expect(text).not.toContain("excerpt");
+  });
+
+  it("an empty pile has nothing more", async () => {
+    h.mock.queue.push([]);
+    expect(await getMaybeTips()).toEqual({ tips: [], more: 0 });
+  });
+});
+
+describe("setTipVerdict", () => {
+  beforeEach(() => { h.mock = makeMockDb(); });
+  afterEach(() => { delete process.env.GARDEN_READ_ONLY; });
+
+  it.each([["kept", "new"], ["not_a_tip", "dismissed"]] as const)(
+    "%s moves a maybe to %s and records the verdict, only while it is still a maybe",
+    async (verdict, status) => {
+      h.mock.queue.push([{ id: 7 }]);
+      expect(await setTipVerdict(7, verdict)).toBe(true);
+      const text = h.mock.calls[0].text.replace(/\s+/g, " ");
+      expect(text).toContain("update recommendations set status = ?, user_verdict = ?, user_verdict_at = now()");
+      expect(text).toContain("where id = ? and status = 'needs_review'");
+      expect(h.mock.calls[0].values).toEqual([status, verdict, 7]);
+    },
+  );
+
+  it("is a no-op (false) when the tip is no longer a maybe", async () => {
+    h.mock.queue.push([]);
+    expect(await setTipVerdict(7, "kept")).toBe(false);
+  });
+
+  it("writes nothing during a read-only real-data e2e run", async () => {
+    process.env.GARDEN_READ_ONLY = "1";
+    expect(await setTipVerdict(7, "kept")).toBe(false);
+    expect(h.mock.calls).toHaveLength(0);
   });
 });

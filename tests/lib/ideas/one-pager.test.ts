@@ -5,10 +5,10 @@ vi.mock("../../../agent/lib/env", () => ({
 }));
 const store = vi.hoisted(() => ({
   MAX_DRAFT_ATTEMPTS: 3,
-  claimDraftableClusters: vi.fn(async (_o: { clusterIds?: number[]; limit: number }) => [] as Array<{ id: number; attempts: number }>),
+  claimDraftableClusters: vi.fn(async (_o: { clusterIds?: number[]; limit: number }) => [] as Array<{ id: number; attempts: number; claim: string }>),
   getClusterForDraft: vi.fn(),
   releaseDraftClaim: vi.fn(async (_id: number) => {}),
-  saveDraft: vi.fn((_txn: unknown, _id: number, _md: string, _f: string) => "save-statement"),
+  saveDraft: vi.fn((_txn: unknown, _id: number, _md: string, _f: string, _claim: string) => "save-statement"),
 }));
 vi.mock("../../../agent/lib/store/ideas", () => store);
 const tx = vi.hoisted(() => ({ rows: [[{ id: 12 }]] as unknown[][], statements: [] as unknown[] }));
@@ -30,7 +30,7 @@ import { ONE_PAGER_PROMPT } from "../../../agent/lib/ideas/one-pager-prompt";
 import { wordCount } from "../../../agent/lib/pipeline/excerpt";
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
-const claimed = (...ids: number[]) => ids.map((id) => ({ id, attempts: 1 }));
+const claimed = (...ids: number[]) => ids.map((id) => ({ id, attempts: 1, claim: `claim-${id}` }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -283,7 +283,7 @@ describe("draftBlooms", () => {
     expect(draft.startsWith("Mentioned 3 times: Sep 12 · Oct 3 · Oct 15\n\n# AI at the station")).toBe(true);
     // The real excerpt keeps its quote marks; the invented one loses them.
     expect(draft).toContain('She said "maybe a radio segment too" and w0 w1');
-    expect(store.saveDraft).toHaveBeenCalledWith("txn", 12, draft, "newsletter_pitch");
+    expect(store.saveDraft).toHaveBeenCalledWith("txn", 12, draft, "newsletter_pitch", "claim-12");
     expect(tx.statements).toEqual(["save-statement"]);
     expect(store.releaseDraftClaim).not.toHaveBeenCalled();
     expect(JSON.stringify(log.mock.calls)).toContain("format=newsletter_pitch p=0.80");
@@ -378,7 +378,7 @@ describe("draftBlooms", () => {
   });
 
   it("M3: the last allowed attempt failing logs a distinct give-up line", async () => {
-    store.claimDraftableClusters.mockResolvedValueOnce([{ id: 12, attempts: 3 }]);
+    store.claimDraftableClusters.mockResolvedValueOnce([{ id: 12, attempts: 3, claim: "claim-12" }]);
     store.getClusterForDraft.mockResolvedValueOnce(cluster);
     const d = deps();
     d.chooseDraftFormat.mockRejectedValueOnce(Object.assign(new Error("x"), { name: "AI_APICallError" }));
