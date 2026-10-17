@@ -68,7 +68,7 @@ export function newSince(since: string | null, recs: readonly RecCardData[], blo
     if (after(b.at) && (!seen || Date.parse(b.at) > Date.parse(seen.at))) latestBloom.set(b.clusterId, b);
   }
   const chips = [
-    ...recs.filter((c) => (c.status === "new" || c.status === "needs_review") && after(c.createdAt)).map(recChip),
+    ...recs.filter((c) => c.status === "new" && after(c.createdAt)).map(recChip),
     ...[...latestBloom.values()].map(bloomChip),
   ];
   return chips.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, NEW_ROW_MAX);
