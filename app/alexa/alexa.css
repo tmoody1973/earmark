@@ -1,0 +1,42 @@
+/* Alexa+ simulator: phone-first, one column, same tokens as the garden (globals.css). */
+.alexa {
+  max-width: 32rem; margin: 0 auto; overflow-wrap: anywhere;
+  padding: calc(2rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 4rem max(1rem, env(safe-area-inset-left));
+}
+.alexa h1 { font-family: var(--serif); font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; }
+.alexa .lede { color: var(--ink-2); font-size: 0.9375rem; }
+.device { display: grid; justify-items: center; gap: 1rem; margin-top: 1.5rem; }
+.ring {
+  width: 9rem; height: 9rem; border-radius: 50%; box-sizing: border-box;
+  border: 0.5rem solid var(--hairline); background: var(--surface);
+  transition: border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+.ring-listening { border-color: var(--sage-ink); box-shadow: 0 0 0 0.5rem var(--sage-ground); }
+.ring-thinking { border-color: var(--sage-ink); border-top-color: var(--hairline); animation: ring-spin 1s linear infinite; }
+.ring-speaking { border-color: var(--sage-ink); animation: ring-pulse 1.2s ease-in-out infinite; }
+@keyframes ring-spin { to { transform: rotate(360deg); } }
+@keyframes ring-pulse { 50% { box-shadow: 0 0 0 0.75rem var(--sage-ground); } }
+.phase { margin: 0; color: var(--ink-2); font-size: 0.9375rem; }
+.device button {
+  font: inherit; min-height: 44px; padding: 0 1.25rem; border-radius: 999px; cursor: pointer;
+  background: var(--ink); color: var(--surface); border: 1px solid var(--ink);
+}
+.device button:disabled { opacity: 0.5; cursor: default; }
+.device button[aria-pressed="true"] { background: var(--sage-ink); border-color: var(--sage-ink); }
+.device :focus-visible, .alexa a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.typed { display: grid; gap: 0.5rem; width: 100%; }
+.typed label { font-size: 0.9375rem; }
+.typed input {
+  font: inherit; min-height: 44px; padding: 0.5rem 0.75rem; box-sizing: border-box; width: 100%;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: 10px;
+}
+.turns { width: 100%; display: grid; gap: 0.75rem; margin-top: 0.5rem; }
+.turn { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-card); padding: 1rem; display: grid; gap: 0.5rem; }
+.turn p { margin: 0; }
+.turn span { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.turn .reply { font-family: var(--serif); font-size: 1.0625rem; }
+.turn .used { font-size: 0.8125rem; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) {
+  .ring, .ring-thinking, .ring-speaking { animation: none; transition: none; }
+}
+.alexa > p:first-child a { display: inline-flex; align-items: center; min-height: 44px; }

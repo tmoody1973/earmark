@@ -1,4 +1,8 @@
+import { del } from "@vercel/blob";
+import type { PoolClient } from "@neondatabase/serverless";
 import type { ForgetHook } from "./forget";
+import { createBeeClient } from "../bee/client";
+import { forgetPersonInEpisodes, forgetPersonInGardenerRuns, forgetPlaceNudges, forgetRecReceipts, type Sql } from "./forget-m5";
 
 // Forgetters owned by other lanes, run by `pnpm forget --yes` INSIDE the locked Postgres transaction, after the item's
 // rows are deleted and after the Bee/Notion/Blob deletes. Use `ctx.c` (a pg PoolClient: `ctx.c.query(text, values)`) for
@@ -6,8 +10,45 @@ import type { ForgetHook } from "./forget";
 // bee_sync contract: forget-rows.ts deletes bee_sync rows (and their Bee todos/facts) of entity_type 'rec' and 'idea'
 // only (plus 'fact_proposal'). Every other entity type, e.g. M5's 'place_nudge' and 'rec_receipt' todos made with
 // createEarmarkTodo (sync/bee-todos.ts), is deleted, Bee todo included, by its owner's hook below (lane C).
-// Lane C (M5, forget-m5.ts) adds its entries here, e.g.
-//   { name: "episodes", run: async (ctx) => ctx.recommenderFirstName
-//       ? `episodes ${(await forgetPersonInEpisodes(ctx.recommenderFirstName, { sql: <tag over ctx.c>, del })).episodesDeleted}`
-//       : "episodes 0" }
-export const FORGET_HOOKS: readonly ForgetHook[] = [];
+
+// Lane C's functions take a tagged-template `sql`; this one runs it on the forget transaction's client.
+const sqlOver = (c: PoolClient): Sql => async (strings, ...values) =>
+  (await c.query(strings.reduce((text, s, i) => `${text}$${i}${s}`), values)).rows as Record<string, unknown>[];
+const ids = (xs: number[]) => (xs.length ? ` (ids ${xs.join(", ")})` : "");
+
+// Lane C (M5). Only a forgotten rec carries a recommender first name; anything else is "… 0".
+// Order matters: episodes is last because its Blob audio deletes cannot roll back if a later hook threw.
+export const FORGET_HOOKS: readonly ForgetHook[] = [
+  {
+    name: "gardener_runs",
+    run: async (ctx) => {
+      if (!ctx.recommenderFirstName) return "gardener_runs 0";
+      const { runIds } = await forgetPersonInGardenerRuns(ctx.recommenderFirstName, { sql: sqlOver(ctx.c) });
+      return `gardener_runs ${runIds.length}${ids(runIds)}`;
+    },
+  },
+  {
+    name: "place_nudges",
+    run: async (ctx) => {
+      if (ctx.target.type !== "rec") return "place_nudges 0";
+      const { beeTodoIds } = await forgetPlaceNudges({ sql: sqlOver(ctx.c), deleteTodo: (id) => createBeeClient().deleteTodo(id) });
+      return `place_nudges ${beeTodoIds.length}${beeTodoIds.length ? ` (bee todos ${beeTodoIds.join(", ")})` : ""}`;
+    },
+  },
+  {
+    name: "rec_receipts",
+    run: async (ctx) => {
+      if (ctx.target.type !== "rec") return "rec_receipts 0";
+      const { beeTodoIds } = await forgetRecReceipts({ sql: sqlOver(ctx.c), deleteTodo: (id) => createBeeClient().deleteTodo(id) });
+      return `rec_receipts ${beeTodoIds.length}${beeTodoIds.length ? ` (bee todos ${beeTodoIds.join(", ")})` : ""}`;
+    },
+  },
+  {
+    name: "episodes",
+    run: async (ctx) => {
+      if (!ctx.recommenderFirstName) return "episodes 0";
+      const r = await forgetPersonInEpisodes(ctx.recommenderFirstName, { sql: sqlOver(ctx.c), del: (url) => del(url) });
+      return `episodes ${r.episodeIds.length}${ids(r.episodeIds)}, audio ${r.audioDeleted}`;
+    },
+  },
+];

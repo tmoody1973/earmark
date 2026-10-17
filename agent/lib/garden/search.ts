@@ -1,6 +1,5 @@
-// The garden's search field, for now: a filter over what is already on the page (titles and first names).
-// SEAM (M5-T8): memory-cue search ("the ramen place Ann mentioned after the show") replaces this with a server query;
-// the field, its label and the hidden-item behaviour stay, only the matcher behind them changes.
+// The garden's search field as you type: a filter over what is already on the page (titles and first names).
+// Enter hands the words to memory-cue search (agent/lib/search/memory-cue.ts, the /search page), which looks further.
 
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
