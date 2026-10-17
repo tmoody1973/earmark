@@ -31,43 +31,25 @@ describe("bee-todos status effect", () => {
 
   it("nudges the reconciler only when a tip enters or leaves 'queued'", async () => {
     const drain = vi.fn(async () => ({ status: "skipped" as const }));
-    const later = vi.fn((fn: () => unknown) => { void fn(); });
-    await beeTodoEffect({ ...change, previous: "new", next: "dismissed" }, drain, later);
+    await beeTodoEffect({ ...change, previous: "new", next: "dismissed" }, drain);
     expect(drain).not.toHaveBeenCalled();
-    await beeTodoEffect({ ...change, previous: "new", next: "queued" }, drain, later);
-    await beeTodoEffect({ ...change, previous: "queued", next: "tried" }, drain, later);
+    await beeTodoEffect({ ...change, previous: "new", next: "queued" }, drain);
+    await beeTodoEffect({ ...change, previous: "queued", next: "tried" }, drain);
     expect(drain).toHaveBeenCalledTimes(2);
   });
 
-  it("inside a request the tap doesn't wait on Bee: the drain is handed to after()", async () => {
-    let release!: () => void;
-    const drain = vi.fn(() => new Promise<void>((res) => { release = res; }));
-    const queued: Array<() => unknown> = [];
-    await beeTodoEffect({ ...change, previous: "new", next: "queued" }, drain, (fn) => { queued.push(fn); });
-    expect(drain).not.toHaveBeenCalled(); // returned before any Bee work
-    const done = queued[0]!();
-    release();
-    await done;
-    expect(drain).toHaveBeenCalledTimes(1);
-  });
-
-  it("outside a request (after() throws: scripts, schedules) it awaits the drain", async () => {
+  it("awaits the drain itself (deferring is the caller's job: setRecStatus's `defer`)", async () => {
     const order: string[] = [];
     const drain = vi.fn(async () => { order.push("drain"); });
-    await beeTodoEffect({ ...change, previous: "queued", next: "new" }, drain, () => { throw new Error("outside request scope"); });
+    await beeTodoEffect({ ...change, previous: "queued", next: "new" }, drain);
     order.push("returned");
     expect(order).toEqual(["drain", "returned"]);
-    // The real next/server after() throws outside a request too, so the default path awaits.
-    const real = vi.fn(async () => {});
-    await beeTodoEffect({ ...change, previous: "queued", next: "new" }, real);
-    expect(real).toHaveBeenCalledTimes(1);
   });
 
   it("a failing drain is logged by error name and never throws into the status change", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const drain = vi.fn(async () => { throw Object.assign(new Error("secret text"), { name: "BeeApiError" }); });
-    await expect(beeTodoEffect({ ...change, previous: "new", next: "queued" }, drain, () => { throw new Error("no scope"); }))
-      .resolves.toBeUndefined();
+    await expect(beeTodoEffect({ ...change, previous: "new", next: "queued" }, drain)).resolves.toBeUndefined();
     expect(err).toHaveBeenCalledWith("[bee-todos] nudge failed error=BeeApiError");
   });
 });

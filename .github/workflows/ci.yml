@@ -34,6 +34,9 @@ jobs:
       - run: pnpm test
       - run: pnpm lint
       - run: pnpm build
+      # Vercel's eve service runs `eve build` from the repo root, evaluating agent/ outside Next (so next/* can't
+      # resolve there). `next build` alone never does this. Sandbox prewarm needs Vercel credentials; skip it here.
+      - run: node node_modules/eve/bin/eve.js build --skip-sandbox-prewarm
 
   gitleaks:
     runs-on: ubuntu-latest
