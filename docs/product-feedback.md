@@ -79,6 +79,13 @@ One section per tool. Filled in as we go; finalized in M6.
 - **Onboarding:** Setup is an IAM user, an inline policy and an access key. One snag found while building: Vercel may reserve the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` names, so the app uses prefixed names and hands the credentials to the client explicitly. TODO after first real episode: time from "no AWS key" to "first MP3".
 - **Would build with it again:** TODO after first real episode.
 
+## Alexa+ (MCP server path)
+- **Used for:** The target assistant for Earmark's MCP server: "What did Ann tell me to try?" answered aloud. We could not use the real thing, so a web simulator stands in (decision 036).
+- **What worked:** The published requirements for a private MCP server (Streamable HTTP, OAuth client credentials, passes of one hour or less) were clear enough to build the server and token endpoint against without a device. The MCP server negotiates protocol 2025-11-25, which the rules require.
+- **What needs work:** Hackathon entrants have no developer access to the Alexa+ add-on tooling, so nothing here has run against real Alexa+. TODO when access exists: confirm how Alexa+ calls the tools (argument phrasing, timeouts versus our 500 ms target, how it reads our answers), and whether its client accepts our token and metadata responses.
+- **Onboarding:** Not applicable yet. TODO: time from "no access" to "first real utterance".
+- **Would build with it again:** TODO after a real Alexa+ run.
+
 ## Vercel Blob
 - **Used for:**
 - **What worked:**

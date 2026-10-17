@@ -126,3 +126,5 @@ body:has(.tabbar) { padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); 
   .new-chips > li.is-live { animation: none; }
   .new-chip:hover { transform: none; }
 }
+
+.garden-head-links { display: inline-flex; gap: 1rem; }
