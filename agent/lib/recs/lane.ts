@@ -7,7 +7,7 @@ import { createBeeClient } from "../bee/client";
 import { db } from "../db";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
-import { pickMatch } from "../enrich/match";
+import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
 import { enabledTypes, REC_TYPES } from "../enrich/registry";
 import { logEnrichError, ProviderHttpError, type EnrichmentMatch } from "../enrich/types";
@@ -117,7 +117,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
   if (waitingForKeys.length) console.log(`[rec-lane] waiting for provider keys: ${waitingForKeys.join(",")}`);
 
   const due = (await db()`
-    select id, type, canonical_name, creator, excerpt, lat, lng, enrich_attempts
+    select id, type, canonical_name, creator, excerpt, lat, lng, links, enrich_attempts
     from recommendations
     where enrichment_status = 'pending' and enrich_next_at <= now()
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${types}::text[])
@@ -140,9 +140,14 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     try {
       const jevBefore = r.jevCalls;
       const match = await d.enrich({ ...row, id }, { env: d.env, pick: countedPick });
-      if (match) {
+      if (match && match.matchConfidence >= MATCH_ACCEPT) {
         await saveMatch(id, match);
         r.matched++;
+      } else if (match) {
+        // A link only (a video tip's search link, or a URL oEmbed couldn't confirm): never 'matched' below 0.8. It's
+        // no_match, so it reaches review (M3-T9), and the link is kept so the card still opens somewhere.
+        await saveLinkOnly(id, match.links);
+        r.noMatch++;
       } else if (r.jevCalls > jevBefore && attempts === 0) {
         // Jev saw candidates and said none fits: one more look later (a flaky near-0.8 call, rec 160). The second
         // no_match is final. ponytail: "first look" = no attempts yet, so a tip that errored earlier gets no second look.
@@ -280,6 +285,12 @@ async function saveMatch(id: number, m: EnrichmentMatch): Promise<void> {
       lat = coalesce(${m.lat ?? null}::float8, lat), lng = coalesce(${m.lng ?? null}::float8, lng),
       art_retry_mbid = case when coalesce(image_url, ${m.imageUrl}) is null then ${m.artRetry ?? null} end,
       enrichment_status = 'matched', enriched_at = now(), updated_at = now()
+    where id = ${id} and enrichment_status = 'pending' and status <> all(${SWEEP_SKIPS_STATUSES}::text[])`;
+}
+
+async function saveLinkOnly(id: number, links: EnrichmentMatch["links"]): Promise<void> {
+  await db()`update recommendations set links = ${JSON.stringify(links)}::jsonb || links,
+      enrichment_status = 'no_match', enriched_at = now(), updated_at = now()
     where id = ${id} and enrichment_status = 'pending' and status <> all(${SWEEP_SKIPS_STATUSES}::text[])`;
 }
 

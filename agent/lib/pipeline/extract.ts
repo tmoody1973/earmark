@@ -12,7 +12,7 @@ export const TITLE_MAX_WORDS = 12;
 
 export const RecSchema = z.object({
   canonicalName: z.string().trim().min(1).max(120).describe("The recommended thing's proper name, e.g. 'Promises' or 'Ardent'."),
-  creator: z.string().max(80).nullable().describe("Artist, author, host or director if stated, else null."),
+  creator: z.string().max(80).nullable().describe("Artist, author, host, director or channel if stated, else null."),
   recommenderName: z.string().nullable().describe("Name of the person giving the recommendation, only if written in the text; else null."),
   excerpt: z.string().describe("At most 25 consecutive words copied exactly from the transcript."),
 });
