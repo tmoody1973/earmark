@@ -3,7 +3,7 @@ import { sweepRecLane } from "../lib/recs/lane";
 
 // The rec lane (M3-T4, decision 013): look up pending tips (MusicBrainz, Open Library, Wikipedia, iTunes podcasts; TMDB,
 // Places and Podcast Index once keyed). The only place providers are called (decision 012). Bounded per run and
-// non-overlapping (advisory lock) inside sweepRecLane. Handler form: no model session. Logs counts and error names only.
+// non-overlapping (a 15-min lease row in sync_cursors) inside sweepRecLane. Handler form: no model session. Logs counts and error names only.
 export default defineSchedule({
   cron: "*/10 * * * *",
   async run() {

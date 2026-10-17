@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 import type { enrichRec, RecToEnrich } from "../../agent/lib/enrich/enrich";
-import { ProviderHttpError, type Candidate, type EnrichmentMatch } from "../../agent/lib/enrich/types";
+import { ProviderHttpError, type EnrichmentMatch } from "../../agent/lib/enrich/types";
 
 // Real Neon `test` branch (TEST_DATABASE_URL, never production); skipped when absent. Providers and Jev are fakes.
 // Every sweep is scoped to this file's rows (onlyIds), so other suites' rows on the branch are never touched.
@@ -23,10 +23,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     return Number(rows[0].id);
   };
   const row = async (id: number) => (await c.query(
-    `select status, canonical_name, creator, image_url, links, enrichment_status, enrich_attempts,
-            extract(epoch from (enrich_next_at - now())) / 60 as next_in_min
+    `select status, canonical_name, creator, image_url, links, enrichment_status, enrich_attempts, review_reason,
+            art_retry_mbid, art_retries, extract(epoch from (enrich_next_at - now())) / 60 as next_in_min
      from recommendations where id = $1`, [id])).rows[0];
-  const match = (over: Partial<Candidate> = {}): EnrichmentMatch =>
+  const match = (over: Partial<EnrichmentMatch> = {}): EnrichmentMatch =>
     ({ canonicalName: "Night Garden", creator: "Mara Vell", yearOrAddress: "2021", imageUrl: "https://img/new.jpg",
       links: { openlibrary: "https://openlibrary.org/works/OL1W" }, matchConfidence: 0.9, ...over });
   // A fake enrich that asks the (counted) Jev pick once, like the real providers do when there are candidates.
@@ -42,6 +42,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   afterAll(async () => {
     if (!c) return;
     await c.query(`delete from recommendations where id = any($1::bigint[])`, [ids]);
+    await c.query(`delete from sync_cursors where name = 'rec_lane_lease'`);
     c.release();
     await pool.end();
   });
@@ -56,20 +57,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const enrich = vi.fn(viaPick((r) => (r.type === "book" ? match() : null)));
 
     const res = await sweepRecLane({ enrich, pick, env: {}, onlyIds: ids });
-    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, noMatch: 1, jevCalls: 2, waitingForKeys: ["place", "film_tv"] });
+    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, secondLook: 1, jevCalls: 2, waitingForKeys: ["place", "film_tv"] });
     expect(enrich.mock.calls.map(([r]) => r.id).sort()).toEqual([book, maybe].sort());
 
     const b = await row(book);
     expect(b).toMatchObject({ enrichment_status: "matched", canonical_name: "Night Garden", creator: "Mara Vell",
       image_url: "https://photo/mine.jpg" }); // a capture's own photo wins over provider art
     expect(b.links).toEqual({ openlibrary: "https://openlibrary.org/works/OL1W", url: "https://mine.example" });
-    expect((await row(maybe)).enrichment_status).toBe("no_match");
+    expect(b.review_reason).toBe("no_recommender"); // matched, but nobody to credit
+    // Jev saw candidates and said none fits: one more look an hour later, then final.
+    const m1 = await row(maybe);
+    expect(m1).toMatchObject({ enrichment_status: "pending", enrich_attempts: 1, review_reason: null });
+    expect(Number(m1.next_in_min)).toBeGreaterThan(59);
+    await c.query(`update recommendations set enrich_next_at = now() where id = $1`, [maybe]);
+    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [maybe] })).toMatchObject({ tried: 1, noMatch: 1 });
+    expect(await row(maybe)).toMatchObject({ enrichment_status: "no_match", review_reason: "confidence_band" });
     for (const id of [dismissed, composted, film]) expect((await row(id)).enrichment_status).toBe("pending");
 
     // Already enriched → never tried again.
     enrich.mockClear();
     expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [book, maybe] })).toMatchObject({ tried: 0 });
     expect(enrich).not.toHaveBeenCalled();
+  });
+
+  it("a lookup with no candidates at all is final at once, with review reason no_match", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec();
+    const enrich = vi.fn(async () => null) as unknown as Enrich; // nothing found: Jev never asked
+    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [id] })).toMatchObject({ tried: 1, noMatch: 1, jevCalls: 0 });
+    expect(await row(id)).toMatchObject({ enrichment_status: "no_match", enrich_attempts: 0, review_reason: "no_match" });
   });
 
   it("a failed rec backs off, is skipped while waiting, and is given up after the last attempt", async () => {
@@ -89,18 +105,30 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(await row(id)).toMatchObject({ enrichment_status: "failed", enrich_attempts: MAX_ATTEMPTS });
   });
 
-  it("stops the whole sweep on the first 503 and leaves that rec's attempts alone", async () => {
+  it("a 503 stops the sweep and sends that tip to the back for 15 min without an attempt; a week-old tip gives up", async () => {
     const { sweepRecLane } = await lane();
     const first = await addRec();
     const second = await addRec();
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const enrich = vi.fn(async () => { throw new ProviderHttpError("musicbrainz.org", 503); }) as unknown as Enrich;
+    const busy = vi.fn(async () => { throw new ProviderHttpError("musicbrainz.org", 503); }) as unknown as Enrich;
 
-    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [first, second] }))
+    expect(await sweepRecLane({ enrich: busy, pick, env: {}, onlyIds: [first, second] }))
       .toMatchObject({ tried: 1, stoppedOn: "musicbrainz.org 503" });
-    expect(enrich).toHaveBeenCalledTimes(1);
-    for (const id of [first, second]) expect(await row(id)).toMatchObject({ enrichment_status: "pending", enrich_attempts: 0 });
-    await c.query(`update recommendations set enrichment_status = 'no_match' where id = any($1::bigint[])`, [[first, second]]);
+    expect(busy).toHaveBeenCalledTimes(1);
+    const f = await row(first);
+    expect(f).toMatchObject({ enrichment_status: "pending", enrich_attempts: 0 });
+    expect(Number(f.next_in_min)).toBeGreaterThan(14);
+    expect(await row(second)).toMatchObject({ enrichment_status: "pending", enrich_attempts: 0 });
+
+    // Next run: the 503 tip is not first in line (not even due); the other one goes.
+    const ok = vi.fn(async () => null) as unknown as Enrich;
+    await sweepRecLane({ enrich: ok, pick, env: {}, onlyIds: [first, second] });
+    expect(vi.mocked(ok).mock.calls.map(([r]) => (r as RecToEnrich).id)).toEqual([second]);
+
+    const old = await addRec();
+    await c.query(`update recommendations set created_at = now() - interval '8 days' where id = $1`, [old]);
+    await sweepRecLane({ enrich: busy, pick, env: {}, onlyIds: [old] });
+    expect(await row(old)).toMatchObject({ enrichment_status: "failed", enrich_attempts: 0 });
   });
 
   it("caps Jev calls and recs per run", async () => {
@@ -111,24 +139,58 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const viaJev = await sweepRecLane({ enrich: viaPick(() => null), pick, env: {}, onlyIds: batch });
     expect(viaJev).toMatchObject({ tried: MAX_JEV_CALLS_PER_RUN, jevCalls: MAX_JEV_CALLS_PER_RUN });
 
-    await c.query(`update recommendations set enrichment_status = 'pending' where id = any($1::bigint[])`, [batch]);
+    await c.query(`update recommendations set enrichment_status = 'pending', enrich_next_at = now() where id = any($1::bigint[])`, [batch]);
     const noJev = vi.fn(async () => null) as unknown as Enrich; // e.g. no candidates: no Jev call
     expect(await sweepRecLane({ enrich: noJev, pick, env: {}, onlyIds: batch })).toMatchObject({ tried: MAX_RECS_PER_RUN, jevCalls: 0 });
   });
 
-  it("skips the run when another sweep holds the lock", async () => {
-    const { sweepRecLane, REC_LANE_LOCK } = await lane();
-    const other = await pool.connect();
-    try {
-      await other.query("begin");
-      await other.query("select pg_advisory_xact_lock(hashtext($1))", [REC_LANE_LOCK]);
-      const enrich = vi.fn() as unknown as Enrich;
-      expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: ids })).toEqual({ status: "locked" });
-      expect(enrich).not.toHaveBeenCalled();
-    } finally {
-      await other.query("rollback");
-      other.release();
-    }
+  it("skips the run while another sweep's lease is live; takes over a stale lease and releases it", async () => {
+    const { sweepRecLane, REC_LANE_LEASE } = await lane();
+    const id = await addRec();
+    await c.query(`insert into sync_cursors (name, cursor) values ($1, 'other-runner')
+      on conflict (name) do update set cursor = 'other-runner', updated_at = now()`, [REC_LANE_LEASE]);
+    const enrich = vi.fn(async () => null) as unknown as Enrich;
+    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [id] })).toEqual({ status: "locked" });
+    expect(enrich).not.toHaveBeenCalled();
+
+    await c.query(`update sync_cursors set updated_at = now() - interval '16 minutes' where name = $1`, [REC_LANE_LEASE]);
+    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [id] })).toMatchObject({ status: "done", tried: 1 });
+    expect((await c.query(`select 1 from sync_cursors where name = $1`, [REC_LANE_LEASE])).rowCount).toBe(0); // released
+  });
+
+  it("a lease taken over by another runner is not released by the first", async () => {
+    const { sweepRecLane, REC_LANE_LEASE } = await lane();
+    const id = await addRec();
+    const thief = (async () => {
+      await c.query(`update sync_cursors set cursor = 'thief' where name = $1`, [REC_LANE_LEASE]);
+      return null;
+    }) as unknown as Enrich;
+    await sweepRecLane({ enrich: thief, pick, env: {}, onlyIds: [id] });
+    expect((await c.query(`select cursor from sync_cursors where name = $1`, [REC_LANE_LEASE])).rows[0]?.cursor).toBe("thief");
+    await c.query(`delete from sync_cursors where name = $1`, [REC_LANE_LEASE]);
+  });
+
+  it("retries Cover Art Archive only for a match whose art lookup errored, up to 3 tries", async () => {
+    const { sweepRecLane, MAX_ART_TRIES } = await lane();
+    const failed = await addRec({ type: "album" });
+    const fixed = await addRec({ type: "album" });
+    const withArt = (r: RecToEnrich) => match({ imageUrl: null, artRetry: `rg-${r.id}` });
+    const enrich = vi.fn(async (r: RecToEnrich) => withArt(r)) as unknown as Enrich;
+    const coverArt = vi.fn(async (rg: string) => {
+      if (rg === `rg-${fixed}`) return "https://coverartarchive.org/x-500.jpg";
+      throw new ProviderHttpError("coverartarchive.org", 502);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await sweepRecLane({ enrich, pick, coverArt, env: {}, onlyIds: [failed, fixed] });
+    expect(res).toMatchObject({ matched: 2, artFixed: 1 });
+    expect(await row(fixed)).toMatchObject({ image_url: "https://coverartarchive.org/x-500.jpg", art_retry_mbid: null });
+    expect(await row(failed)).toMatchObject({ image_url: null, art_retry_mbid: `rg-${failed}`, art_retries: 1 });
+
+    for (let i = 1; i < MAX_ART_TRIES; i++) await sweepRecLane({ enrich, pick, coverArt, env: {}, onlyIds: [failed] });
+    expect(await row(failed)).toMatchObject({ art_retry_mbid: null, art_retries: MAX_ART_TRIES });
+    expect(coverArt.mock.calls.filter(([rg]) => rg === `rg-${failed}`)).toHaveLength(MAX_ART_TRIES);
+    expect(enrich).toHaveBeenCalledTimes(2); // the tail never re-runs MusicBrainz or Jev
   });
 
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {

@@ -20,7 +20,7 @@ const coverArt: MusicAddOn = async (m, input, deps) => {
     return imageUrl ? { ...m, imageUrl } : m;
   } catch (err) {
     logEnrichError("cover-art", { rec: input.recId, mbid: m.releaseGroupId }, err);
-    return m;
+    return { ...m, artRetry: m.releaseGroupId }; // getJson answers 404 with null, so this is a 5xx or timeout
   }
 };
 
