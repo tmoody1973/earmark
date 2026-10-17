@@ -9,6 +9,7 @@ import { bearerMatches } from "./auth";
 import { classifyPhoto, readPhoto } from "./classify-photo";
 import { attributeFromWindow, findConversationNear, pickWindowForCapture, type LinkedConversation } from "./link";
 import { saveCaptureRec } from "./save";
+import { THUMB_PREFIX } from "./thumbs";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // Vercel request body limit is 4.5 MB
 const MAX_THUMB_BYTES = 512 * 1024;
@@ -39,7 +40,7 @@ function defaultDeps(defer?: Defer): PhotoDeps {
     save: saveCaptureRec,
     // Public but unlisted: the random suffix makes the URL unguessable (decision 033).
     putThumb: async (file) =>
-      (await put(`thumbs/${randomUUID()}.jpg`, file, { access: "public", addRandomSuffix: true, contentType: "image/jpeg" })).url,
+      (await put(`${THUMB_PREFIX}${randomUUID()}.jpg`, file, { access: "public", addRandomSuffix: true, contentType: "image/jpeg" })).url,
     deleteThumb: (url) => del(url),
     afterCreated: (recId) => deferOrRun(defer, () => afterCaptureSaved(recId)),
   };

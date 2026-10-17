@@ -83,6 +83,14 @@ describe("approveReceipt", () => {
     await approveReceipt(4, 11, "Thanks, Ann.", defer);
     expect(setStatus).toHaveBeenCalledWith(4, "thanked", "garden", { defer });
   });
+  it("with no public base URL it refuses before writing: the tip is never marked thanked without a link", async () => {
+    delete process.env.EARMARK_PUBLIC_BASE_URL;
+    vi.resetModules(); // getEnv caches; a fresh module graph reads the env again (the db/status mocks stay)
+    const fresh = await import("../../../agent/lib/recs/receipts");
+    await expect(fresh.approveReceipt(4, 11, "Thanks, Ann.")).rejects.toThrow(/EARMARK_PUBLIC_BASE_URL/);
+    expect(sql).not.toHaveBeenCalled();
+    expect(setStatus).not.toHaveBeenCalled();
+  });
   it("refuses an empty note and an unknown receipt", async () => {
     await expect(approveReceipt(4, 11, "   ")).rejects.toThrow(/empty/);
     sql.mockResolvedValueOnce([]);
@@ -192,5 +200,11 @@ describe("getPublicReceipt", () => {
   it("maps the row", async () => {
     sql.mockResolvedValueOnce([{ message: "m", canonical_name: "Ramen Kyuu", creator: null, image_url: null, type: "place" }]);
     expect(await getPublicReceipt(TOKEN)).toEqual({ message: "m", name: "Ramen Kyuu", creator: null, imageUrl: null, type: "place" });
+  });
+  it("never shows the owner's own photo thumbnail (EXIF stripping is unverified); other artwork stays", async () => {
+    sql.mockResolvedValueOnce([{ message: "m", canonical_name: "Kindred", creator: null, image_url: "https://abc123.public.blob.vercel-storage.com/thumbs/9f2c-uuid-AbCdEf.jpg", type: "book" }]);
+    expect((await getPublicReceipt(TOKEN))!.imageUrl).toBeNull();
+    sql.mockResolvedValueOnce([{ message: "m", canonical_name: "Kindred", creator: null, image_url: "https://covers.example/kindred.jpg", type: "book" }]);
+    expect((await getPublicReceipt(TOKEN))!.imageUrl).toBe("https://covers.example/kindred.jpg");
   });
 });

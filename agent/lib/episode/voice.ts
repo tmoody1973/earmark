@@ -31,6 +31,9 @@ export function makePollyClient(env = getEnv()): PollyClient {
   return new PollyClient({ region: env.EARMARK_AWS_REGION, credentials: { accessKeyId, secretAccessKey } });
 }
 
+// Per chunk: a 1100-word script is ~3 chunks, so ~75 s worst case, which with script.ts fits the 5-minute claim lease.
+const POLLY_TIMEOUT_MS = 25_000;
+
 export async function synthesize(
   chunks: string[],
   client: Pick<PollyClient, "send"> = makePollyClient(),
@@ -38,7 +41,10 @@ export async function synthesize(
 ): Promise<Uint8Array> {
   const parts: Uint8Array[] = [];
   for (const Text of chunks) {
-    const res = await client.send(new SynthesizeSpeechCommand({ Engine: "generative", OutputFormat: "mp3", VoiceId: voice as never, Text, TextType: "text" }));
+    const res = await client.send(
+      new SynthesizeSpeechCommand({ Engine: "generative", OutputFormat: "mp3", VoiceId: voice as never, Text, TextType: "text" }),
+      { abortSignal: AbortSignal.timeout(POLLY_TIMEOUT_MS) },
+    );
     if (!res.AudioStream) throw new Error("Polly returned no audio");
     parts.push(await res.AudioStream.transformToByteArray());
   }

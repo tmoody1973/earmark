@@ -17,6 +17,7 @@ it("uses instructions (not system) and passes no retry text on a good first draf
   const generateImpl = vi.fn().mockResolvedValueOnce(good());
   await writeEpisodeScript(data, "2026-10-18", generateImpl as never, "Odette");
   expect(generateImpl).toHaveBeenCalledTimes(1);
+  expect(generateImpl.mock.calls[0][0].abortSignal).toBeInstanceOf(AbortSignal); // capped inside the gardener's 5-minute lease
   expect(generateImpl.mock.calls[0][0].instructions).toContain("Earmark");
   expect(generateImpl.mock.calls[0][0]).not.toHaveProperty("system");
 });
