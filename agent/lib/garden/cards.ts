@@ -1,6 +1,6 @@
 import type { RecType } from "../types";
 
-export type CardVariant = "cover" | "artist" | "spine" | "map" | "tile" | "poster" | "note";
+export type CardVariant = "cover" | "artist" | "spine" | "map" | "tile" | "poster" | "screen" | "note";
 
 const VARIANTS = {
   album: "cover",
@@ -10,6 +10,7 @@ const VARIANTS = {
   place: "map",
   podcast: "tile",
   film_tv: "poster",
+  video: "screen",
   other: "note",
 } as const satisfies Record<RecType, CardVariant>;
 
@@ -89,4 +90,10 @@ export function cardLink(links: unknown): string | null {
   if (!links || typeof links !== "object") return null;
   const record = links as Record<string, unknown>;
   return toHttps(record.apple_music) ?? toHttps(record.url) ?? Object.values(record).map(toHttps).find(Boolean) ?? null;
+}
+
+/** A video tip with no stored link still opens on YouTube, as a search for its title and channel. Never an embed. */
+export function youtubeSearchUrl(name: string, channel: string | null): string {
+  const q = channel ? `${name} ${channel}` : name;
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
 }

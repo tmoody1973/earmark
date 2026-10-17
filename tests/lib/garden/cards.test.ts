@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cardArtwork, cardArtworkUrl, cardLink, cardVariant, clampWhy, imageLoadFailed, lonLatToTile, osmTileUrl, spineHue,
+  youtubeSearchUrl,
 } from "../../../agent/lib/garden/cards";
 
 describe("cardVariant", () => {
@@ -12,6 +13,7 @@ describe("cardVariant", () => {
     expect(cardVariant("place")).toBe("map");
     expect(cardVariant("podcast")).toBe("tile");
     expect(cardVariant("film_tv")).toBe("poster");
+    expect(cardVariant("video")).toBe("screen");
     expect(cardVariant("other")).toBe("note");
   });
 });
@@ -54,7 +56,7 @@ describe("cardArtwork (the no-image fallback)", () => {
     expect(cardArtwork({ ...base, variant: "artist", imageUrl: "https://x/face.jpg" })).toEqual({ kind: "none" });
   });
   it("falls back to the typographic state for every other variant without an image", () => {
-    for (const variant of ["cover", "spine", "tile", "poster", "note"] as const) {
+    for (const variant of ["cover", "spine", "tile", "poster", "screen", "note"] as const) {
       expect(cardArtwork({ ...base, variant })).toEqual({ kind: "none" });
     }
   });
@@ -115,6 +117,14 @@ describe("cardLink", () => {
     expect(cardLink({ url: "http://a.example/x" })).toBe("https://a.example/x");
     expect(cardLink({ url: "javascript:alert(1)" })).toBeNull();
     expect(cardLink(null)).toBeNull();
+  });
+});
+
+describe("youtubeSearchUrl", () => {
+  it("searches YouTube for the title and channel, encoded", () => {
+    expect(youtubeSearchUrl("The Art of Code", "Dylan Beattie"))
+      .toBe("https://www.youtube.com/results?search_query=The%20Art%20of%20Code%20Dylan%20Beattie");
+    expect(youtubeSearchUrl("Q&A #1", null)).toBe("https://www.youtube.com/results?search_query=Q%26A%20%231");
   });
 });
 

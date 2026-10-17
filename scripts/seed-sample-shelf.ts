@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 
-// Seeds a SAMPLE shelf covering all eight card variants (with and without artwork) on the Neon `test` branch,
+// Seeds a SAMPLE shelf covering all nine card variants (with and without artwork) on the Neon `test` branch,
 // for design screenshots. Never production: it only ever reads TEST_DATABASE_URL. Re-runnable: it replaces
 // its own rows (marked raw_text = 'sample-shelf'). Names and summaries are invented sample data.
 // Run: pnpm tsx --env-file=.env.local scripts/seed-sample-shelf.ts
@@ -29,6 +29,9 @@ const SAMPLES: Sample[] = [
   { type: "podcast", name: "99% Invisible", creator: "Roman Mars", from: "Sam", status: "tried", rating: "fine",
     image: "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/79/d0/35/79d035ea-9043-b43e-7380-33cd47bd968b/mza_2606971010425550919.jpg/{w}x{h}bb.jpg" },
   { type: "film_tv", name: "Shōgun", creator: "FX", from: "Lena", why: "Stunning, political, human. Couldn't stop thinking about it." },
+  { type: "video", name: "The Art of Code", creator: "Dylan Beattie", from: "Sam", why: "An hour of joy about what code is for.",
+    image: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg", links: { youtube: "https://www.youtube.com/watch?v=6avJHaC3C2U" } },
+  { type: "video", name: "Veritasium", from: "Jordan" },
   { type: "other", name: "Notion Calendar", from: "Chris" },
 ];
 

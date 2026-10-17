@@ -14,14 +14,15 @@ const ALT: Record<RecCardData["variant"], (c: RecCardData) => string> = {
   map: (c) => `Photo of ${c.name}`,
   tile: (c) => `Show artwork for ${c.name}`,
   poster: (c) => `Poster for ${c.name}`,
+  screen: (c) => `Thumbnail for ${c.name}${c.creator ? ` by ${c.creator}` : ""}`,
   note: (c) => c.name,
 };
 
-const GLYPH = { cover: "album", tile: "podcast", map: "place", note: "other" } as const;
+const GLYPH = { cover: "album", tile: "podcast", map: "place", screen: "video", note: "other" } as const;
 
 /**
  * The designed no-image state for each variant. Decorative (the card body carries the title), so it never prints
- * the title again at equal weight: covers, podcasts and places show their type's glyph on a tinted ground, books
+ * the title again at equal weight: covers, podcasts, places and videos show their type's glyph on a tinted ground, books
  * and films a quiet spine or poster, and only the artist card sets the name large (it has no other artwork).
  */
 function NoImage({ card }: { card: RecCardData }) {
@@ -81,10 +82,11 @@ export function Artwork({ card }: { card: RecCardData }) {
 
   if (art.kind === "image") {
     const standing = card.variant === "spine" || card.variant === "poster"; // 2:3 objects stand on the ground
+    const wide = card.variant === "screen"; // 16:9 video thumbnail
     return (
       <div className={`${box}${standing ? " rec-art--stand" : ""}`} style={style}>
         <Img src={art.src} alt={ALT[card.variant](card)} className={standing ? "rec-art-object" : "rec-art-fill"}
-          width={standing ? 400 : 600} height={600} fallback={fallback} />
+          width={standing ? 400 : wide ? 640 : 600} height={wide ? 360 : 600} fallback={fallback} />
       </div>
     );
   }

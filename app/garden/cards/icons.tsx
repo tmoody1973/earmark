@@ -14,6 +14,8 @@ const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | 
   place: "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
   podcast: "M12 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z M11 21l.6-6h.8l.6 6 M7.8 15.2a6 6 0 1 1 8.4 0 M5 18a10 10 0 1 1 14 0",
   film_tv: "M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z M4 9l1.2-4.4 15 4 M8.5 5.8 10 9.6 M13.5 7.1 15 10.6",
+  // A screen over a scrub bar, not a play triangle: the card links out and never plays anything itself.
+  video: "M4.5 4h15A1.5 1.5 0 0 1 21 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5v-9A1.5 1.5 0 0 1 4.5 4Z M3 20h3.5 M9.5 20H21 M8 21.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
   other: "M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M14 3v4h4 M9 12h6 M9 16h4",
   heart: "M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10Z",
   check: "M5 12.5l4.5 4.5L19 7.5",

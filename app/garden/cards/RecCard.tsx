@@ -6,7 +6,7 @@ import "./cards.css";
 
 const TYPE_LABEL: Record<RecType, string> = {
   album: "Album", song: "Song", artist: "Artist", book: "Book",
-  place: "Place", podcast: "Podcast", film_tv: "Film / TV", other: "Other",
+  place: "Place", podcast: "Podcast", film_tv: "Film / TV", video: "Video", other: "Other",
 };
 
 const RATING_LABEL: Record<Rating, string> = { loved: "Loved it", fine: "It was fine", not_for_me: "Not for me" };

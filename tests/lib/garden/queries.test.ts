@@ -26,6 +26,16 @@ describe("garden queries", () => {
     });
   });
 
+  it("links a video tip out to YouTube: its stored link, else a search, and nothing for other types", () => {
+    const video = { ...recRow, type: "video", canonical_name: "The Art of Code", creator: "Dylan Beattie" };
+    expect(toRecCard({ ...video, links: { youtube: "https://www.youtube.com/watch?v=x" } })).toMatchObject({
+      variant: "screen", link: "https://www.youtube.com/watch?v=x",
+    });
+    expect(toRecCard({ ...video, links: {} }).link)
+      .toBe("https://www.youtube.com/results?search_query=The%20Art%20of%20Code%20Dylan%20Beattie");
+    expect(toRecCard({ ...recRow, links: {} }).link).toBeNull();
+  });
+
   it("maps a missing recommender to null, never a placeholder name", () => {
     expect(toRecCard({ ...recRow, recommender_id: null, first_name: null }).recommender).toBeNull();
     expect(toRecCard({ ...recRow, first_name: "  " }).recommender).toBeNull();
