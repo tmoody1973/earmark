@@ -15,7 +15,7 @@ type MusicType = keyof typeof ENTITY;
 const isMusic = (t: string): t is MusicType => t in ENTITY;
 
 // Per-process spacing only. BINDING for callers (decision 012): call MusicBrainz only from the cron sweep, one rec at a
-// time, under a Postgres advisory lock, stopping the sweep on the first 503; never from the webhook.
+// time, under the rec-lane lease (lane.ts; decision 013), stopping the sweep on the first 503; never from the webhook.
 let nextAt = 0;
 async function mbSlot(): Promise<void> {
   const now = Date.now();
@@ -30,7 +30,8 @@ export function resetMusicBrainzThrottle(): void {
 
 // Lucene query syntax: escape every special character so a title like "Help!" or "AC/DC" stays a plain term, and
 // lowercase the operator words (only uppercase AND/OR/NOT are operators) so "AND ALSO THE TREES" stays a title.
-const escapeLucene = (s: string) =>
+// Open Library's search is Solr, the same Lucene syntax, so open-library.ts reuses this.
+export const escapeLucene = (s: string) =>
   s.replace(/[+\-!(){}[\]^"~*?:\\/]|&&|\|\|/g, (m) => m.split("").map((ch) => `\\${ch}`).join(""))
     .replace(/\b(AND|OR|NOT)\b/g, (w) => w.toLowerCase());
 

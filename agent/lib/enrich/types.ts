@@ -1,7 +1,10 @@
 import type { RecType } from "../types";
 
 // recommendations.links (jsonb): service name → https URL. cardLink() prefers apple_music, then any https value.
-export type RecLinks = Partial<Record<"apple_music" | "musicbrainz" | "discogs" | "url", string>>;
+export type RecLinks = Partial<Record<
+  "apple_music" | "musicbrainz" | "discogs" | "url" | "openlibrary" | "wikipedia" | "tmdb" | "google_maps" | "podcast_index" | "apple_podcasts",
+  string
+>>;
 
 export interface Candidate {
   canonicalName: string;
@@ -16,7 +19,10 @@ export interface Candidate {
   lat?: number;
   lng?: number;
 }
-export interface EnrichmentMatch extends Candidate { matchConfidence: number }
+export interface EnrichmentMatch extends Candidate {
+  matchConfidence: number;
+  artRetry?: string; // release group whose Cover Art Archive lookup errored (5xx/timeout, not 404): the lane retries art
+}
 export interface EnrichQuery { type: RecType; name: string; creator: string | null; lat: number | null; lng: number | null }
 export interface ProviderDef {
   build(q: EnrichQuery): Promise<{ url: string; init: RequestInit }>;
