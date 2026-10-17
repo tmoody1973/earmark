@@ -527,3 +527,43 @@ test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, 
   }
   await noOverflow();
 });
+
+// M3-T4b: the Wikipedia note sits under the why as its own quiet line; its source is its own tap target.
+test("a tip's Wikipedia note shows under the why, with its source above the card link", async ({ page }, info) => {
+  test.skip(process.env.E2E_REAL === "1", "writes: test branch only");
+  const sql = neon(process.env.TEST_DATABASE_URL!);
+  await sql`delete from recommendations where raw_text = 'sample-about'`;
+  const about = "Sault are a British music group that make a mixture of R&B, urban contemporary gospel, house and disco.";
+  const url = "https://en.wikipedia.org/wiki/Sault_(band)";
+  await sql`insert into recommendations
+    (type, raw_text, canonical_name, creator, context_summary, excerpt, said_at, source, status, confidence, links,
+     enrichment_status, about, about_url, about_at)
+    values ('album', 'sample-about', 'Untitled (Rise)', 'SAULT', 'Put it on loud on a Sunday morning.', 'sample excerpt',
+      now(), 'ambient', 'new', 0.95, ${JSON.stringify({ apple_music: "https://music.apple.com/us/album/1" })}::jsonb,
+      'matched', ${about}, ${url}, now())`;
+  try {
+    await signInAs(page, OWNER_EMAIL);
+    await page.goto("/shelf");
+    const card = page.getByTestId("rec-card").filter({ has: page.getByRole("heading", { name: "Untitled (Rise)", exact: true }) });
+    await expect(card.locator(".rec-why")).toHaveText("“Put it on loud on a Sunday morning.”"); // the why stays the why
+    const note = card.locator(".rec-about");
+    await expect(note).toHaveText(`${about} Wikipedia`);
+    const source = note.getByRole("link", { name: "Wikipedia" });
+    await expect(source).toHaveAttribute("href", url);
+    // the why first, the note right under it
+    const [why, line] = [(await card.locator(".rec-why").boundingBox())!, (await note.boundingBox())!];
+    expect(line.y).toBeGreaterThanOrEqual(why.y + why.height - 1);
+    // the source link is its own target, above the card-wide title link
+    await source.scrollIntoViewIfNeeded();
+    const s = (await source.boundingBox())!;
+    const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className ?? "none", [s.x + s.width / 2, s.y + s.height / 2]);
+    expect(hit).toBe("rec-about-src");
+    await source.click({ trial: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    await page.addStyleTag({ content: HIDE_DEV_BADGE });
+    await card.scrollIntoViewIfNeeded();
+    await card.screenshot({ path: `${SHOTS}/m3-about-${info.project.name}.png` });
+  } finally {
+    await sql`delete from recommendations where raw_text = 'sample-about'`;
+  }
+});

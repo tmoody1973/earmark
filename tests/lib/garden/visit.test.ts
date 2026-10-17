@@ -53,7 +53,7 @@ describe("parseVisit", () => {
 });
 
 const card = (id: number, over: Partial<RecCardData> = {}): RecCardData => ({
-  id, type: "place", variant: "map", name: `Tip ${id}`, creator: null, yearOrAddress: null, imageUrl: null, why: null,
+  id, type: "place", variant: "map", name: `Tip ${id}`, creator: null, yearOrAddress: null, imageUrl: null, why: null, about: null,
   recommender: { id: 1, firstName: "Ann" }, saidAt: "2026-10-20T10:00:00.000Z", createdAt: "2026-10-20T10:00:00.000Z",
   status: "new", rating: null, lat: null, lng: null, link: null, ...over,
 });
