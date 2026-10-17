@@ -1,6 +1,7 @@
 // The Postgres half of `pnpm forget` (M3-T11, decision 011): what an item's rows and outside refs are (readPlan) and
 // deleting them (deleteRows), always inside the caller's transaction. Ids and counts only, never text.
 import type { PoolClient } from "@neondatabase/serverless";
+import { lineIndexFor, TimelineAmbiguousError, type StampedEntry } from "../ideas/timeline-match";
 import { CLAIM_LEASE } from "../store/conversations";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
@@ -16,6 +17,7 @@ export interface ForgetPlan {
   notes: string[]; // dry-run warnings (ids only)
   retitle?: boolean; // the forgotten mention is the one the idea's title came from
   draftInFlight?: number; // id of an idea whose one-pager draft claim is inside its lease: --yes refuses
+  mergedInto?: number; // the idea was merged into this one and the merge can still be undone: --yes refuses
 }
 
 // A forgotten mention's timeline line could not be found: rather than leave it behind, the transaction fails.
@@ -52,14 +54,26 @@ const RECOMMENDER_LINKS = `links where (from_type = 'recommender' and from_id = 
 // evidence_ids hold numbers (lane C writes Number(id): origin/m5-extras agent/lib/facts/proposals.ts:73, :103).
 const PROPOSALS = `fact_proposals where kind = $1 and evidence_ids @> $2::jsonb`;
 const proposalKey = (type: "rec" | "idea", id: number) => [type === "rec" ? "taste" : "idea", JSON.stringify([id])];
+// Lane C maps each proposal's Bee fact in bee_sync (entity_type 'fact_proposal'; m5-extras proposals.ts:188).
+const PROPOSAL_SYNC = `bee_sync where entity_type = 'fact_proposal' and entity_id = any($1::bigint[])`;
+async function deleteProposals(c: PoolClient, type: "rec" | "idea", id: number): Promise<void> {
+  const gone = await rows(c, `delete from ${PROPOSALS} returning id`, proposalKey(type, id));
+  if (gone.length) await c.query(`delete from ${PROPOSAL_SYNC}`, [gone.map((r) => Number(r.id))]);
+}
+// idea_merges (M4-T6, decision 027): a merge records which mentions moved. Any forget touching a merge (a moved
+// mention, or either idea) deletes the record, which ends that merge's undo. Ids and stage/count/pin only, no text.
+const MERGES = `idea_merges where $1 = keep_id or $1 = merged_id`;
+const MERGES_OF_MENTION = `idea_merges where $2 = any(mention_ids) or $1 = keep_id or $1 = merged_id`;
+const mergedNote = (id: number, keep: number) => `idea ${id} was merged into ${keep}: undo the merge or forget ${keep}`;
 
 async function shared(c: PoolClient, type: "rec" | "idea", id: number) {
   const sync = await rows(c, `select bee_object, bee_id from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
-  const proposals = await rows(c, `select bee_fact_id from ${PROPOSALS}`, proposalKey(type, id));
+  const proposals = await rows(c, `select id, bee_fact_id from ${PROPOSALS}`, proposalKey(type, id));
+  const proposalSync = proposals.length ? await count(c, PROPOSAL_SYNC, [proposals.map((r) => Number(r.id))]) : 0;
   return {
     links: await count(c, LINKS, [type, String(id)]),
     space_items: await count(c, `space_items where item_type = $1 and item_id = $2`, [type, id]),
-    bee_sync: sync.length,
+    bee_sync: sync.length + proposalSync,
     fact_proposals: proposals.length,
     todos: sync.filter((r) => r.bee_object === "todo").map((r) => r.bee_id),
     facts: [...sync.filter((r) => r.bee_object === "fact").map((r) => r.bee_id), ...proposals.map((r) => r.bee_fact_id)],
@@ -105,11 +119,14 @@ async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTar
   const [k] = await rows(c, `${IDEA_ROW}${lock}`, [resolved.id]);
   if (!k) return missing(target, resolved);
   const s = await shared(c, "idea", resolved.id);
+  const [into] = await rows(c, `select keep_id from idea_merges where merged_id = $1 and undone_at is null order by id desc limit 1`, [resolved.id]);
+  const mergedInto = into ? Number(into.keep_id) : undefined;
   return {
     target, resolved, exists: true, recommender: null, updates: {},
-    notes: k.drafting ? [draftNote(resolved.id)] : [], draftInFlight: k.drafting ? resolved.id : undefined,
+    notes: [...(k.drafting ? [draftNote(resolved.id)] : []), ...(mergedInto !== undefined ? [mergedNote(resolved.id, mergedInto)] : [])],
+    draftInFlight: k.drafting ? resolved.id : undefined, mergedInto,
     deletes: {
-      idea_clusters: 1,
+      idea_clusters: 1, idea_merges: await count(c, MERGES, [resolved.id]),
       idea_mentions: await count(c, `idea_mentions where cluster_id = $1`, [resolved.id]),
       garden_events: await count(c, `garden_events where cluster_id = $1`, [resolved.id]),
       links: s.links, space_items: s.space_items, bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
@@ -140,6 +157,7 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
     draftInFlight: k.drafting ? clusterId : undefined,
     deletes: {
       idea_mentions: 1, bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
+      idea_merges: await count(c, MERGES_OF_MENTION, [clusterId, target.id]),
       resort_backup: await count(c, `resort_backup where table_name = 'idea_mentions' and row_id = $1`, [target.id]),
     },
     updates: { idea_clusters: 1 },
@@ -161,11 +179,11 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
   await c.query(`delete from ${LINKS}`, [type, String(id)]);
   await c.query(`delete from space_items where item_type = $1 and item_id = $2`, [type, id]);
   await c.query(`delete from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
-  await c.query(`delete from ${PROPOSALS}`, proposalKey(type, id));
+  await deleteProposals(c, type, id);
   if (type === "idea") {
     await c.query(`delete from resort_backup where (table_name = 'idea_clusters' and row_id = $1)
       or (table_name = 'idea_mentions' and row_id in (select id from idea_mentions where cluster_id = $1))`, [id]);
-    await c.query(`delete from idea_clusters where id = $1`, [id]); // mentions and garden events cascade
+    await c.query(`delete from idea_clusters where id = $1`, [id]); // mentions, garden events and merges cascade
     return [];
   }
   await c.query(`delete from resort_backup where table_name = 'recommendations' and row_id = $1`, [id]);
@@ -175,7 +193,7 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
     await c.query(`delete from ${RECOMMENDER_LINKS}`, [String(p.id)]);
     await c.query(`delete from recommenders where id = $1`, [p.id]);
   } else if (p) {
-    // ponytail: inline recount until M3-T2's recomputeRecommender exists; recs_given = every rec, as the insert path counts.
+    // Same recipe as recomputeRecommender (recs/status.ts), inline because it must run on this transaction's client.
     await c.query(`update recommenders p set
         recs_given = (select count(*) from recommendations r where r.recommender_id = p.id),
         recs_tried = (select count(*) from recommendations r where r.recommender_id = p.id and r.status in ('tried', 'thanked')),
@@ -185,7 +203,7 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
   return [];
 }
 
-// Drops the mention, its backup row and its timeline line (paired by spoken_at, as timelineEntryJson writes it), then
+// Drops the mention, its backup row and its timeline line (by mention_id; legacy lines by a unique spoken_at), then
 // recomputes the idea as the save path keeps it (count and centroid over non-dismissed mentions, decision 004) and
 // clears what was derived from all its mentions: summary, draft (a drafted idea re-drafts), Bee fact and Notion page
 // ids (deleted outside already), fact proposals. Titles are not stored per mention, so a title from this mention
@@ -195,14 +213,20 @@ async function deleteMention(c: PoolClient, id: number, retitle: boolean): Promi
   const [m] = await rows(c, `delete from idea_mentions where id = $1 returning cluster_id, spoken_at`, [id]);
   if (!m) return [];
   const clusterId = Number(m.cluster_id);
-  const spokenAt = new Date(m.spoken_at as string | Date).getTime();
+  await c.query(`delete from ${MERGES_OF_MENTION}`, [clusterId, id]);
   const [k] = await rows(c, `select timeline from idea_clusters where id = $1`, [clusterId]);
-  const timeline = (k?.timeline ?? []) as { date: string }[];
-  const at = timeline.findIndex((e) => Date.parse(e.date) === spokenAt);
+  const timeline = (k?.timeline ?? []) as StampedEntry[];
+  let at: number;
+  try {
+    at = lineIndexFor(timeline, { id, spokenAt: m.spoken_at as string | Date }, clusterId); // by mention id (M4-T6)
+  } catch (err) {
+    if (err instanceof TimelineAmbiguousError) throw new ForgetTimelineError(err.message);
+    throw err;
+  }
   if (at === -1) throw new ForgetTimelineError(`idea ${clusterId} has no timeline line for mention ${id}; forget the whole idea instead`);
   const kept = [...timeline.slice(0, at), ...timeline.slice(at + 1)];
   await c.query(`delete from bee_sync where entity_type = 'idea' and entity_id = $1`, [clusterId]);
-  await c.query(`delete from ${PROPOSALS}`, proposalKey("idea", clusterId));
+  await deleteProposals(c, "idea", clusterId);
   await c.query(`
     update idea_clusters c set
       mention_count = s.n,

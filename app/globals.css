@@ -10,6 +10,9 @@
   --ink-2: #5f574d;
   --ink-3: #6b6359;
   --hairline: #e5ddd0;
+  --hairline-strong: #cdc2b1; /* hover and emphasised control edges */
+  --hairline-dashed: #ddd3c4; /* the unconfirmed card's dashed edge */
+  --surface-hover: #fbf8f2;
   --accent: #d4561c; /* graphics only (3.6:1 on ground); never body text */
   --sage-ground: #e3ecdf;
   --sage-ink: #2f5a3a;

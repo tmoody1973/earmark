@@ -12,10 +12,13 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Shelf · Earmark" };
 
 // The tabs are the way home (no "Back to the garden" link), as on /garden.
-export default async function ShelfPage() {
+// ?rec=<id>: a Bee todo's link (M3-T7) always shows that tip, even past the newest 60.
+export default async function ShelfPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
-  const [shelf, maybe] = await Promise.all([getShelf(), getMaybeTips()]);
+  const rec = Number((await searchParams).rec);
+  const focus = Number.isSafeInteger(rec) && rec > 0 ? rec : undefined;
+  const [shelf, maybe] = await Promise.all([getShelf(focus), getMaybeTips()]);
   return (
     <>
       <TabBar />
