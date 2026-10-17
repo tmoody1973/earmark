@@ -110,6 +110,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("email-in (real Neon)", () => {
 
   it("a failed run releases its claim so the retry can save", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
     const { handleInboundEmail } = await import("../../agent/lib/capture/email");
     const title = `Zzemail Retry ${RUN}`;
     const d = { ...fakes(), extract: vi.fn(async (): Promise<RecExtraction> => { throw new Error("model down"); }) };
@@ -119,7 +120,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("email-in (real Neon)", () => {
     const ok = fakes({ ext: { canonicalName: title, creator: null, excerpt: "retry" } });
     expect((await handleInboundEmail(req(ID("retry")), ok)).status).toBe(201);
     expect(await rows(title)).toHaveLength(1);
-    vi.restoreAllMocks();
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("a non-owner sender saves nothing", async () => {

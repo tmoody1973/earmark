@@ -33,6 +33,17 @@ describe("parsers", () => {
     expect(addressOf("Tarik Moody <Owner@Example.org>")).toBe("owner@example.org");
     expect(addressOf("owner@example.org")).toBe("owner@example.org");
   });
+  it("takes the real sender, not an address smuggled into a quoted display name", () => {
+    expect(addressOf('"owner@example.org <owner@example.org>" <attacker@evil.test>')).toBe("attacker@evil.test");
+    expect(addressOf('"Tarik <owner@example.org>" <attacker@evil.test>')).toBe("attacker@evil.test");
+  });
+  it("rejects a From that is not exactly one mailbox", () => {
+    expect(addressOf("Ann <ann@example.com>, Tarik <owner@example.org>")).toBeNull();
+    expect(addressOf("owner@example.org, ann@example.com")).toBeNull();
+    expect(addressOf("Tarik <owner@example.org")).toBeNull();
+    expect(addressOf("<<owner@example.org>>")).toBeNull();
+    expect(addressOf("not an address")).toBeNull();
+  });
   it("flags an explicit SPF, DKIM or DMARC failure and nothing else", () => {
     expect(hasAuthFailure({ "Authentication-Results": "mx.example; spf=fail smtp.mailfrom=x; dkim=pass" })).toBe(true);
     expect(hasAuthFailure({ "authentication-results": "mx; dmarc=fail (p=none)" })).toBe(true);
@@ -57,7 +68,7 @@ function deps(over: Record<string, unknown> = {}) {
     finish: vi.fn(async () => undefined),
     fetchEmail: vi.fn(async () => EMAIL),
     triage: vi.fn(async () => REC_TRIAGE),
-    extract: vi.fn(async () => ({ canonicalName: "Promises", creator: "Floating Points", recommenderName: null, excerpt: "Listen to Promises by Floating Points." })),
+    extract: vi.fn(async (_i?: { text: string; summary: string | null }) => ({ canonicalName: "Promises", creator: "Floating Points", recommenderName: null, excerpt: "Listen to Promises by Floating Points." })),
     save: vi.fn(async (_rec: Record<string, any>) => ({ id: 61, upgraded: false })), // eslint-disable-line @typescript-eslint/no-explicit-any
     afterCreated: vi.fn((_id: number) => undefined),
     ...over,
@@ -76,9 +87,30 @@ describe("handleInboundEmail", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const d = deps();
     const res = await handleInboundEmail(req(), d as never);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "unavailable" });
     expect(d.verify).not.toHaveBeenCalled();
     expect(String(log.mock.calls[0]?.[0])).toContain(key);
+  });
+  it("treats the quoted-display-name attack and a two-mailbox From as non-owner", async () => {
+    for (const from of ['"owner@example.org <owner@example.org>" <attacker@evil.test>', "Ann <ann@example.com>, Tarik <owner@example.org>", "Tarik <owner+tag@example.org>"]) {
+      const d = deps({ fetchEmail: vi.fn(async () => ({ ...EMAIL, from })) });
+      expect((await json(await handleInboundEmail(req(), d as never))).status).toBe("ignored");
+      expect(d.save).not.toHaveBeenCalled();
+    }
+  });
+  it("413 on a declared or actual body over the byte cap", async () => {
+    const d = deps();
+    const big = new Request("https://earmark.test/api/email/inbound", { method: "POST", headers: { "content-length": "999999" }, body: "{}" });
+    expect((await handleInboundEmail(big, d as never)).status).toBe(413);
+    const multibyte = new Request("https://earmark.test/api/email/inbound", { method: "POST", body: "é".repeat(140_000) }); // 140k chars, 280k bytes
+    expect((await handleInboundEmail(multibyte, d as never)).status).toBe(413);
+    expect(d.verify).not.toHaveBeenCalled();
+  });
+  it("uses the HTML body when the text part is an empty string", async () => {
+    const d = deps({ fetchEmail: vi.fn(async () => ({ ...EMAIL, text: "", html: "<p>Listen to <b>Promises</b></p>" })) });
+    await handleInboundEmail(req(), d as never);
+    expect(d.extract.mock.calls[0]![0]!.text).toContain("Listen to Promises");
   });
   it("ignores other event types", async () => {
     const d = deps();
