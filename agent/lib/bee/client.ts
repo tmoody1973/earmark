@@ -107,12 +107,11 @@ export const KeywordSearchSchema = z.object({
 });
 const FactSchema = z.object({ id: z.number(), text: z.string(), tags: z.array(z.string()).default([]), created_at: Timestamp, confirmed: z.boolean() });
 // GET/POST of one fact: the object may be top level or wrapped in `fact` (unverified live), so both are accepted.
-const FactWrittenSchema = z.object({ id: z.number(), text: z.string(), confirmed: z.boolean() });
+const FactWrittenSchema = FactSchema.pick({ id: true, text: true, confirmed: true });
 const SingleFactSchema = z.union([z.object({ fact: FactWrittenSchema }).transform((b) => b.fact), FactWrittenSchema]);
 export type NeuralSearchResult = z.infer<typeof NeuralSearchSchema>;
 export type KeywordSearchResult = z.infer<typeof KeywordSearchSchema>;
 export type BeeFact = z.infer<typeof FactSchema>;
-export type BeeFactWritten = z.infer<typeof FactWrittenSchema>;
 export type KeywordSearchOptions = {
   filter?: "conversations" | "daily" | "facts" | "all";
   sortBy?: "relevance" | "mostRecent";
