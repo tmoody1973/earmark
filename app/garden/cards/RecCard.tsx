@@ -5,10 +5,13 @@ import { Artwork } from "./Artwork";
 import { Icon } from "./icons";
 import "./cards.css";
 
-const TYPE_LABEL: Record<RecType, string> = {
+export const TYPE_LABEL: Record<RecType, string> = {
   album: "Album", song: "Song", artist: "Artist", book: "Book",
   place: "Place", podcast: "Podcast", film_tv: "Film / TV", other: "Other",
 };
+
+/** A place's address is its "creator line"; everything else names its maker. */
+export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card.yearOrAddress : card.creator);
 
 const RATING_LABEL: Record<Rating, string> = { loved: "Loved it", fine: "It was fine", not_for_me: "Not for me" };
 
@@ -31,12 +34,10 @@ function TriedTag({ card }: { card: RecCardData }) {
  * opens the item's link when it has one.
  */
 export function RecCard({ card }: { card: RecCardData }) {
-  const unconfirmed = card.status === "needs_review";
   const note = card.variant === "note";
-  // A place's address is its "creator line"; everything else names its maker.
-  const subline = card.variant === "map" ? card.yearOrAddress : card.creator;
+  const subline = cardSubline(card);
   const titleId = `rec-${card.id}-title`;
-  const classes = ["rec-card", note && "rec-card--note", unconfirmed && "rec-card--unconfirmed", card.link && "rec-card--linked"];
+  const classes = ["rec-card", note && "rec-card--note", card.link && "rec-card--linked"];
   return (
     <article
       id={`rec-${card.id}`}
@@ -57,10 +58,9 @@ export function RecCard({ card }: { card: RecCardData }) {
         {subline && <p className="rec-sub">{subline}</p>}
         {card.why && <p className="rec-why">“{card.why}”</p>}
         <TriedTag card={card} />
+        {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
           {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
-          {/* TODO(M3-T10): Keep / Dismiss buttons go here, wired to app/actions/recs.ts, as separate ≥44px targets. */}
-          {unconfirmed && <span className="rec-unconfirmed">Unconfirmed</span>}
         </div>
       </div>
     </article>

@@ -2,7 +2,7 @@ import type { Rating, RecStatus } from "../types";
 
 // The taste ledger (M4-T5): who gave Tarik tips, and what became of them. Counted live from the tips themselves
 // (the recommenders.recs_* counter columns are never read, so the numbers cannot drift), from exactly the cards the
-// pages show: every tip not dismissed or composted, unconfirmed ones included (decision 024).
+// pages show: the shelf's visibility rule, HIDDEN_TIP_STATUSES in queries.ts (decisions 024, 025: maybes never count).
 
 type LedgerTip = {
   name: string;

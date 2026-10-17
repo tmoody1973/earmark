@@ -1,5 +1,7 @@
 # 024 — The taste ledger counts exactly the tips the shelf shows
 
+> **Update (decision 025, 2026-10-16):** the shelf no longer shows unsure ("needs review") tips, so the ledger no longer counts them either; same rule, one constant (`HIDDEN_TIP_STATUSES`). A person whose only tips are unsure has no page until one is kept.
+
 **Decision:** The People page and each person's page count a person's tips live from the tips themselves, using the same set the shelf shows: every tip that is not dismissed or composted, unconfirmed ones included. "Tried" means marked tried or thanked, or rated at all. "Loved" means rated "Loved it". Tips with no name, and tips wrongly credited to Tarik himself, are one "From someone, not sure who" count, never a person.
 
 **Why this came up:** The ledger's summary line ("4 tips · 2 tried · loved 1") is a claim about real people. If it disagrees with the cards right below it, it reads as made up, and the page's whole promise is that every name and number is real. Three choices had to be made: which tips count, where the numbers come from, and what to do with tips that have no trustworthy name.

@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
+import { firstNameOnly } from "../pipeline/attribution";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
@@ -63,10 +64,18 @@ export type PlantRow = {
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 
-export function toRecCard(r: GardenRecRow): RecCardData {
+type CreditRow = Pick<GardenRecRow, "recommender_id" | "first_name">;
+
+// Read-time guard: the garden's owner is never credited, even if an old row slipped past the write-side check.
+// First name against first name, as the write side compares (attribution.ts), so "Tarik Moody" in the env still matches.
+function credit(r: CreditRow): RecCardData["recommender"] {
   const firstName = r.first_name?.trim();
-  // Read-time guard: the garden's owner is never credited, even if an old row slipped past the write-side check.
-  const isOwnerName = !!firstName && firstName.toLowerCase() === ownerFirstName()?.toLowerCase();
+  const owner = ownerFirstName();
+  const isOwnerName = !!firstName && !!owner && firstName.toLowerCase() === firstNameOnly(owner).toLowerCase();
+  return r.recommender_id && firstName && !isOwnerName ? { id: Number(r.recommender_id), firstName } : null;
+}
+
+export function toRecCard(r: GardenRecRow): RecCardData {
   return {
     id: Number(r.id),
     type: r.type as RecType,
@@ -76,7 +85,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     yearOrAddress: r.year_or_address,
     imageUrl: cardArtworkUrl(r.image_url, 600),
     why: clampWhy(r.context_summary),
-    recommender: r.recommender_id && firstName && !isOwnerName ? { id: Number(r.recommender_id), firstName } : null,
+    recommender: credit(r),
     saidAt: iso(r.said_at)!,
     createdAt: iso(r.created_at ?? r.said_at)!,
     status: r.status as RecStatus,
@@ -104,18 +113,59 @@ export function toPlant(r: PlantRow): PlantView {
   };
 }
 
+/**
+ * The one visibility rule for tips (decision 025): the shelf, the taste ledger and a person's page all hide these.
+ * needs_review tips (Earmark wasn't sure) live only in the Maybe? row until Tarik keeps or clears them.
+ */
+export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
+
 // Explicit column lists on purpose: raw_text and excerpts never reach the shelf through this path.
-// Unconfirmed (needs_review) tips stay visible: the card marks them (decision 021).
 export async function getShelf(): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.status not in ('dismissed','composted')
+    where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
     order by r.said_at desc
     limit 60`) as GardenRecRow[];
   return recs.map(toRecCard);
+}
+
+// ---- the Maybe? pile (decision 025) ----
+
+export const MAYBE_MAX = 12;
+export interface MaybePile {
+  tips: RecCardData[];
+  /** How many more maybes wait beyond these. */
+  more: number;
+}
+
+// Review-band tips (Jev 0.6–0.9 sure; about 1 in 5 is real), newest first. Same columns as the shelf.
+export async function getMaybeTips(): Promise<MaybePile> {
+  const rows = (await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      p.id as recommender_id, p.first_name, count(*) over () as total
+    from recommendations r left join recommenders p on p.id = r.recommender_id
+    where r.status = 'needs_review'
+    order by r.said_at desc, r.id desc
+    limit ${MAYBE_MAX}`) as Array<GardenRecRow & { total: number | string }>;
+  return { tips: rows.map(toRecCard), more: rows.length ? Number(rows[0].total) - rows.length : 0 };
+}
+
+export type TipVerdict = "kept" | "not_a_tip";
+const VERDICT_STATUS: Record<TipVerdict, RecStatus> = { kept: "new", not_a_tip: "dismissed" };
+
+/** Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. */
+export async function setTipVerdict(id: number, verdict: TipVerdict): Promise<boolean> {
+  if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
+  const rows = await db()`
+    update recommendations set status = ${VERDICT_STATUS[verdict]}, user_verdict = ${verdict}, user_verdict_at = now(),
+      updated_at = now()
+    where id = ${id} and status = 'needs_review'
+    returning id`;
+  return rows.length > 0;
 }
 
 // Every idea still growing (dismissed ones live only on their own page), in garden order.
@@ -221,18 +271,23 @@ export async function markIdeaViewed(id: number): Promise<void> {
 
 // ---- the taste ledger (M4-T5) ----
 
-// Every visible tip, carded (so toRecCard's owner guard applies), then counted in ledger.ts. Same columns as the
-// shelf: raw_text and excerpts never reach these pages.
+type LedgerRow = CreditRow & Pick<GardenRecRow, "canonical_name" | "said_at" | "status" | "rating">;
+
+// Every visible tip (the shelf's rule), only the columns ledger.ts counts; credit() applies the owner guard.
 // ponytail: reads every visible tip (no limit) to count them; fine into the low thousands, move the counting into
 // SQL (group by recommender) if the shelf ever outgrows that.
 export async function getTasteLedger(): Promise<TasteLedger> {
   const recs = (await db()`
-    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
-      p.id as recommender_id, p.first_name
+    select r.canonical_name, r.said_at, r.status, r.rating, p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.status not in ('dismissed','composted')`) as GardenRecRow[];
-  return buildLedger(recs.map(toRecCard));
+    where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])`) as LedgerRow[];
+  return buildLedger(recs.map((r) => ({
+    name: r.canonical_name,
+    saidAt: iso(r.said_at)!,
+    status: r.status as RecStatus,
+    rating: r.rating as Rating | null,
+    recommender: credit(r),
+  })));
 }
 
 export interface RecommenderPage { person: LedgerPerson; recs: RecCardData[] }
@@ -245,7 +300,7 @@ export async function getRecommenderPage(id: number): Promise<RecommenderPage | 
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
       p.id as recommender_id, p.first_name
     from recommendations r join recommenders p on p.id = r.recommender_id
-    where r.recommender_id = ${id} and r.status not in ('dismissed','composted')
+    where r.recommender_id = ${id} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
     order by r.said_at desc, r.id desc`) as GardenRecRow[]).map(toRecCard);
   const [person] = buildLedger(recs).people;
   return person ? { person, recs } : null;

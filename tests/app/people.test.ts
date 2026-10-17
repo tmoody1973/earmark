@@ -15,7 +15,7 @@ vi.mock("../../agent/lib/garden/queries", () => ({
 
 import { auth } from "@clerk/nextjs/server";
 import { getRecommenderPage, getTasteLedger } from "../../agent/lib/garden/queries";
-import PersonPage from "../../app/people/[id]/page";
+import PersonPage, { generateMetadata } from "../../app/people/[id]/page";
 import PeoplePage from "../../app/people/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
@@ -64,5 +64,24 @@ describe("people pages owner guard", () => {
     const tree = JSON.stringify(await PeoplePage());
     expect(tree).toContain("No one here yet");
     expect(tree).toContain('"count":2');
+  });
+});
+
+describe("person page tab title", () => {
+  const ann = { id: 3, firstName: "Ann", given: 1, tried: 0, loved: 0, lastTipAt: "2026-10-15T00:00:00.000Z", latest: "Promises" };
+
+  it("is the person's first name for the owner", async () => {
+    signedInAs("user_owner");
+    vi.mocked(getRecommenderPage).mockResolvedValueOnce({ person: ann, recs: [] });
+    expect((await generateMetadata(params("3"))).title).toBe("Ann · Earmark");
+  });
+
+  it("never names anyone to a stranger or for a missing person", async () => {
+    signedInAs("user_stranger");
+    expect((await generateMetadata(params("3"))).title).toBe("Person · Earmark");
+    expect(getRecommenderPage).not.toHaveBeenCalled();
+    signedInAs("user_owner");
+    expect((await generateMetadata(params("abc"))).title).toBe("Person · Earmark");
+    expect((await generateMetadata(params("42"))).title).toBe("Person · Earmark");
   });
 });

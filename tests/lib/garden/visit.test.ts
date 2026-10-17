@@ -93,4 +93,9 @@ describe("newSince", () => {
     expect(chips.map((c) => c.key)).toEqual(["idea-8"]);
     expect(chips[0]!.meta).toBe("Bloomed · 4 mentions");
   });
+
+  it("never lists a maybe (needs_review): it waits in the Maybe? row, not the New row (decision 025)", () => {
+    const chips = newSince(since, [card(5, { createdAt: "2026-10-20T11:00:00.000Z", status: "needs_review" })], []);
+    expect(chips).toEqual([]);
+  });
 });
