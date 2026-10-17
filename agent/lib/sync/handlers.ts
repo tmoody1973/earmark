@@ -1,10 +1,23 @@
-import { BeeApiError, createBeeClient } from "../bee/client";
+import { BeeApiError, createBeeClient, type Todo } from "../bee/client";
 import { db } from "../db";
+import { handleReceiptTodoChange } from "../recs/receipts";
 
 // Bee todo/fact changes arrive here from /v1/changes. M3 (todo two-way sync) replaces the todo body; keep the
 // signatures. Handlers must be idempotent: a failed batch is replayed.
 export async function handleTodoChange(id: number): Promise<void> {
-  void id;
+  // TEMP (lane C, M5-T6): M3-T8 moves this into TODO_CHANGE_HANDLERS as { entityType: "rec_receipt", run: handleReceiptTodoChange }
+  const [sync] = (await db()`select entity_type, entity_id from bee_sync where bee_object = 'todo' and bee_id = ${id}`) as {
+    entity_type: string; entity_id: number | string;
+  }[];
+  if (sync?.entity_type !== "rec_receipt") return;
+  let todo: Todo | null;
+  try {
+    todo = await createBeeClient().getTodo(id);
+  } catch (err) {
+    if (!(err instanceof BeeApiError && err.status === 404)) throw err;
+    todo = null;
+  }
+  await handleReceiptTodoChange(Number(sync.entity_id), todo);
 }
 
 // FR-19 mirror: the owner confirms a proposed fact in Bee → 'confirmed'; deletes it (Bee answers 404) → 'rejected'.

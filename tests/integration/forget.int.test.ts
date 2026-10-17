@@ -82,6 +82,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
 
   afterAll(async () => {
     await c.query(`delete from bee_sync where entity_type = 'place_nudge' and bee_id = $1`, [beeId(9)]);
+    await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and bee_id = any($1::bigint[])`, [[beeId(5), beeId(6)]]);
     await c.query(`delete from recommendations where id = any($1::bigint[])`, [recIds]);
     await c.query(`delete from idea_clusters where id = any($1::bigint[])`, [clusterIds]);
     await c.query(`delete from spaces where id = any($1::bigint[])`, [spaceIds]);
@@ -432,17 +433,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const otherNudge = Number((await one(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, date '2026-10-18', $2) returning id`, [otherRec, beeId(9)])).id);
     await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [otherNudge, beeId(9)]);
     const nudgeIds = [await nudge("2026-10-18", beeId(7)), await nudge("2026-10-19", beeId(8))];
+    // a loved rec's thank-you receipt with its Bee reminder (M5-T6), and a negative control on another rec
+    const receipt = async (recId: number, bee: number) => {
+      const rid = Number((await one(
+        `insert into rec_receipts (recommendation_id, message, share_token, bee_todo_id) values ($1, 'it-forget thanks', $2, $3) returning id`,
+        [recId, `it-forget-${RUN}-${bee}`, bee])).id);
+      await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('rec_receipt', $1, 'todo', $2)`, [rid, bee]);
+      return rid;
+    };
+    const otherReceipt = await receipt(otherRec, beeId(5));
+    const receiptId = await receipt(id, beeId(6));
 
     const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
     expect(r.lines).toContain(`hook place_nudges: place_nudges 2 (bee todos ${beeId(7)}, ${beeId(8)})`);
-    expect(beeDel.mock.calls).toEqual([[beeId(7)], [beeId(8)]]);
+    expect(r.lines).toContain(`hook rec_receipts: rec_receipts 1 (bee todos ${beeId(6)})`);
+    expect(beeDel.mock.calls).toEqual([[beeId(7)], [beeId(8)], [beeId(6)]]);
+    expect(await count(`bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [receiptId])).toBe(0);
+    expect(await count(`bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [otherReceipt])).toBe(1);
     expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = any($1::bigint[])`, [nudgeIds])).toBe(0);
     expect(beeDel.mock.calls.flat()).not.toContain(beeId(9));
+    expect(beeDel.mock.calls.flat()).not.toContain(beeId(5));
     expect(await count(`place_nudges where id = $1`, [otherNudge])).toBe(1);
     expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge])).toBe(1);
     // clean up now: a lingering pending rec would be picked up by the enrichment int test sweeping the shared test DB
     await c.query(`delete from bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge]);
-    await c.query(`delete from recommendations where id = $1`, [otherRec]);
+    await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [otherReceipt]);
+    await c.query(`delete from recommendations where id = $1`, [otherRec]); // its receipt cascades
     expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
     expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
     expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);

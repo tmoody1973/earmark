@@ -176,6 +176,8 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
         method: "POST",
         body: JSON.stringify(input.alarmAt ? { text: input.text, alarm_at: input.alarmAt } : { text: input.text }),
       }),
+    // M5-T6: one todo, for the receipt check-off. A 404 (deleted in Bee) surfaces as BeeApiError.status.
+    getTodo: (id: number) => call(`/v1/todos/${id}`, TodoSchema),
     updateTodo: async (id: number, patch: { text?: string; completed?: boolean }): Promise<void> => {
       await call(`/v1/todos/${id}`, z.unknown(), { method: "PUT", body: JSON.stringify(patch) });
     },
