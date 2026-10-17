@@ -100,6 +100,13 @@ describe("handleSongCapture", () => {
     expect(d.save.mock.calls[0]![1]).toEqual({ recentDuplicateMs: 600_000 });
     expect(d.afterCreated).toHaveBeenCalledWith(77);
   });
+  it("hands the rec-lane work to the injected defer (route passes Next's after)", async () => {
+    const { afterCreated: _drop, ...d } = deps();
+    const defer = vi.fn();
+    expect((await handleSongCapture(post(good), d as never, defer)).status).toBe(201);
+    expect(defer).toHaveBeenCalledTimes(1);
+    expect(typeof defer.mock.calls[0][0]).toBe("function");
+  });
   it("prefers an explicit apple_music_id over the one parsed from the URL", async () => {
     const d = deps();
     await handleSongCapture(post({ ...good, apple_music_id: "42" }), d as never);

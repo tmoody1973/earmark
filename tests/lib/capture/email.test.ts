@@ -175,6 +175,13 @@ describe("handleInboundEmail", () => {
     expect(d.finish).toHaveBeenCalledWith("e1", "saved", 61);
     expect(d.afterCreated).toHaveBeenCalledWith(61);
   });
+  it("hands the rec-lane work to the injected defer (route passes Next's after)", async () => {
+    const { afterCreated: _drop, ...d } = deps();
+    const defer = vi.fn();
+    expect((await handleInboundEmail(req(), d as never, defer)).status).toBe(201);
+    expect(defer).toHaveBeenCalledTimes(1);
+    expect(typeof defer.mock.calls[0][0]).toBe("function");
+  });
   it("never credits the owner as the recommender", async () => {
     const text = GMAIL_FORWARD.replace("Ann Smith <ann@example.com>", "Tarik Moody <owner@example.org>");
     const d = deps({ fetchEmail: vi.fn(async () => ({ ...EMAIL, text })) });

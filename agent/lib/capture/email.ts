@@ -1,11 +1,10 @@
-import { after } from "next/server";
 import { Resend } from "resend";
 import { getEnv, ownerFirstName } from "../env";
 import { firstNameOnly, validNameFor } from "../pipeline/attribution";
 import { extractRecommendation } from "../pipeline/extract";
 import { triageWindow } from "../pipeline/triage";
 import type { AttributionSource, RecType, TriageResult } from "../types";
-import { afterCaptureSaved } from "./after-save";
+import { afterCaptureSaved, deferOrRun, type Defer } from "./after-save";
 import { claimEmail, finishEmail, releaseEmail, type EmailOutcome } from "./email-claims";
 import { saveCaptureRec } from "./save";
 
@@ -49,7 +48,7 @@ class ResendFetchError extends Error {
   override name = "ResendFetchError";
 }
 
-function defaultDeps(cfg: { apiKey: string; secret: string }): EmailDeps {
+function defaultDeps(cfg: { apiKey: string; secret: string }, defer?: Defer): EmailDeps {
   const resend = new Resend(cfg.apiKey);
   return {
     verify: (raw, headers) => resend.webhooks.verify({ payload: raw, headers, webhookSecret: cfg.secret }) as ReturnType<EmailDeps["verify"]>,
@@ -65,7 +64,7 @@ function defaultDeps(cfg: { apiKey: string; secret: string }): EmailDeps {
     triage: (text) => triageWindow(text),
     extract: extractRecommendation,
     save: saveCaptureRec,
-    afterCreated: (recId) => after(() => afterCaptureSaved(recId)),
+    afterCreated: (recId) => deferOrRun(defer, () => afterCaptureSaved(recId)),
   };
 }
 
@@ -151,10 +150,10 @@ async function processEmail(emailId: string, ownerEmail: string, deps: EmailDeps
   return { outcome: saved.duplicate ? "duplicate" : "saved", id: saved.id, upgraded: saved.upgraded };
 }
 
-export async function handleInboundEmail(req: Request, overrides: Partial<EmailDeps> = {}): Promise<Response> {
+export async function handleInboundEmail(req: Request, overrides: Partial<EmailDeps> = {}, defer?: Defer): Promise<Response> {
   const cfg = emailConfig();
   if (!cfg) return Response.json({ error: "unavailable" }, { status: 503 }); // generic to unsigned callers; the log names the keys
-  const deps = { ...defaultDeps(cfg), ...overrides };
+  const deps = { ...defaultDeps(cfg, defer), ...overrides };
 
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return Response.json({ error: "body too large" }, { status: 413 });
