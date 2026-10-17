@@ -82,11 +82,11 @@ export function Artwork({ card }: { card: RecCardData }) {
 
   if (art.kind === "image") {
     const standing = card.variant === "spine" || card.variant === "poster"; // 2:3 objects stand on the ground
-    const wide = card.variant === "screen"; // 16:9 video thumbnail
+    const [width, height] = standing ? [400, 600] : card.variant === "screen" ? [640, 360] : [600, 600];
     return (
       <div className={`${box}${standing ? " rec-art--stand" : ""}`} style={style}>
         <Img src={art.src} alt={ALT[card.variant](card)} className={standing ? "rec-art-object" : "rec-art-fill"}
-          width={standing ? 400 : wide ? 640 : 600} height={wide ? 360 : 600} fallback={fallback} />
+          width={width} height={height} fallback={fallback} />
       </div>
     );
   }

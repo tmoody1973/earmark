@@ -40,7 +40,6 @@
   background: var(--art-ground);
   container-type: inline-size;
 }
-/* video: a 16:9 thumbnail box */
 .rec-art--screen { aspect-ratio: 16 / 9; }
 .rec-art-fill { display: block; width: 100%; height: 100%; object-fit: cover; }
 .rec-art--stand { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.012 var(--hue)); }
