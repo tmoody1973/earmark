@@ -31,14 +31,17 @@ export function makePollyClient(env = getEnv()): PollyClient {
   return new PollyClient({ region: env.EARMARK_AWS_REGION, credentials: { accessKeyId, secretAccessKey } });
 }
 
-// Per chunk: a 1100-word script is ~3 chunks, so ~75 s worst case, which with script.ts fits the 5-minute claim lease.
-const POLLY_TIMEOUT_MS = 25_000;
+// The weekly episode runs inside a gardener's 5-minute claim lease: script.ts takes up to 3 × 60 s, so Polly gets at
+// most 4 chunks × 20 s (a 1100-word script is ~3 chunks). A longer script is refused rather than overrun the lease.
+const POLLY_TIMEOUT_MS = 20_000;
+export const MAX_POLLY_CHUNKS = 4;
 
 export async function synthesize(
   chunks: string[],
   client: Pick<PollyClient, "send"> = makePollyClient(),
   voice: string = getEnv().POLLY_VOICE,
 ): Promise<Uint8Array> {
+  if (chunks.length > MAX_POLLY_CHUNKS) throw new Error(`Script too long for one episode: ${chunks.length} chunks (max ${MAX_POLLY_CHUNKS})`);
   const parts: Uint8Array[] = [];
   for (const Text of chunks) {
     const res = await client.send(

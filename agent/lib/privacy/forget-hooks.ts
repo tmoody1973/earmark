@@ -1,8 +1,8 @@
 import { del } from "@vercel/blob";
 import type { PoolClient } from "@neondatabase/serverless";
-import type { ForgetHook } from "./forget";
+import type { ForgetHook, ForgetHookContext } from "./forget";
 import { createBeeClient } from "../bee/client";
-import { forgetPersonInEpisodes, forgetPersonInGardenerRuns, forgetPlaceNudges, forgetRecReceipts, type Sql } from "./forget-m5";
+import { describeSweep, findSweep, forgetPlaceNudges, forgetRecReceipts, forgetSweep, type Sql, type SweepScope } from "./forget-m5";
 
 // Forgetters owned by other lanes, run by `pnpm forget --yes` INSIDE the locked Postgres transaction, after the item's
 // rows are deleted and after the Bee/Notion/Blob deletes. Use `ctx.c` (a pg PoolClient: `ctx.c.query(text, values)`) for
@@ -14,18 +14,12 @@ import { forgetPersonInEpisodes, forgetPersonInGardenerRuns, forgetPlaceNudges, 
 // Lane C's functions take a tagged-template `sql`; this one runs it on the forget transaction's client.
 const sqlOver = (c: PoolClient): Sql => async (strings, ...values) =>
   (await c.query(strings.reduce((text, s, i) => `${text}$${i}${s}`), values)).rows as Record<string, unknown>[];
-const ids = (xs: number[]) => (xs.length ? ` (ids ${xs.join(", ")})` : "");
+
+const scope = (ctx: ForgetHookContext): SweepScope => ({ firstName: ctx.recommenderFirstName, savedAt: ctx.savedAt });
 
 // Lane C (M5). Episodes and drafts go by the item's first-save time (any target) and, for a rec, its recommender's name.
-// Order matters: episodes is last because its Blob audio deletes cannot roll back if a later hook threw.
+// Order matters: episodes_and_drafts is last because its Blob audio deletes cannot roll back if a later hook threw.
 export const FORGET_HOOKS: readonly ForgetHook[] = [
-  {
-    name: "gardener_runs",
-    run: async (ctx) => {
-      const { runIds } = await forgetPersonInGardenerRuns(ctx.recommenderFirstName, { sql: sqlOver(ctx.c) }, ctx.savedAt);
-      return `gardener_runs ${runIds.length}${ids(runIds)}`;
-    },
-  },
   {
     name: "place_nudges",
     run: async (ctx) => {
@@ -43,10 +37,14 @@ export const FORGET_HOOKS: readonly ForgetHook[] = [
     },
   },
   {
-    name: "episodes",
+    name: "episodes_and_drafts",
+    // the dry run's warning: this sweep can take recaps that never mention the item
+    preview: async (ctx) => `will also delete ${describeSweep(await findSweep(scope(ctx), sqlOver(ctx.c)))}`,
     run: async (ctx) => {
-      const r = await forgetPersonInEpisodes(ctx.recommenderFirstName, { sql: sqlOver(ctx.c), del: (url) => del(url) }, ctx.savedAt);
-      return `episodes ${r.episodeIds.length}${ids(r.episodeIds)}, audio ${r.audioDeleted}`;
+      const { sweep, audioDeleted } = await forgetSweep(scope(ctx), { sql: sqlOver(ctx.c), del: (url) => del(url) });
+      const list = (xs: { id: number }[]) => xs.map((x) => x.id).join(", ");
+      const ids = sweep.episodes.length || sweep.drafts.length ? ` (episode ids ${list(sweep.episodes)}; draft ids ${list(sweep.drafts)})` : "";
+      return `deleted ${describeSweep(sweep)}; audio ${audioDeleted}${ids}`;
     },
   },
 ];

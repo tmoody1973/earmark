@@ -6,7 +6,7 @@ import { findIssues, ScriptRejectedError, type Reason } from "../episode/guard";
 import { runEpisode } from "../episode/publish";
 import { FIX_TEXT } from "../episode/script";
 import { publishEpisode } from "./decide";
-import { canAttempt, dueSlot, GardenerScheduleSchema } from "./schedule";
+import { canAttempt, dueSlot, GARDENER_LEASE_MS, GardenerScheduleSchema } from "./schedule";
 
 export type Source = "ideas" | "recs" | "recommenders";
 export interface GardenerRow {
@@ -73,7 +73,7 @@ export async function draftCustom(task: string, data: GardenerData, generateImpl
   }
 }
 
-const LEASE_MS = 5 * 60_000; // an attempt this recent is treated as still running: a second claim is refused
+const LEASE_MS = GARDENER_LEASE_MS; // an attempt this recent is treated as still running: a second claim is refused
 
 /** Another run holds the claim, or the gardener is paused. Not a failure. */
 export class NotClaimedError extends Error { override name = "NotClaimedError"; }

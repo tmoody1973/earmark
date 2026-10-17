@@ -418,10 +418,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const who = `${NAME}c`;
     const id = await addRec(await addRecommender(who));
     const week = (RUN % 100_000) * 2; // days after 2300-01-01: unique per run, never a real week
-    const named = await addEpisode(`date '2300-01-01' + ${week}`, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
-    // made before the rec was saved and not naming anyone: the only kind of episode/draft that survives
+    // all made before the rec was saved, so only the recommender-name match can take the named ones
+    const named = await addEpisode(`date '1850-01-01' + ${week % 30_000}`, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
     const other = await addEpisode(`date '1900-01-01' + ${week % 30_000}`, "Nobody named.", `https://blob.test/${RUN}-other.mp3`);
-    const draft = await addRun(`## Pitch\n${who}'s tip.`);
+    const draft = await addRun(`## Pitch\n${who}'s tip.`, "now() - interval '1 day'");
     const keep = await addRun("No one named.", "now() - interval '1 day'");
     blobDel.mockClear();
     beeDel.mockClear();
@@ -464,8 +464,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await c.query(`delete from recommendations where id = $1`, [otherRec]); // its receipt cascades
     expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
     // the window sweep can also take leftover future-dated rows of other runs, so these check membership, not exact lines
-    expect(hookLine(r.lines, "gardener_runs")).toMatch(new RegExp(`\\b${draft}\\b`));
-    expect(hookLine(r.lines, "episodes")).toMatch(new RegExp(`\\b${named}\\b`));
+    expect(hookLine(r.lines, "episodes_and_drafts")).toMatch(new RegExp(`episode ids [\\d, ]*\\b${named}\\b`));
+    expect(hookLine(r.lines, "episodes_and_drafts")).toMatch(new RegExp(`draft ids [\\d, ]*\\b${draft}\\b`));
     expect(r.lines.join("\n")).not.toContain(who);
     expect(blobDel.mock.calls).toContainEqual([`https://blob.test/${RUN}-named.mp3`]);
     expect(blobDel.mock.calls).not.toContainEqual([`https://blob.test/${RUN}-other.mp3`]);
@@ -488,7 +488,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const draftBefore = await addRun("Last week's pitch.", "now() - interval '1 day'");
     blobDel.mockClear();
 
+    // the dry run shows the over-deletion (counts and dates only), and --yes reports the same counts
+    const dry = await forget(c, { type: "idea", id: cid }, { yes: false, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    const preview = hookLine(dry.lines, "episodes_and_drafts").match(/: will also delete (.+)$/)?.[1];
+    expect(preview).toMatch(/^\d+ episodes \(weeks \d{4}-\d\d-\d\d–\d{4}-\d\d-\d\d\) and \d+ drafts?, including [1-9]\d* awaiting approval$/);
+    expect(await count(`episodes where id = any($1::bigint[])`, [[quoted, paraphrased]])).toBe(2); // the dry run deleted nothing
+
     const r = await forget(c, { type: "idea", id: cid }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    expect(hookLine(r.lines, "episodes_and_drafts")).toContain(`: deleted ${preview}; audio `);
     expect(await count(`idea_clusters where id = $1`, [cid])).toBe(0);
     expect(await count(`episodes where id = any($1::bigint[])`, [[quoted, paraphrased]])).toBe(0);
     expect(await count(`episodes where id = $1`, [older])).toBe(1);
@@ -497,6 +504,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(blobDel.mock.calls).toEqual(expect.arrayContaining([[`https://blob.test/${RUN}-idea-q.mp3`], [`https://blob.test/${RUN}-idea-p.mp3`]]));
     expect(blobDel.mock.calls).not.toContainEqual([`https://blob.test/${RUN}-idea-old.mp3`]);
     expect(r.lines.join("\n")).not.toContain("IT forget idea");
+  });
+
+  it("refuses --yes while a gardener or episode run holds its claim, in the outside pass and again under the lock", async () => {
+    const { forget, formatPlan } = await mod();
+    const [g] = (await c.query(`select id, last_attempt_at, last_run_at from gardeners order by id limit 1`)).rows;
+    const claim = () => c.query(`update gardeners set last_attempt_at = now(), last_run_at = null where id = $1`, [g.id]);
+    const release = () => c.query(`update gardeners set last_attempt_at = $2, last_run_at = $3 where id = $1`, [g.id, g.last_attempt_at, g.last_run_at]);
+    try {
+      await claim();
+      const id = await addRec(null);
+      const dry = await forget(c, { type: "rec", id }, { yes: false, deps: fakeDeps() as ExternalDeps });
+      expect(formatPlan(dry.plan).join("\n")).toContain("a gardener run is in progress");
+      const d = fakeDeps();
+      await expect(forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps }))
+        .rejects.toMatchObject({ name: "ForgetGardenerInFlightError", message: "a gardener run is in progress, retry in a few minutes" });
+      expect(await count(`recommendations where id = $1`, [id])).toBe(1);
+
+      // a run that claims after the outside pass (here: during the outside Bee delete) is caught under the lock
+      await release();
+      const late = await addRec(null, { beeTodoId: beeId(3) });
+      const d2 = fakeDeps();
+      d2.deleteTodo.mockImplementation(async () => { await claim(); });
+      await expect(forget(c, { type: "rec", id: late }, { yes: true, deps: d2 as ExternalDeps })).rejects.toMatchObject({ name: "ForgetGardenerInFlightError" });
+      expect(d2.deleteTodo).toHaveBeenCalledTimes(1);
+      expect(await count(`recommendations where id = $1`, [late])).toBe(1);
+
+      // a finished run (last_run_at stamped with its claim time) does not block
+      await c.query(`update gardeners set last_run_at = last_attempt_at where id = $1`, [g.id]);
+      await forget(c, { type: "rec", id: late }, { yes: true, deps: fakeDeps() as ExternalDeps });
+      expect(await count(`recommendations where id = $1`, [late])).toBe(0);
+    } finally {
+      await release();
+    }
   });
 
   // Merges (M4-T6, decision 027): a forget that touches a merge ends its undo, and leaves no text behind anywhere.
