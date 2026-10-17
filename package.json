@@ -17,6 +17,7 @@
     "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test"
   },
   "dependencies": {
+    "@aws-sdk/client-polly": "3.1152.0",
     "@clerk/nextjs": "7.9.16",
     "@neondatabase/serverless": "1.2.0",
     "@vercel/blob": "2.8.2",
