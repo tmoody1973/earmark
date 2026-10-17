@@ -88,6 +88,20 @@ describe("garden queries", () => {
     expect(h.mock.calls[0].text).not.toContain("idea_clusters");
   });
 
+  it("a Bee todo's link (?rec=<id>) always shows its tip: one extra query adds it when past the newest 60", async () => {
+    h.mock.queue.push([recRow], [{ ...recRow, id: 99, canonical_name: "Old one" }]);
+    const shelf = await getShelf(99);
+    expect(shelf.map((c) => c.id)).toEqual([7, 99]);
+    expect(h.mock.calls).toHaveLength(2);
+    expect(h.mock.calls[1].values).toContain(99);
+    expect(h.mock.calls[1].text).toContain("<> all("); // a hidden (dismissed/composted) tip stays hidden
+
+    h.mock = makeMockDb();
+    h.mock.queue.push([recRow]);
+    expect((await getShelf(7)).map((c) => c.id)).toEqual([7]);
+    expect(h.mock.calls).toHaveLength(1);
+  });
+
   it("marks a plant unconfirmed and carries its newest line by date", () => {
     const plant = toPlant({
       id: 2, title: "Station crates", stage: "sprouting", mention_count: 2, last_mentioned_at: null, pinned: false,

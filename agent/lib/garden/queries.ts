@@ -121,7 +121,9 @@ export function toPlant(r: PlantRow): PlantView {
 export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
 
 // Explicit column lists on purpose: raw_text and excerpts never reach the shelf through this path.
-export async function getShelf(): Promise<RecCardData[]> {
+// focusRecId: a Bee todo's link (/shelf?rec=<id>, M3-T7) names one tip; it is added after the newest 60 when older,
+// unless it is hidden (dismissed/composted), so the link always lands on its card.
+export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
@@ -130,7 +132,14 @@ export async function getShelf(): Promise<RecCardData[]> {
     where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
     order by r.said_at desc
     limit 60`) as GardenRecRow[];
-  return recs.map(toRecCard);
+  if (focusRecId === undefined || recs.some((r) => Number(r.id) === focusRecId)) return recs.map(toRecCard);
+  const focus = (await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      p.id as recommender_id, p.first_name
+    from recommendations r left join recommenders p on p.id = r.recommender_id
+    where r.id = ${focusRecId} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])`) as GardenRecRow[];
+  return [...recs, ...focus].map(toRecCard);
 }
 
 // ---- the Maybe? pile (decision 025) ----
