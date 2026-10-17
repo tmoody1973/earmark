@@ -41,3 +41,6 @@
 .r-link { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
 .r-link p { margin: 0; }
 .r-url { font-size: 0.9375rem; word-break: break-all; }
+
+/* Phone tap targets (M5-T15): the back link and the shared URL link are at least 44px tall. */
+.receipts > p:first-child a, .r-url a { display: inline-flex; align-items: center; min-height: 44px; }
