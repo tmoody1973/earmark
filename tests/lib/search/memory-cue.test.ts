@@ -95,4 +95,24 @@ describe("searchEarmarks", () => {
     const select = h.mock.calls[0].text.split("from recommendations")[0];
     expect(select).not.toMatch(/raw_text|excerpt/);
   });
+
+  it("clamps who / where / query lengths for every caller (trim, then slice)", async () => {
+    await searchEarmarks({ who: `  ${"a".repeat(60)}  `, where: "b".repeat(200), query: "c".repeat(500) }, { useNeural: false });
+    const { values } = h.mock.calls[0];
+    expect(values).toContain("a".repeat(40));
+    expect(values).toContain(`%${"b".repeat(80)}%`);
+    expect(values).toContain(`%${"c".repeat(120)}%`);
+    expect(values.some((v) => typeof v === "string" && v.length > 130)).toBe(false);
+  });
+
+  it("filters a coordinate where-cue by distance in code and skips ideas (they have no coordinates)", async () => {
+    const near = { ...recRow, id: 1, lat: 43.0401, lng: -87.9101 };
+    const far = { ...recRow, id: 2, lat: 41.88, lng: -87.63 }; // Chicago
+    const unplaced = { ...recRow, id: 3, lat: null, lng: null };
+    h.mock.queue.push([far, near, unplaced]);
+    const out = await searchEarmarks({ where: { lat: 43.04, lng: -87.91, radiusM: 500 } }, { useNeural: false });
+    expect(out.recs.map((r) => r.id)).toEqual([1]);
+    expect(out.ideas).toEqual([]);
+    expect(h.mock.calls).toHaveLength(1);
+  });
 });
