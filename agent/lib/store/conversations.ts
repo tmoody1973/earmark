@@ -67,6 +67,35 @@ export async function savedDeliberateKeys(id: number): Promise<Map<string, strin
   return new Map(rows.map((r) => [r.deliberate_key as string, (r.canonical_name as string | null) ?? null]));
 }
 
+// deliberate: a voice note, or an "Earmark that" said in a conversation (deliberate_key set); false for ambient.
+export interface SavedRec { id: number; name: string; type: string; firstName: string | null; saidAt: Date; deliberate: boolean }
+
+// Recs saved from voice notes ("journal") or from conversations ("conversation") said between from and to, any status
+// (a dismissed rec is still the item that moment produced), in said_at, id order. For the one-earmark-per-moment check
+// (M2-T14). One-to-one: a rec that another voice note's claim already points at (it repeated that rec) is left out.
+export async function recsSaidBetween(from: Date, to: Date, origin: "journal" | "conversation"): Promise<SavedRec[]> {
+  const rows = await db()`select r.id, r.canonical_name, r.type, rc.first_name, r.said_at,
+                                 (r.bee_journal_id is not null or r.deliberate_key is not null) as deliberate
+                          from recommendations r left join recommenders rc on rc.id = r.recommender_id
+                          where r.said_at between ${from} and ${to}
+                            and (case when ${origin}::text = 'journal' then r.bee_journal_id is not null
+                                      else r.bee_conversation_id is not null end)
+                            and not exists (select 1 from processed_journals pj
+                                            where pj.item_type = 'rec' and pj.item_id = r.id
+                                              and pj.bee_journal_id is distinct from r.bee_journal_id)
+                          order by r.said_at, r.id`;
+  return rows.map((r) => ({
+    id: Number(r.id), name: r.canonical_name as string, type: r.type as string,
+    firstName: (r.first_name as string | null) ?? null, saidAt: new Date(r.said_at as string), deliberate: Boolean(r.deliberate),
+  }));
+}
+
+// A voice note that repeats an item already saved from a conversation: the claim finishes pointing at that rec, and
+// nothing new is stored.
+export async function finishJournalAs(id: string, recId: number): Promise<void> {
+  await db()`update processed_journals set item_type = 'rec', item_id = ${recId}, done = true where bee_journal_id = ${id}`;
+}
+
 // Undo a claim when the run failed after claiming, so the backfill can retry. Guarded: a slow run that outlived its
 // lease must not delete a newer runner's finished (done) claim.
 export async function releaseConversation(id: number): Promise<void> {

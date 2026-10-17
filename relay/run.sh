@@ -18,9 +18,14 @@ export EARMARK_RELAY_URL="${EARMARK_RELAY_URL:-http://localhost:2000/api/bee/eve
 TYPES="new-utterance,new-conversation,update-conversation,update-conversation-summary,delete-conversation,update-location,todo-created,todo-updated,todo-deleted,journal-created,journal-updated,journal-deleted,journal-text"
 
 trap 'echo "[relay] stopped"; exit 0' INT TERM
+# Backoff: 3 s doubling to a 60 s cap; a run that lasted >= 60 s was healthy, so the delay resets.
+delay=3
 while true; do
   echo "[relay] streaming to ${EARMARK_RELAY_URL%%\?*}"
+  started=$SECONDS
   bee stream --json --types "$TYPES" | node relay/forward.ts || true
-  echo "[relay] stream ended, restarting"
-  sleep 3
+  if [ $((SECONDS - started)) -ge 60 ]; then delay=3; fi
+  echo "[relay] stream ended, restarting in ${delay}s"
+  sleep "$delay"
+  delay=$((delay * 2 > 60 ? 60 : delay * 2))
 done
