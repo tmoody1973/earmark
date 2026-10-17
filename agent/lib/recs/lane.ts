@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { createBeeClient } from "../bee/client";
 import { db } from "../db";
+import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
 import { pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
@@ -32,6 +33,8 @@ export const MAX_SUMMARIES_PER_RUN = 10;
 export const MAX_SUMMARY_FAILURES_IN_A_ROW = 3; // the gateway is down: stop asking until the next run
 export const MAX_SUMMARY_ATTEMPTS = 3; // a tip whose call fails 3 times is done: summarized_at set, why null
 export const MAX_EMBEDS_PER_RUN = 20;
+// M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary), once per tip (about_at).
+export const MAX_ABOUTS_PER_RUN = 10;
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
@@ -59,7 +62,7 @@ export function reviewReasonFor(rec: {
 export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
-      jevCalls: number; artFixed: number; summarized: number; summaryFailed: number; embedded: number;
+      jevCalls: number; artFixed: number; abouts: number; summarized: number; summaryFailed: number; embedded: number;
       stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
@@ -70,6 +73,7 @@ export interface SweepDeps {
   summarize: (input: SummaryInput) => Promise<string | null>;
   beeSummary: (conversationId: number) => Promise<string | null>;
   embedRecs: (limit: number) => Promise<number>;
+  about: (rec: AboutRec) => Promise<About | null>;
   env: Record<string, string | undefined>;
   budgetMs: number;
   onlyIds: readonly number[] | null; // tests: scope the sweep to their own rows
@@ -86,7 +90,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
-    embedRecs: (limit) => ensureRecEmbeddings(limit),
+    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -120,7 +124,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     order by enrich_next_at, id
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number })[];
 
-  const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0,
+  const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0,
     summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
   const countedPick: typeof pickMatch = (input, candidates, opts) => {
     if (candidates.length > 0) r.jevCalls++;
@@ -167,6 +171,13 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     await applyReviewReason(id);
   }
   if (!overBudget()) await retryArt(d, r);
+  if (!overBudget()) {
+    try {
+      await writeAbouts(d, r, overBudget);
+    } catch (err) {
+      logEnrichError("rec-lane abouts", {}, err); // the why and embed steps below still run
+    }
+  }
   if (!overBudget()) {
     try {
       await writeWhys(d, r, overBudget);
@@ -222,6 +233,33 @@ async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Prom
         where id = ${id} and summarized_at is null`;
       failuresInARow++;
     }
+  }
+}
+
+// The Wikipedia note (M3-T4b, decision 017): matched, visible tips (maybes too), each looked up once, newest first.
+// One try: found, unsure or failed, about_at is set and the tip is never asked again. A 503/429 stops this step for
+// the run and leaves the rest for the next one. No model call.
+async function writeAbouts(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
+  const rows = (await db()`
+    select id, type, canonical_name, creator from recommendations
+    where enrichment_status = 'matched' and about_at is null and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+      and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
+    order by id desc limit ${MAX_ABOUTS_PER_RUN}`) as (AboutRec & { id: number | string })[];
+  for (const row of rows) {
+    if (overBudget()) break;
+    const id = Number(row.id);
+    let about: About | null = null;
+    let busy = false;
+    try {
+      about = await d.about({ type: row.type, canonical_name: row.canonical_name, creator: row.creator });
+    } catch (err) {
+      logEnrichError("rec-lane about", { rec: id }, err);
+      busy = isBackOffSignal(err);
+    }
+    await db()`update recommendations set about = ${about?.text ?? null}, about_url = ${about?.url ?? null}, about_at = now()
+      where id = ${id} and about_at is null`;
+    if (about) r.abouts++;
+    if (busy) break;
   }
 }
 

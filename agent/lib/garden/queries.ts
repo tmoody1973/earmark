@@ -21,6 +21,8 @@ export interface RecCardData {
   imageUrl: string | null;
   /** The context summary, clamped to 30 words; null when there is none. */
   why: string | null;
+  /** One Wikipedia sentence on the subject (M3-T4b): "what" text, never part of the why. */
+  about: { text: string; url: string } | null;
   recommender: { id: number; firstName: string } | null;
   saidAt: string;
   /** When Earmark caught it: the "New since last time" row compares this, not when it was said. */
@@ -56,6 +58,7 @@ export type GardenRecRow = {
   said_at: Date | string; created_at?: Date | string; status: string; rating: string | null;
   lat: number | null; lng: number | null; links: unknown;
   recommender_id: number | null; first_name: string | null;
+  about?: string | null; about_url?: string | null; // only the shelf selects these
 };
 
 export type PlantRow = {
@@ -86,6 +89,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     yearOrAddress: r.year_or_address,
     imageUrl: cardArtworkUrl(r.image_url, 600),
     why: clampWhy(r.context_summary),
+    about: r.about && r.about_url?.startsWith("https://en.wikipedia.org/wiki/") ? { text: r.about, url: r.about_url } : null, // "" → null too
     recommender: credit(r),
     saidAt: iso(r.said_at)!,
     createdAt: iso(r.created_at ?? r.said_at)!,
@@ -123,7 +127,7 @@ export { HIDDEN_TIP_STATUSES };
 export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
@@ -132,7 +136,7 @@ export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   if (focusRecId === undefined || recs.some((r) => Number(r.id) === focusRecId)) return recs.map(toRecCard);
   const focus = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.id = ${focusRecId} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])`) as GardenRecRow[];

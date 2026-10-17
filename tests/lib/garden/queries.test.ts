@@ -53,6 +53,17 @@ describe("garden queries", () => {
     expect(toRecCard({ ...recRow, context_summary: null }).why).toBeNull();
   });
 
+  it("carries the Wikipedia note apart from the why, only with a Wikipedia https source (M3-T4b)", () => {
+    const about = { about: "Floating Points is an English electronic musician.", about_url: "https://en.wikipedia.org/wiki/Floating_Points" };
+    const card = toRecCard({ ...recRow, ...about });
+    expect(card.about).toEqual({ text: about.about, url: about.about_url });
+    expect(card.why).toBe("play it loud"); // never mixed into the why
+    expect(toRecCard(recRow).about).toBeNull(); // a query that doesn't select it
+    expect(toRecCard({ ...recRow, about: null, about_url: null }).about).toBeNull();
+    expect(toRecCard({ ...recRow, ...about, about_url: "javascript:alert(1)" }).about).toBeNull();
+    expect(toRecCard({ ...recRow, ...about, about_url: "https://evil.example/wiki/x" }).about).toBeNull();
+  });
+
   it("maps a cluster row to a plant with level and flag", () => {
     const plant = toPlant({
       id: 1, title: "AI in public radio", stage: "ready", mention_count: 3,
