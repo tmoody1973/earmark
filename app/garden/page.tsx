@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isOwner } from "@/agent/lib/owner";
 import { getPlants } from "@/agent/lib/garden/queries";
@@ -22,6 +23,7 @@ export default async function GardenPage() {
       <main className="garden" id="ideas">
         <header className="garden-head">
           <h1>Ideas</h1>
+          <span className="garden-head-links"><Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link></span>
         </header>
         <section className="zone" aria-labelledby="all-ideas-h">
           <h2 id="all-ideas-h" className="visually-hidden">Every idea</h2>

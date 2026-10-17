@@ -26,14 +26,20 @@
     "eval:tune": "tsx scripts/eval-tune.ts"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "2.0.78",
+    "@aws-sdk/client-polly": "3.1152.0",
     "@clerk/nextjs": "7.9.16",
+    "@modelcontextprotocol/server": "2.3.1",
     "@neondatabase/serverless": "1.2.0",
     "@vercel/blob": "2.8.2",
     "ai": "7.0.142",
     "eve": "0.80.0",
+    "jose": "6.2.12",
+    "mcp-handler": "2.3.0",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "resend": "6.33.0",
     "zod": "4.5.4"
   },
   "devDependencies": {

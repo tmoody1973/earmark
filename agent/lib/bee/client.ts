@@ -112,6 +112,11 @@ export const KeywordSearchSchema = z.object({
   timezone: z.string().optional(),
 });
 const FactSchema = z.object({ id: z.number(), text: z.string(), tags: z.array(z.string()).default([]), created_at: Timestamp, confirmed: z.boolean() });
+// GET/POST of one fact: the object may be top level or wrapped in `fact` (unverified live), so both are accepted.
+const FactWrittenSchema = FactSchema.pick({ id: true, text: true, confirmed: true });
+// createFact needs only the id: Bee has already made the fact by the time we parse, so an unexpected extra/missing field must not throw.
+const CreatedFactSchema = z.union([z.object({ fact: z.object({ id: z.number() }).passthrough() }).transform((b) => b.fact), z.object({ id: z.number() }).passthrough()]);
+const SingleFactSchema = z.union([z.object({ fact: FactWrittenSchema }).transform((b) => b.fact), FactWrittenSchema]);
 export type NeuralSearchResult = z.infer<typeof NeuralSearchSchema>;
 export type KeywordSearchResult = z.infer<typeof KeywordSearchSchema>;
 export type BeeFact = z.infer<typeof FactSchema>;
@@ -184,6 +189,9 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
       call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
     listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
       call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
+    getFact: (id: number) => call(`/v1/facts/${id}`, SingleFactSchema),
+    // Bee creates every new fact unconfirmed; the owner confirms or deletes it in the Bee app.
+    createFact: (text: string) => call("/v1/facts", CreatedFactSchema, { method: "POST", body: JSON.stringify({ text }) }),
     // pnpm forget (M3-T11). A 404 surfaces as BeeApiError.status, which forget counts as already gone.
     deleteTodo: async (id: number): Promise<void> => { await call(`/v1/todos/${id}`, z.unknown(), { method: "DELETE" }); },
     deleteFact: async (id: number): Promise<void> => { await call(`/v1/facts/${id}`, z.unknown(), { method: "DELETE" }); },
