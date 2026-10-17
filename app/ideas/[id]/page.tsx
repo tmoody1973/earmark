@@ -50,7 +50,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
 
   return (
     <main className={`idea-page${dismissed ? " idea-page--dismissed" : ""}`} id="idea">
-      <Link href="/" className="idea-back">
+      <Link href="/garden" className="idea-back">
         <Icon name="back" size={20} />
         Garden
       </Link>

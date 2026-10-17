@@ -53,6 +53,7 @@
 .space-head h1 { outline-offset: 4px; }
 .space-head .space-sentence { margin-top: 0.375rem; color: var(--ink-2); max-width: 40rem; }
 .space-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.space-tools a.link-btn { text-decoration: none; } /* Publish is a link, but it sits with Rename and Delete as their peer */
 .space-rename { display: grid; gap: 0; max-width: 32rem; margin-top: 1rem; }
 .space-rename input { flex: none; width: 100%; }
 .space-confirm { max-width: 32rem; margin-top: 1rem; padding: 0.875rem 1rem; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-card); }
@@ -61,8 +62,8 @@
 .link-btn.space-btn--danger { color: var(--space-error); border-color: currentColor; font-weight: 600; }
 .link-btn.space-btn--danger:hover { color: var(--surface); background: var(--space-error); border-color: var(--space-error); }
 
-.space-sorting { display: flex; align-items: center; gap: 0.625rem; margin: 1.5rem 0 0; font-size: 0.9375rem; color: var(--ink-2); }
-.space-sorting-dot { flex: none; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--sage-ink); animation: space-sorting 1.6s var(--ease-out) infinite alternate; }
+.space-sorting { display: flex; align-items: flex-start; gap: 0.625rem; margin: 1.5rem 0 0; font-size: 0.9375rem; color: var(--ink-2); }
+.space-sorting-dot { flex: none; margin-top: calc(0.775em - 0.25rem); width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--sage-ink); animation: space-sorting 1.6s var(--ease-out) infinite alternate; }
 @keyframes space-sorting { from { opacity: 1; } to { opacity: 0.25; } }
 .space-empty { margin-top: 2rem; }
 #space .zone { margin-top: 2rem; }
