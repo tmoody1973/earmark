@@ -12,7 +12,7 @@ export class SystemicTriageError extends Error {
   }
 }
 
-function ordered(criteria: Record<string, string>, order: "fixed" | "shuffled"): Record<string, string> {
+export function ordered(criteria: Record<string, string>, order: "fixed" | "shuffled"): Record<string, string> {
   if (order === "fixed") return criteria;
   const keys = Object.keys(criteria);
   for (let i = keys.length - 1; i > 0; i--) {

@@ -1,3 +1,4 @@
+import { APICallError, RetryError } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fake Neon: transaction(fn) collects the statements fn builds and "commits" them all or none.
@@ -22,9 +23,18 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   isConversationProcessed: vi.fn(async () => false),
   markConversationProcessed: vi.fn(async () => true),
   releaseConversation: vi.fn(async () => undefined),
+  savedDeliberateKeys: vi.fn(async () => new Map<string, string | null>()),
+  recsSaidBetween: vi.fn(async () => []),
 }));
 
-import { isConversationProcessed, markConversationProcessed, releaseConversation } from "../../../agent/lib/store/conversations";
+// Cluster planning (embedding + Jev) is unit-tested in tests/lib/ideas/compost.test.ts; here it passes items through.
+vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/ideas/compost")>()),
+  planIdeaClusters: vi.fn(async (items: unknown[]) => items),
+}));
+
+import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { isConversationProcessed, markConversationProcessed, recsSaidBetween, releaseConversation, savedDeliberateKeys } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
 import type { BeeClient } from "../../../agent/lib/bee/client";
@@ -71,13 +81,14 @@ describe("processConversation", () => {
   it("skips a conversation that is still capturing without claiming it", async () => {
     const r = await processConversation(42, { ...base, bee: bee("CAPTURING"), triage: tri({}) });
     expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("capturing");
     expect(markConversationProcessed).not.toHaveBeenCalled();
   });
 
   it("stores an accepted rec with a second-person attribution, and the counts, in one transaction", async () => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
     // saved ids come from the transaction's own results (statement 1 = the rec insert)
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 1, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [1], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(recs()).toHaveLength(1);
     const q = recs()[0]!;
     expect(q.sql).toContain("insert into recommenders");
@@ -99,7 +110,7 @@ describe("processConversation", () => {
     ["low confidence", { kindProbability: 0.3 }],
   ])("drops %s but still keeps the conversation claimed", async (_label, over) => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri(over) });
-    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, saved: { recIds: [], ideaClusterIds: [], mentionIds: [] } });
+    expect(r).toEqual({ skipped: false, ideas: 0, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(recs()).toHaveLength(0);
     expect(releaseConversation).not.toHaveBeenCalled();
   });
@@ -200,15 +211,51 @@ describe("processConversation", () => {
 
   it("a skipped conversation reports no saved ids", async () => {
     vi.mocked(isConversationProcessed).mockResolvedValueOnce(true);
-    expect((await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).saved).toEqual({ recIds: [], ideaClusterIds: [], mentionIds: [] });
+    expect((await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).saved).toEqual({ recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] });
   });
 
   it("creates an idea cluster for an accepted idea", async () => {
     const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
     expect(r.ideas).toBe(1);
-    expect(r.saved).toEqual({ recIds: [], ideaClusterIds: [101], mentionIds: [1] });
+    expect(r.saved).toEqual({ recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] });
     expect(ideas()).toHaveLength(1);
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["House music segment", "accepted", "ambient", 42]));
+  });
+
+  it("hands cluster planning the conversation's start/end span (to match an unmapped live mention of it)", async () => {
+    const b = bee("COMPLETED");
+    vi.mocked(b.getConversation).mockResolvedValueOnce({
+      conversation: { id: 42, start_time: 1760600000000, end_time: 1760603600000, state: "COMPLETED", summary: null, transcriptions: [{ realtime: false, utterances: lines(4) }] },
+    } as never);
+    await processConversation(42, { ...base, bee: b, triage: tri({ kind: "idea_by_user" }) });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![2]).toEqual({ span: { start: new Date(1760600000000), end: new Date(1760603600000) } });
+  });
+
+  it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
+    const compost = { embedText: vi.fn(async () => [1]) };
+    await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }), compost });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![1]).toBe(compost);
+  });
+
+  it("plans clusters for the items after all windows, then saves a join as a mention on the chosen cluster", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
+      items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1, 0] } } : it)));
+    const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
+    expect(planIdeaClusters).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", route: "accept" })]);
+    expect(ideas()).toHaveLength(0); // no new cluster
+    const join = committed.find((q) => /update idea_clusters/.test(q.sql))!;
+    expect(join.params).toEqual(expect.arrayContaining([12, "[1,0]", "accepted", "ambient", 42]));
+    expect(r).toMatchObject({ ideas: 1, saved: { ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
+  });
+
+  it("an idea the planner drops (same conversation already counted) is neither saved nor counted", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) => items.filter((it) => it.kind !== "idea"));
+    const r = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) });
+    expect(r).toMatchObject({ ideas: 0, recs: 0, saved: { ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
+    expect(committed.filter((q) => /idea_clusters|idea_mentions/.test(q.sql))).toHaveLength(0);
+    const counts = committed.find((q) => /update processed_conversations/.test(q.sql))!;
+    expect(counts.params).toEqual(expect.arrayContaining([0, 0, 42]));
   });
 
   it("counts a failed window, logs only the error name, and keeps the claim", async () => {
@@ -298,6 +345,14 @@ describe("processConversation", () => {
     expect(releaseConversation).toHaveBeenCalledWith(42);
   });
 
+  it("a compost outage (every idea's plan failed) saves nothing, releases the claim and throws CompostUnavailableError", async () => {
+    vi.mocked(planIdeaClusters).mockRejectedValueOnce(new CompostUnavailableError(1));
+    const err = await processConversation(42, { ...base, bee: bee(), triage: tri({ kind: "idea_by_user" }) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CompostUnavailableError);
+    expect(committed).toHaveLength(0);
+    expect(releaseConversation).toHaveBeenCalledWith(42);
+  });
+
   it("rethrows the ORIGINAL error even when releasing the claim also fails", async () => {
     fail.re = /insert into recommendations/;
     fail.nth = 1;
@@ -305,5 +360,194 @@ describe("processConversation", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(processConversation(42, { ...base, bee: bee(), triage: tri({}) })).rejects.toThrow("db down");
     spy.mockRestore();
+  });
+
+  describe("per-conversation deadline", () => {
+    it("past the deadline: no windows triaged, nothing saved, claim released, incomplete, no throw", async () => {
+      const triage = tri({});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", lines(40)), triage, deadline: now().getTime() - 1 });
+      expect(r).toMatchObject({ skipped: false, incomplete: true, ideas: 0, recs: 0 });
+      expect(triage).not.toHaveBeenCalled();
+      expect(committed).toHaveLength(0);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("a slow triage that crosses the deadline stops scheduling new windows and saves nothing", async () => {
+      let clock = now().getTime();
+      const triage = vi.fn(async () => {
+        clock += 1000; // each window takes 1 s
+        return { kind: "rec_to_user", kindProbability: 0.95, recType: "place", recTypeProbability: 0.9, jokingProbability: 0.02, broadcastProbability: 0.01, model: "m", providerMetadata: {} };
+      }) as unknown as PipelineDeps["triage"];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", lines(60)), triage, now: () => new Date(clock), deadline: now().getTime() + 2500 });
+      expect(r).toMatchObject({ skipped: false, incomplete: true });
+      expect(vi.mocked(triage).mock.calls.length).toBeLessThan(10); // only windows started before the deadline (30 exist)
+      expect(committed).toHaveLength(0);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("a deadline in the future leaves the normal path unchanged", async () => {
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}), deadline: now().getTime() + 60_000 });
+      expect(r).toMatchObject({ skipped: false, incomplete: false, recs: 1 });
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    it("no deadline is never incomplete", async () => {
+      expect(await processConversation(42, { ...base, bee: bee(), triage: tri({}) })).toMatchObject({ incomplete: false });
+    });
+  });
+
+  describe("deliberate 'Earmark that' (M2-T12)", () => {
+    const spoken = (text: string, id: number) => ({ text, speaker: "Unknown", spoken_at: 1760600000000 + id, id });
+    const EARMARK = "Earmark that Ann says to try Ardent on Brady Street.";
+
+    it("an ambient window that re-mentions an earmarked thing by name does not save it a second time", async () => {
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 1 });
+      expect(recs()).toHaveLength(1);
+      expect(recs()[0]!.params).toEqual(expect.arrayContaining(["voice", "new", "u1"]));
+    });
+
+    // M2-T14: Bee heard the same words as a voice note during this conversation.
+    const voiceNote = (over: Partial<{ id: number; name: string; type: string; firstName: string | null; saidAt: Date }> = {}) =>
+      ({ id: 156, name: "Ardent", type: "place", firstName: "Ann", saidAt: new Date(1760600000000 + 4_000), deliberate: true, ...over });
+
+    it("I-2a: an ambient rec is matched to a voice note by name only, never by recommender + type", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Kawa Ramen", saidAt: new Date(1760600000000 + 1) })]);
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) }); // ambient "Ardent", Ann, place
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("I-2c: Marcus's Acts of Faith (saved as a voice note), then a cut-off 'Blonde' (Marcus, album): Blonde is saved", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ id: 157, name: "Acts of Faith", type: "album", firstName: "Marcus" })]);
+      const extractRecommendation = vi.fn(async ({ text }: { text: string }) => ({
+        canonicalName: text.includes("Blonde") ? "Blonde" : "Acts of Faith", creator: null, recommenderName: "Marcus", excerpt: "Marcus says",
+      })) as PipelineDeps["extractRecommendation"];
+      const utterances = [spoken("Earmark that Marcus says listen to Acts of Faith.", 1), spoken("Earmark that Marcus says try Blonde now.", 2)];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", utterances), triage: tri({ recType: "album" }) });
+      expect(r).toMatchObject({ recs: 1 });
+      expect(recs()[0]!.params).toContain("Blonde");
+    });
+
+    it("M3: across the whole span only an exact normalized name blocks ambient ('Shogun' at min 2 vs 'Shogun on Hulu' at min 40)", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Shogun", type: "film_tv", firstName: null, saidAt: new Date(1760600000000 - 38 * 60_000) })]);
+      const extractRecommendation = vi.fn(async () => ({ canonicalName: "Shogun on Hulu", creator: null, recommenderName: null, excerpt: "watch it" })) as PipelineDeps["extractRecommendation"];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee(), triage: tri({ recType: "film_tv" }) });
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("M5: a systemic triage failure throws before the voice-note lookup", async () => {
+      await expect(processConversation(42, { ...base, bee: bee(), triage: vi.fn(async () => { throw new Error("down"); }) as PipelineDeps["triage"] })).rejects.toThrow();
+      expect(recsSaidBetween).not.toHaveBeenCalled();
+    });
+
+    it("M7: without spoken_at the transcript is ordered by id, then by array order", async () => {
+      const raw = (text: string, id?: number) => ({ text, speaker: "Unknown", ...(id ? { id } : {}) });
+      const triage = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [raw("Earmark that.", 1), raw("later talk", 3), raw("Ann says try Ardent", 2)] as never), triage });
+      expect(vi.mocked(triage).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent later talk");
+      const triage2 = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [raw("Earmark that."), raw("Ann says try Ardent"), raw("later talk")] as never), triage: triage2 });
+      expect(vi.mocked(triage2).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent later talk");
+    });
+
+    it("asks for the voice notes said during the conversation (its span ± 60 s)", async () => {
+      await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(recsSaidBetween).toHaveBeenCalledWith(new Date(1760600000000 - 60_000), new Date(now().getTime() + 60_000), "journal");
+    });
+
+    it("a deliberate earmark a voice note already saved within 60 s is not stored; the log carries ids only", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote()]);
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 0 });
+      expect(recs()).toHaveLength(0);
+      expect(log).toHaveBeenCalledWith("[pipeline] same moment: skipped conversation=42 key=u1 rec=156");
+      log.mockRestore();
+    });
+
+    it("the same name more than 60 s away is a different moment and is stored", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ saidAt: new Date(1760600000000 + 61_002) })]);
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 1 });
+    });
+
+    it("an ambient rec named like a voice note from the conversation's span is not stored (normalized name)", async () => {
+      vi.mocked(recsSaidBetween).mockResolvedValueOnce([voiceNote({ name: "Ardent (sandwich shop)", firstName: null, saidAt: new Date(1760600000000 + 600_000) })]);
+      const r = await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 0 });
+      expect(recs()).toHaveLength(0);
+    });
+
+    // Real REST transcripts are not in spoken order (11338188: 108 of 311 neighbours out of order), so "the utterance
+    // after the trigger" must mean the next one spoken, not the next one in the array.
+    it("reads the transcript in spoken order (Bee's array order is not chronological)", async () => {
+      const utterances = [spoken("Earmark that.", 1), spoken("somebody else talking far later", 90_000), spoken("Ann says try Ardent on Brady", 2)];
+      const triage = tri({});
+      await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage });
+      expect(vi.mocked(triage).mock.calls[0]![0]).toBe("Unknown: Ann says try Ardent on Brady somebody else talking far later");
+    });
+
+    it("the earmarked lines never reach ambient triage", async () => {
+      const utterances = [spoken(EARMARK, 1), spoken("one", 2), spoken("two", 3)];
+      const triage = tri({ kind: "neither" });
+      await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage });
+      const seen = vi.mocked(triage).mock.calls.map((c) => c[0]);
+      expect(seen.some((t) => t.includes("Earmark"))).toBe(false);
+      expect(seen).toContain("Unknown: Ann says to try Ardent on Brady Street"); // the deliberate planner's own call
+    });
+
+    it("a conversation of only earmarks still completes (an empty ambient transcript is not an outage)", async () => {
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 1, incomplete: false });
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    it("an earmark already saved from this conversation is skipped before any model call", async () => {
+      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Map([["u1", "Ardent"]]));
+      const triage = tri({});
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage });
+      expect(triage).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ skipped: false, recs: 0 });
+    });
+
+    it("a plain extraction error falls back to a raw needs_review rec; the rest of the conversation still saves", async () => {
+      const extractRecommendation = vi.fn(async ({ text }: { text: string }) => {
+        if (text.includes("Brady")) throw new Error("bad json");
+        return { canonicalName: "Other place", creator: null, recommenderName: null, excerpt: "so about that place" };
+      }) as PipelineDeps["extractRecommendation"];
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ skipped: false, recs: 2, incomplete: false });
+      const raw = recs().find((q) => q.params.includes("u1"))!;
+      expect(raw.params).toEqual(expect.arrayContaining(["needs_review", "other", "Ann says to try Ardent on Brady Street", "voice"]));
+      expect(releaseConversation).not.toHaveBeenCalled();
+    });
+
+    const api = () => new APICallError({ message: "down", url: "https://x", requestBodyValues: {}, statusCode: 503 });
+    it.each([
+      ["APICallError", api()],
+      ["RetryError", new RetryError({ message: "gave up", reason: "maxRetriesExceeded", errors: [api()] })],
+      ["TimeoutError", Object.assign(new Error("down"), { name: "TimeoutError" })],
+    ])("an outage error (%s) on an earmark releases the claim", async (_name, error) => {
+      const extractRecommendation = vi.fn(async () => { throw error; }) as PipelineDeps["extractRecommendation"];
+      await expect(processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage: tri({}) })).rejects.toThrow();
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+    });
+
+    it("on a retry, an earmark saved earlier still keeps ambient from re-saving its name", async () => {
+      vi.mocked(savedDeliberateKeys).mockResolvedValueOnce(new Map([["u1", "Ardent"]]));
+      const utterances = [spoken(EARMARK, 1), spoken("so about that place", 2), spoken("it is great", 3), spoken("really great", 4)];
+      const r = await processConversation(42, { ...base, bee: bee("COMPLETED", utterances), triage: tri({}) });
+      expect(r).toMatchObject({ recs: 0 });
+      expect(recs()).toHaveLength(0);
+    });
+
+    it("a triage outage on a deliberate earmark releases the claim and throws (the person asked for it)", async () => {
+      const triage = vi.fn(async () => { throw new Error("gateway down"); }) as unknown as PipelineDeps["triage"];
+      await expect(processConversation(42, { ...base, bee: bee("COMPLETED", [spoken(EARMARK, 1)]), triage })).rejects.toBeInstanceOf(SystemicTriageError);
+      expect(releaseConversation).toHaveBeenCalledWith(42);
+      expect(committed).toHaveLength(0);
+    });
   });
 });

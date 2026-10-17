@@ -26,3 +26,23 @@ Dated entries. Each answers: what did we expect, what happened, what do we now b
 - **Expected:** Jev would only turn up recommendations when people in the room were recommending things.
 - **What happened:** Bee records everything audible, so podcast sponsor reads, radio spots and our own station ID filled the garden: most of 32 recommendations were ads. We added a broadcast question to the same Jev call and dropped windows above 0.5 before extraction. Re-running the backfill gave 18 recommendations. On the two hand-written test windows the model scored an ad read 0.98 broadcast and a person talking about an ad 0.03. One station ID ("88.9") still slipped through as a song.
 - **What we now believe:** with an always-on recorder, "is this a person talking?" has to be asked before "is this a recommendation?". Fixing it in the prompt cuts most of the noise but not all of it; a real signal from Bee (a media-audio flag or speaker labels) would be better. Check real data after any such fix, because the hand-written tests pass either way.
+
+## 2026-10-16 · Nobody repeats an idea in a week of talk
+- **Expected:** a week of real Bee history (Oct 6–14) would already hold a few ideas mentioned two or three times, so the "bloom at the third mention" demo could come from past talk.
+- **What happened:** after clustering, all 34–35 ideas had exactly one mention. The closest-looking pairs were all from the same conversation, and Jev judged each pair to be different ideas (0.88–1.0).
+- **What we now believe:** the compost works, but a bloom has to be planted: the same idea said in three separate conversations on different days. The recording guide now says how.
+
+## 2026-10-16 · Bee's change feed lists a conversation once
+- **Expected:** asking Bee "what changed since my last bookmark?" every 10 minutes would list a conversation again when it finished, so Earmark could process it then.
+- **What happened:** the feed listed conversation 11331219 once, when it started. It kept growing (218 → 220 lines) without being listed again.
+- **What we now believe:** anything caught mid-recording needs its own waiting list (kept for up to 48 hours) or it waits for the nightly re-read. Test what an API actually does over time, not what its docs imply.
+
+## 2026-10-16 · "Earmark that" said mid-conversation
+- **Expected:** Tarik would use Bee's voice-note feature for deliberate earmarks, so the trigger only needed to work on voice notes.
+- **What happened:** the first real try was four "Earmark that…" lines in an ordinary recorded conversation; the account had zero voice notes. Bee also misheard one as "Remark that".
+- **What we now believe:** design for how the person actually talks. The trigger now works anywhere (including "Remark that"), and voice notes are the fast path rather than the only one.
+
+## 2026-10-16 · Tests that fake an error's name
+- **Expected:** tests that build an error with the name "APICallError" would prove Earmark retries during an AI outage.
+- **What happened:** the AI library really names its errors "AI_APICallError". The check looked for the unprefixed name, so it would have missed every real outage, and the tests still passed because they used the same wrong name. A reviewer found it by reading the installed library.
+- **What we now believe:** test with the library's real error classes and use its own type checks (`APICallError.isInstance`), never a lookalike name.

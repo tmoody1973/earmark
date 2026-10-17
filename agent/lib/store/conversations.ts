@@ -5,16 +5,25 @@ export type Txn = NeonQueryFunctionInTransaction<false, false>;
 
 // Claim lease: a claim is "in progress" until its saves commit with done = true. An unfinished claim older than
 // this (the run crashed or hit its time limit) may be re-taken; a done claim never can.
-// ponytail: fixed 15 min lease, longer than any single run's time limit; make it per-caller if runs ever get longer.
+// INVARIANT: the lease must stay strictly longer than the longest function duration that can process one conversation
+// (it assumes the nightly schedule's Vercel "max" duration is under 15 minutes). If a run could outlive it, a newer
+// runner may re-take the claim while the old run is still saving.
+// ponytail: fixed 15 min lease; make it per-caller if runs ever get longer.
 export const CLAIM_LEASE = "15 minutes";
 
-export async function bufferUtterance(uuid: string, speaker: string, text: string): Promise<void> {
-  await db()`insert into utterance_buffer (conversation_uuid, speaker, text) values (${uuid}, ${speaker}, ${text})`;
+// spokenAt: the stream's own spoken_at, when it sent one.
+export async function bufferUtterance(uuid: string, speaker: string, text: string, spokenAt: Date | null = null): Promise<void> {
+  await db()`insert into utterance_buffer (conversation_uuid, speaker, text, spoken_at) values (${uuid}, ${speaker}, ${text}, ${spokenAt})`;
 }
 
-// Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise).
+// Live utterances are kept only briefly, for in-conversation detection (M2-T6), then deleted (README privacy promise):
+// after 6 hours, or as soon as their conversation's completed pass is done (it re-reads the transcript from Bee).
 export async function pruneUtteranceBuffer(): Promise<void> {
-  await db()`delete from utterance_buffer where received_at < now() - interval '6 hours'`;
+  await db()`delete from utterance_buffer b
+             where b.received_at < now() - interval '6 hours'
+                or exists (select 1 from bee_conversation_map m
+                           join processed_conversations p on p.bee_conversation_id = m.bee_conversation_id
+                           where m.conversation_uuid = b.conversation_uuid and p.done)`;
 }
 
 export async function rememberConversationUuid(uuid: string, id: number): Promise<void> {
@@ -48,9 +57,49 @@ export function conversationCountsQuery(txn: Txn, id: number, counts: { ideas: n
              where bee_conversation_id = ${id}`;
 }
 
-// Undo a claim when the run failed after claiming, so the backfill can retry.
+// Deliberate "Earmark that" keys already saved from this conversation (recs and idea mentions). A re-run after a
+// released claim skips these before any model call; the unique indexes in migration 008 are the backstop.
+// Returns key -> the saved rec's canonical name (null for an idea), so ambient dedupe still knows the name on a retry.
+export async function savedDeliberateKeys(id: number): Promise<Map<string, string | null>> {
+  const rows = await db()`select deliberate_key, canonical_name from recommendations where bee_conversation_id = ${id} and deliberate_key is not null
+                          union all
+                          select deliberate_key, null from idea_mentions where bee_conversation_id = ${id} and deliberate_key is not null`;
+  return new Map(rows.map((r) => [r.deliberate_key as string, (r.canonical_name as string | null) ?? null]));
+}
+
+// deliberate: a voice note, or an "Earmark that" said in a conversation (deliberate_key set); false for ambient.
+export interface SavedRec { id: number; name: string; type: string; firstName: string | null; saidAt: Date; deliberate: boolean }
+
+// Recs saved from voice notes ("journal") or from conversations ("conversation") said between from and to, any status
+// (a dismissed rec is still the item that moment produced), in said_at, id order. For the one-earmark-per-moment check
+// (M2-T14). One-to-one: a rec that another voice note's claim already points at (it repeated that rec) is left out.
+export async function recsSaidBetween(from: Date, to: Date, origin: "journal" | "conversation"): Promise<SavedRec[]> {
+  const rows = await db()`select r.id, r.canonical_name, r.type, rc.first_name, r.said_at,
+                                 (r.bee_journal_id is not null or r.deliberate_key is not null) as deliberate
+                          from recommendations r left join recommenders rc on rc.id = r.recommender_id
+                          where r.said_at between ${from} and ${to}
+                            and (case when ${origin}::text = 'journal' then r.bee_journal_id is not null
+                                      else r.bee_conversation_id is not null end)
+                            and not exists (select 1 from processed_journals pj
+                                            where pj.item_type = 'rec' and pj.item_id = r.id
+                                              and pj.bee_journal_id is distinct from r.bee_journal_id)
+                          order by r.said_at, r.id`;
+  return rows.map((r) => ({
+    id: Number(r.id), name: r.canonical_name as string, type: r.type as string,
+    firstName: (r.first_name as string | null) ?? null, saidAt: new Date(r.said_at as string), deliberate: Boolean(r.deliberate),
+  }));
+}
+
+// A voice note that repeats an item already saved from a conversation: the claim finishes pointing at that rec, and
+// nothing new is stored.
+export async function finishJournalAs(id: string, recId: number): Promise<void> {
+  await db()`update processed_journals set item_type = 'rec', item_id = ${recId}, done = true where bee_journal_id = ${id}`;
+}
+
+// Undo a claim when the run failed after claiming, so the backfill can retry. Guarded: a slow run that outlived its
+// lease must not delete a newer runner's finished (done) claim.
 export async function releaseConversation(id: number): Promise<void> {
-  await db()`delete from processed_conversations where bee_conversation_id = ${id}`;
+  await db()`delete from processed_conversations where bee_conversation_id = ${id} and done = false`;
 }
 
 export async function isJournalProcessed(id: string): Promise<boolean> {
@@ -87,7 +136,8 @@ export function journalItemQuery(txn: Txn, id: string, kind: "idea" | "rec") {
           where bee_journal_id = ${id}::text`;
 }
 
-// Undo a claim when the run failed after claiming, so a later delivery or the backfill can retry.
+// Undo a claim when the run failed after claiming, so a later delivery or the backfill can retry. Guarded like
+// releaseConversation: a done claim is never deleted.
 export async function releaseJournal(id: string): Promise<void> {
-  await db()`delete from processed_journals where bee_journal_id = ${id}`;
+  await db()`delete from processed_journals where bee_journal_id = ${id} and done = false`;
 }

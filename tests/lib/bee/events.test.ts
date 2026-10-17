@@ -19,6 +19,17 @@ describe("parseBeeEnvelope", () => {
     expect(parseBeeEnvelope(body).event).toBe("new-utterance");
   });
 
+  it("parses the live new-utterance shape (observed 2026-10-16): utterance id and spoken_at, no speaker", () => {
+    const data = {
+      type: "new-utterance", conversation_uuid: "0fe1bdc8-9cd0-4180-84e1-bd936e430b6c",
+      utterance: { id: 3766760407, sample_id: "1941b7cd-2955-4db7-a678-6ea75c7a62f0", start: 680.16, end: 691.36, text: "hello", spoken_at: "2026-10-16T18:05:13.000Z" },
+    };
+    const evt = parseBeeEnvelope(wrap("new-utterance", data));
+    if (evt.event !== "new-utterance") throw new Error("narrowing");
+    expect(evt.data.utterance).toMatchObject({ id: 3766760407, speaker: "Unknown", text: "hello", spoken_at: "2026-10-16T18:05:13.000Z" });
+    expect(evt.data.conversation_uuid).toBe("0fe1bdc8-9cd0-4180-84e1-bd936e430b6c");
+  });
+
   it("parses each conversation, location, todo and journal event", () => {
     const cases: Array<[string, unknown]> = [
       ["new-conversation", { conversation: { id: 123, uuid: "u", state: "processing", title: null } }],
@@ -65,5 +76,20 @@ describe("isJournalComplete", () => {
   });
   it("is false for in-flight, unknown and missing states", () => {
     for (const s of ["PREPARING", "ANALYZING", "", "mystery", null, undefined]) expect(isJournalComplete(s)).toBe(false);
+  });
+});
+
+describe("conversationRef", () => {
+  it("returns the pair from one level, in priority order", async () => {
+    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    expect(conversationRef({ conversation: { uuid: "u", id: 1 }, conversation_uuid: "x", conversation_id: 2 })).toEqual({ uuid: "u", id: 1 });
+    expect(conversationRef({ conversation_uuid: "u", conversation_id: 2 })).toEqual({ uuid: "u", id: 2 });
+    expect(conversationRef({ uuid: "u", id: "3" })).toEqual({ uuid: "u", id: 3 });
+  });
+  it("never mixes levels, and rejects unsafe ids", async () => {
+    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    expect(conversationRef({ conversation: { uuid: "u" }, conversation_id: 5 })).toBeNull();
+    expect(conversationRef({ conversation_uuid: "u", id: 5 })).toBeNull();
+    expect(conversationRef({ conversation: { uuid: "u", id: "99999999999999999999" } })).toBeNull();
   });
 });

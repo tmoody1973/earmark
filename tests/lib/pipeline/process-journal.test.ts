@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Fake Neon: transaction(fn) collects the statements fn builds and "commits" them all or none.
@@ -17,9 +18,17 @@ vi.mock("../../../agent/lib/store/conversations", async (orig) => ({
   ...(await orig<typeof import("../../../agent/lib/store/conversations")>()),
   markJournalProcessed: vi.fn(async () => true),
   releaseJournal: vi.fn(async () => undefined),
+  recsSaidBetween: vi.fn(async () => []),
+  finishJournalAs: vi.fn(async () => undefined),
 }));
 
-import { markJournalProcessed, releaseJournal } from "../../../agent/lib/store/conversations";
+vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/ideas/compost")>()),
+  planIdeaClusters: vi.fn(async (items: unknown[]) => items),
+}));
+
+import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { finishJournalAs, markJournalProcessed, recsSaidBetween, releaseJournal } from "../../../agent/lib/store/conversations";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import type { PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
@@ -27,7 +36,7 @@ import { createBeeClient, type BeeClient } from "../../../agent/lib/bee/client";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 
 const createdAt = new Date("2026-10-16T16:00:00Z");
-const NONE = { recIds: [], ideaClusterIds: [], mentionIds: [] };
+const NONE = { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] };
 const triage = (kind: string, p = 0.4) =>
   vi.fn(async () => ({ kind, kindProbability: p, recType: "place", recTypeProbability: 0.7, jokingProbability: 0, broadcastProbability: 0.01, model: "m", providerMetadata: {} })) as unknown as PipelineDeps["triage"];
 const extractRecommendation = vi.fn(async () => ({ canonicalName: "Ardent", creator: null, recommenderName: "Ann", excerpt: "Ann's ramen spot" })) as PipelineDeps["extractRecommendation"];
@@ -62,6 +71,40 @@ describe("processJournal", () => {
     expect(recs()).toHaveLength(1);
   });
 
+  // M2-T14: the conversation that was recording at the same time already saved this rec.
+  it("a voice note whose rec a conversation already saved within ±60 s stores nothing; the claim points at that rec", async () => {
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([
+      { id: 163, name: "Ardent (ramen spot on Brady Street)", type: "place", firstName: "Anne", saidAt: new Date(createdAt.getTime() - 4_000), deliberate: false },
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const r = await processJournal({ id: "58", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
+    expect(r).toEqual({ created: null, saved: NONE });
+    expect(recsSaidBetween).toHaveBeenCalledWith(new Date(createdAt.getTime() - 60_000), new Date(createdAt.getTime() + 60_000), "conversation");
+    expect(finishJournalAs).toHaveBeenCalledWith("58", 163);
+    expect(committed).toHaveLength(0);
+    expect(releaseJournal).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("[pipeline] same moment: skipped journal=58 rec=163");
+    log.mockRestore();
+  });
+
+  it("I-2: an ambient conversation rec pairs by name only; a deliberate one may pair by recommender + type", async () => {
+    const other = { id: 170, name: "Ann's spot", type: "place", firstName: "Ann", saidAt: createdAt };
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([{ ...other, deliberate: false }]);
+    expect((await processJournal({ id: "60", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"))).created).toBe("rec");
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([{ ...other, deliberate: true }]);
+    expect((await processJournal({ id: "61", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"))).created).toBeNull();
+    expect(finishJournalAs).toHaveBeenCalledWith("61", 170);
+  });
+
+  it("a conversation rec with another name and recommender in the window does not stop the voice note", async () => {
+    vi.mocked(recsSaidBetween).mockResolvedValueOnce([
+      { id: 160, name: "A Little Dark Age", type: "song", firstName: "Dana", saidAt: createdAt, deliberate: true },
+    ]);
+    const r = await processJournal({ id: "59", text: "Earmark that, Ann's ramen spot", createdAt }, deps("neither"));
+    expect(r.created).toBe("rec");
+    expect(finishJournalAs).not.toHaveBeenCalled();
+  });
+
   it("ignores empty or whitespace text without claiming", async () => {
     expect(await processJournal({ id: "55", text: "  \n ", createdAt }, deps("neither"))).toEqual({ created: null, saved: NONE });
     expect(markJournalProcessed).not.toHaveBeenCalled();
@@ -69,7 +112,7 @@ describe("processJournal", () => {
 
   it("captures a voice rec at full confidence even when Jev is unsure, credited to the named person", async () => {
     const d = deps("neither", 0.3);
-    expect(await processJournal({ id: "56", text: "Earmark that, Ann's ramen spot", createdAt }, d)).toEqual({ created: "rec", saved: { recIds: [1], ideaClusterIds: [], mentionIds: [] } });
+    expect(await processJournal({ id: "56", text: "Earmark that, Ann's ramen spot", createdAt }, d)).toEqual({ created: "rec", saved: { recIds: [1], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
     expect(d.triage).toHaveBeenCalledWith("Unknown: Ann's ramen spot");
     const [rec] = recs();
     expect(rec!.params).toEqual(expect.arrayContaining(["place", "Ardent", "voice_trigger", "voice", "56", 1, createdAt]));
@@ -88,11 +131,35 @@ describe("processJournal", () => {
   });
 
   it("captures a voice idea when Jev says idea, accepted at confidence 1", async () => {
-    expect(await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9))).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1] } });
+    expect(await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9))).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
     expect(ideas()).toHaveLength(1);
     expect(committed.some((q) => /update processed_journals set item_type = 'idea'/.test(q.sql))).toBe(true);
     expect(ideas()[0]!.sql).toMatch(/insert into idea_mentions/);
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["voice", "57", 1, "accepted"]));
+  });
+
+  it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
+    const compost = { embedText: vi.fn(async () => [1]) };
+    await processJournal({ id: "58", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, { ...deps("idea_by_user", 0.9), compost });
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![1]).toBe(compost);
+  });
+
+  it("routes a voice idea through cluster planning and saves a join on the chosen cluster", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async (items) =>
+      items.map((it) => (it.kind === "idea" ? { ...it, cluster: { action: "join" as const, clusterId: 12, embedding: [1] } } : it)));
+    const r = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9));
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", source: "voice", beeJournalId: "57" })]);
+    expect(ideas()).toHaveLength(0);
+    expect(committed.find((q) => /update idea_clusters/.test(q.sql))!.params).toEqual(expect.arrayContaining([12, "voice", "57"]));
+    expect(r).toEqual({ created: "idea", saved: { recIds: [], ideaClusterIds: [101], mentionIds: [1], bloomedClusterIds: [] } });
+  });
+
+  it("a voice idea the planner drops (this note already counted) saves nothing new but still finishes the claim", async () => {
+    vi.mocked(planIdeaClusters).mockImplementationOnce(async () => []);
+    const r = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9));
+    expect(r).toEqual({ created: null, saved: NONE });
+    expect(committed.filter((q) => /idea_mentions \(|idea_clusters/.test(q.sql) && !/processed_journals/.test(q.sql))).toHaveLength(0);
+    expect(committed.some((q) => /update processed_journals set item_type = 'idea'/.test(q.sql))).toBe(true);
   });
 
   it("clamps the stored excerpt to 25 words while the voice body may be long", async () => {
@@ -158,9 +225,28 @@ describe("processJournal", () => {
     spy.mockRestore();
   });
 
+  it("a compost outage on a voice idea saves nothing, releases the claim and throws CompostUnavailableError", async () => {
+    vi.mocked(planIdeaClusters).mockRejectedValueOnce(new CompostUnavailableError(1));
+    const err = await processJournal({ id: "57", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, deps("idea_by_user", 0.9)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CompostUnavailableError);
+    expect(committed).toHaveLength(0);
+    expect(releaseJournal).toHaveBeenCalledWith("57");
+  });
+
   it("rethrows the original error even when releasing the claim also fails", async () => {
     vi.mocked(releaseJournal).mockRejectedValueOnce(new Error("release boom"));
-    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new Error("model down"); }) as PipelineDeps["extractRecommendation"] };
+    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new APICallError({ message: "model down", url: "https://x", requestBodyValues: {}, statusCode: 503 }); }) as PipelineDeps["extractRecommendation"] };
     await expect(processJournal({ id: "61", text: "Earmark that, Ann's ramen spot", createdAt }, bad)).rejects.toThrow("model down");
+  });
+
+  it("a non-outage extraction error saves the spoken words as a raw needs_review rec instead of failing the note", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const bad = { ...deps("neither"), extractRecommendation: vi.fn(async () => { throw new Error("bad json"); }) as PipelineDeps["extractRecommendation"] };
+    const r = await processJournal({ id: "64", text: "Earmark that, Ann's ramen spot", createdAt }, bad);
+    expect(r.created).toBe("rec");
+    expect(committed.some((q) => q.params.includes("needs_review") && q.params.includes("Ann's ramen spot"))).toBe(true);
+    expect(releaseJournal).not.toHaveBeenCalled();
+    expect(spy.mock.calls.flat().join("\n")).toContain("journal=64");
+    spy.mockRestore();
   });
 });

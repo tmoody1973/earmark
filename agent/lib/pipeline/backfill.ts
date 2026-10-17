@@ -29,9 +29,10 @@ async function collectSince<T>(
 }
 
 export const DEFAULT_BUDGET_MS = 240_000;
+const CONVERSATION_DEADLINE_AT = 0.9; // a conversation still running at 90% of the budget stops, saves nothing and retries next run
 const STOP_CLAIMING_AT = 0.7; // leave 30% of the budget for the item already running to finish
 
-export interface BackfillResult { conversations: number; journals: number; failed: number; stoppedEarly: boolean }
+export interface BackfillResult { conversations: number; journals: number; failed: number; incomplete: number; stoppedEarly: boolean }
 
 export async function runBackfill(
   opts: { hours?: number; budgetMs?: number; deps?: Partial<PipelineDeps> } = {},
@@ -40,7 +41,7 @@ export async function runBackfill(
   const startedAt = d.now().getTime();
   const cutoff = startedAt - (opts.hours ?? 48) * 3_600_000;
   const ms = (v: number | string | null | undefined) => toDate(v)?.getTime() ?? 0;
-  const result: BackfillResult = { conversations: 0, journals: 0, failed: 0, stoppedEarly: false };
+  const result: BackfillResult = { conversations: 0, journals: 0, failed: 0, incomplete: 0, stoppedEarly: false };
   // Past 70% of the budget no NEW item is claimed; whatever is left is picked up by the next run.
   const outOfTime = () => {
     if (d.now().getTime() - startedAt >= (opts.budgetMs ?? DEFAULT_BUDGET_MS) * STOP_CLAIMING_AT) result.stoppedEarly = true;
@@ -85,7 +86,9 @@ export async function runBackfill(
       if (c.state !== "COMPLETED") continue;
       if (outOfTime()) break;
       try {
-        if (!(await processConversation(c.id, d)).skipped) result.conversations++;
+        const r = await processConversation(c.id, { ...d, deadline: startedAt + (opts.budgetMs ?? DEFAULT_BUDGET_MS) * CONVERSATION_DEADLINE_AT });
+        if (r.incomplete) result.incomplete++;
+        else if (!r.skipped) result.conversations++;
       } catch (err) {
         fail("conversation", c.id, err);
       }
