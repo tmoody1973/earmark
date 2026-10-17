@@ -10,6 +10,7 @@ import { attributeFromWindow, findConversationNear, pickWindowForCapture, type L
 import { saveCaptureRec } from "./save";
 
 const MAX_BODY_BYTES = 16 * 1024;
+const MAX_CLOCK_SKEW_MS = 24 * 60 * 60_000;
 export const DUPLICATE_WINDOW_MS = 10 * 60_000; // a double press of the Action button saves once
 
 export interface SongDeps {
@@ -64,7 +65,12 @@ const SongBody = z.object({
     }, "apple_music_url must be an https Apple Music link"),
   ),
   apple_music_id: optional(z.string().trim().regex(/^\d{1,20}$/, "apple_music_id must be digits")),
-  captured_at: optional(z.string().refine((v) => !Number.isNaN(Date.parse(v)), "captured_at not parseable")),
+  captured_at: optional(
+    z.string().refine((v) => {
+      const t = Date.parse(v);
+      return !Number.isNaN(t) && Math.abs(t - Date.now()) <= MAX_CLOCK_SKEW_MS;
+    }, "captured_at not parseable or not within a day of now"),
+  ),
   lat: optional(z.union([z.string(), z.number()])),
   lng: optional(z.union([z.string(), z.number()])),
 }).superRefine((b, ctx) => {
@@ -73,6 +79,7 @@ const SongBody = z.object({
   }
 });
 
+const NO_ONE = { firstName: null as string | null, source: "none" as AttributionSource, excerpt: "" };
 const fail = (error: string, status: number) => Response.json({ error }, { status });
 const errName = (e: unknown) => (e instanceof Error ? e.name : "unknown");
 
@@ -80,11 +87,13 @@ export async function handleSongCapture(req: Request, overrides: Partial<SongDep
   const token = getEnv().EARMARK_CAPTURE_TOKEN;
   if (!token || !bearerMatches(req, token)) return new Response("unauthorized", { status: 401 });
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) return fail("JSON body required", 415);
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return fail("body too large", 413);
   let raw: unknown;
   try {
-    const text = await req.text();
-    if (text.length > MAX_BODY_BYTES) return fail("body too large", 413);
-    raw = JSON.parse(text);
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.byteLength > MAX_BODY_BYTES) return fail("body too large", 413);
+    raw = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return fail("JSON body required", 415);
   }
@@ -98,14 +107,22 @@ export async function handleSongCapture(req: Request, overrides: Partial<SongDep
   const artist = body.artist ?? null;
   const amUrl = body.apple_music_url ?? null;
 
-  let saved: Awaited<ReturnType<SongDeps["save"]>>;
-  let from = "";
+  // Linking is best-effort: a Bee or model outage must not lose an explicit capture. Fall through to an unlinked save.
+  const unlinked = { linked: null as LinkedConversation | null, picked: null as { window: TranscriptWindow } | null, who: NO_ONE };
+  let link = unlinked;
   try {
     const linked = await deps.findConversation(at, where);
     const picked = linked ? await deps.pickWindow(artist ? `the song "${body.title}" by ${artist}` : `the song "${body.title}"`, linked.windows) : null;
-    const who = picked && linked
-      ? await deps.attribute(picked.window, linked.summary)
-      : { firstName: null, source: "none" as AttributionSource, excerpt: "" };
+    const who = picked && linked ? await deps.attribute(picked.window, linked.summary) : NO_ONE;
+    link = { linked, picked, who };
+  } catch (e) {
+    console.error(`[capture] song link failed err=${errName(e)}`);
+  }
+  const { linked, picked, who } = link;
+
+  let saved: Awaited<ReturnType<SongDeps["save"]>>;
+  let from = "";
+  try {
     saved = await deps.save(
       {
         type: "song",
@@ -127,14 +144,14 @@ export async function handleSongCapture(req: Request, overrides: Partial<SongDep
       },
       { recentDuplicateMs: DUPLICATE_WINDOW_MS },
     );
-    from = !saved.upgraded && who.firstName ? ` (from ${who.firstName})` : "";
+    from = !saved.upgraded && !saved.duplicate && who.firstName ? ` (from ${who.firstName})` : "";
   } catch (e) {
     console.error(`[capture] song failed err=${errName(e)}`);
     return fail("capture failed", 500);
   }
 
   if (saved.duplicate) {
-    return Response.json({ status: "duplicate", duplicate: true, recId: saved.id, message: `Already earmarked: ${body.title}` });
+    return Response.json({ status: "duplicate", duplicate: true, id: saved.id, message: `Already earmarked: ${body.title}` });
   }
   try {
     deps.afterCreated(saved.id);

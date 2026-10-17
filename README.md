@@ -70,7 +70,7 @@ Probe first: add `?dry=1` to the URL and run it on any photo. The response lists
 
 ## Capture a song
 
-Press your iPhone Action button while a song plays. Shazam names it, and Earmark saves it as a song recommendation, links it to the Bee conversation you were in (the picker must find the song being talked about in a nearby stretch of that conversation), and credits whoever mentioned it. Pressing twice within 10 minutes saves once.
+Press your iPhone Action button while a song plays. Shazam names it, and Earmark saves it as a song recommendation, links it to the Bee conversation you were in (the picker must find the song being talked about in a nearby stretch of that conversation), and credits whoever mentioned it. Pressing twice within 10 minutes saves once. If your iOS version does not offer the Apple Music URL field, the song still saves (just without an Apple Music id), and it still saves, unlinked, if Bee or the model is down.
 
 Uses the same `EARMARK_CAPTURE_TOKEN` as photos. Build the "Earmark this song" Shortcut (assign it to the Action button in Settings, Action Button, Shortcut):
 

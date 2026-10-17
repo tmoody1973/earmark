@@ -100,12 +100,21 @@ export async function handlePhotoCapture(req: Request, overrides: Partial<PhotoD
       return Response.json({ status: "ignored", message: "Earmark didn't find a title in that photo." });
     }
 
-    const linked = await deps.findConversation(takenAt, where);
+    // Linking is best-effort: a Bee or model outage must not lose the capture. Fall through to an unlinked save.
     const label = read.creator ? `"${read.title}" by ${read.creator}` : `"${read.title}"`;
-    const picked = linked ? await deps.pickWindow(label, linked.windows) : null;
-    const who = picked && linked
-      ? await deps.attribute(picked.window, linked.summary)
-      : { firstName: null, source: "none" as AttributionSource, excerpt: "" };
+    let linked: LinkedConversation | null = null;
+    let picked: Awaited<ReturnType<PhotoDeps["pickWindow"]>> = null;
+    let who: { firstName: string | null; source: AttributionSource; excerpt: string } = { firstName: null, source: "none", excerpt: "" };
+    try {
+      const l = await deps.findConversation(takenAt, where);
+      const p = l ? await deps.pickWindow(label, l.windows) : null;
+      const w = p && l ? await deps.attribute(p.window, l.summary) : who;
+      linked = l;
+      picked = p;
+      who = w;
+    } catch (e) {
+      console.error(`[capture] photo link failed err=${errName(e)}`);
+    }
 
     // Person rule first: when it says no image, nothing is uploaded at all.
     const keepThumb = cls.personProbability < PERSON_THRESHOLD && thumb instanceof File && thumb.size > 0;

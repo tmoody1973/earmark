@@ -107,13 +107,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("saveCaptureRec (real Neon)", ()
 
   describe("song captures (M5-T4)", () => {
     const song = (over: Partial<CaptureRec> = {}) =>
-      rec({ type: "song", canonicalName: "Zzsong Movement", creator: "Zzfloating Pts", appleMusicId: "1550583155", links: { apple_music: "https://music.apple.com/us/song/x/1550583155" },
+      rec({ type: "song", canonicalName: "Zzsong Movement", creator: "Zzfloating Pts", appleMusicId: null, links: { apple_music: "https://music.apple.com/us/song/x/1550583155" },
             source: "song", confidence: 1, photo: undefined, ...over });
 
     it("inserts with source 'song' and the Apple Music id", async () => {
       const { saveCaptureRec } = await import("../../agent/lib/capture/save");
       const { db } = await import("../../agent/lib/db");
-      const saved = await saveCaptureRec(song({ beeConversationId: CONV + 1 }), { recentDuplicateMs: 600_000 });
+      const saved = await saveCaptureRec(song({ beeConversationId: CONV + 1, appleMusicId: "1550583155" }), { recentDuplicateMs: 600_000 });
       expect(saved).toMatchObject({ upgraded: false });
       expect(saved.duplicate).toBeUndefined();
       const [row] = await db()`select source, type, apple_music_id, links from recommendations where id = ${saved.id}`;
@@ -131,6 +131,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("saveCaptureRec (real Neon)", ()
       const [{ n }] = (await db()`select count(*)::int as n from recommendations where canonical_name ilike '%zzdouble press' and source = 'song'`) as { n: number }[];
       expect(n).toBe(1);
       await db()`delete from recommendations where id = ${first.id}`;
+    });
+
+    it("two simultaneous presses of the same song save exactly one row (atomic guard)", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const opts = { recentDuplicateMs: 600_000 };
+      const given0 = async () => ((await db()`select coalesce(max(recs_given), 0)::int as n from recommenders where first_name_key = ${ANN.toLowerCase()}`) as { n: number }[])[0]!.n;
+      await db()`delete from recommendations where canonical_name like 'Zzrace Song %'`; // leftovers of an aborted run
+      const before = await given0();
+      for (const conv of [null, CONV + 3]) {
+        const mk = () => song({ canonicalName: `Zzrace Song ${conv ?? "none"}`, creator: "Zzrace Artist", appleMusicId: null, beeConversationId: conv, recommenderName: ANN, evidence: [`Unknown: ${ANN}, hear this`, null], attributionSource: "second_person" });
+        const results = await Promise.all([saveCaptureRec(mk(), opts), saveCaptureRec(mk(), opts), saveCaptureRec(mk(), opts)]);
+        const dups = results.filter((r) => r.duplicate);
+        expect(dups).toHaveLength(2);
+        expect(new Set(results.map((r) => r.id)).size).toBe(1);
+        const [{ n }] = (await db()`select count(*)::int as n from recommendations where canonical_name = ${`Zzrace Song ${conv ?? "none"}`}`) as { n: number }[];
+        expect(n).toBe(1);
+      }
+      // the recommender was counted once per row inserted, not once per press
+      expect(await given0()).toBe(before + 2); // two rows inserted, not six presses
+      await db()`delete from recommendations where canonical_name like 'Zzrace Song %'`;
+    });
+
+    it("matches a duplicate by Apple Music id even when the title was rewritten", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const opts = { recentDuplicateMs: 600_000 };
+      const mk = (t: string) => song({ canonicalName: t, creator: "Zzam Artist", appleMusicId: "998877", beeConversationId: null, recommenderName: null, attributionSource: "none", evidence: [null, null] });
+      const first = await saveCaptureRec(mk("Zzam Original"), opts);
+      await db()`update recommendations set canonical_name = 'Zzam Rewritten By Enrichment', creator = 'Someone Else' where id = ${first.id}`;
+      const second = await saveCaptureRec(mk("Zzam Original"), opts);
+      expect(second).toEqual({ id: first.id, upgraded: false, duplicate: true });
+      await db()`delete from recommendations where id = ${first.id}`;
+    });
+
+    it("a repeated upgrade that changes nothing is reported as a duplicate", async () => {
+      const { saveCaptureRec } = await import("../../agent/lib/capture/save");
+      const { db } = await import("../../agent/lib/db");
+      const first = await saveCaptureRec(rec({ type: "song", canonicalName: "Zznoop Song", source: "ambient", appleMusicId: null, links: {}, photo: undefined, beeConversationId: CONV + 4 }));
+      const mk = () => song({ canonicalName: "Zznoop Song", beeConversationId: CONV + 4, recommenderName: null, attributionSource: "none" });
+      expect(await saveCaptureRec(mk(), { recentDuplicateMs: 600_000 })).toEqual({ id: first.id, upgraded: true });
+      expect(await saveCaptureRec(mk(), { recentDuplicateMs: 600_000 })).toEqual({ id: first.id, upgraded: false, duplicate: true });
+      const [row] = await db()`select count(*)::int as n from recommendations where bee_conversation_id = ${CONV + 4}`;
+      expect(row!.n).toBe(1);
     });
 
     it("does not treat a different artist, an old rec, or another source as a duplicate", async () => {
@@ -153,7 +197,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("saveCaptureRec (real Neon)", ()
       const { saveCaptureRec } = await import("../../agent/lib/capture/save");
       const { db } = await import("../../agent/lib/db");
       const first = await saveCaptureRec(rec({ type: "song", canonicalName: "Zzupgrade Song", source: "ambient", appleMusicId: null, links: {}, photo: undefined, beeConversationId: CONV + 2 }));
-      const second = await saveCaptureRec(song({ canonicalName: "zzupgrade song", beeConversationId: CONV + 2, recommenderName: null, attributionSource: "none" }), { recentDuplicateMs: 600_000 });
+      const second = await saveCaptureRec(song({ canonicalName: "zzupgrade song", appleMusicId: "1550583155", beeConversationId: CONV + 2, recommenderName: null, attributionSource: "none" }), { recentDuplicateMs: 600_000 });
       expect(second).toEqual({ id: first.id, upgraded: true });
       const rows = await db()`select source, apple_music_id from recommendations where bee_conversation_id = ${CONV + 2}`;
       expect(rows).toEqual([{ source: "ambient", apple_music_id: "1550583155" }]);
