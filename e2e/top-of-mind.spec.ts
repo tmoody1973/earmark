@@ -74,10 +74,17 @@ test("Top of mind: pin an idea, see it first and flagged on a new mention, the f
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   await page.locator(".idea-head").screenshot({ path: `${DIR}/m4-pin-cap-${width}.png` });
 
-  // Unpin
+  // Unpin an idea whose Bee fact was already sent: the fact stays, and the page says where to delete it
+  const evidence = JSON.stringify([id]);
+  await sql`insert into fact_proposals (text, kind, evidence_ids, bee_fact_id) values ('Sample pin fact', 'idea', ${evidence}::jsonb, 777002)`;
   await page.goto(`/ideas/${id}`);
   await page.getByRole("button", { name: "Top of mind" }).click();
   await expect(page.getByRole("button", { name: "Top of mind" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("Unpinned. Its Bee fact stays until you delete it in the Bee app.")).toBeVisible();
   await expect.poll(async () => (await sql`select pinned from idea_clusters where id = ${id}`)[0].pinned).toBe(false);
+  expect((await sql`select count(*)::int as n from fact_proposals where evidence_ids @> ${evidence}::jsonb`)[0].n).toBe(1);
+  await page.addStyleTag({ content: HIDE_DEV_BADGE });
+  await page.locator(".idea-head").screenshot({ path: `${DIR}/m4-pin-unpin-sent-${width}.png` });
+  await sql`delete from fact_proposals where text = 'Sample pin fact'`;
   await sql`delete from idea_clusters where title like 'Sample pin:%'`;
 });

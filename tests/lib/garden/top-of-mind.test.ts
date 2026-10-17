@@ -4,7 +4,7 @@ import { makeMockDb } from "../../helpers/mock-db";
 const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof import("../../helpers/mock-db").makeMockDb> }));
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
-import { PIN_CAP, setPinned } from "../../../agent/lib/garden/top-of-mind";
+import { FACT_KEPT_NOTE, PIN_CAP, setPinned } from "../../../agent/lib/garden/top-of-mind";
 
 const ON = { BEE_TODO_WRITES: "on" };
 const cluster = { title: "Station crates", mention_count: 2, first_mentioned_at: "2026-10-15T15:00:00Z", bee_fact_id: null };
@@ -14,9 +14,12 @@ describe("setPinned (Top of Mind, FR-35)", () => {
   beforeEach(() => { h.mock = makeMockDb(); });
 
   it("pins at most PIN_CAP live ideas, never a dismissed one, and only one that is not pinned yet (idempotent)", async () => {
-    h.mock.queue.push([cluster], []);
+    h.mock.queue.push([], [cluster]);
     expect(await setPinned(4, true, {})).toEqual({ changed: true });
-    const pin = h.mock.calls[0]!;
+    // the cap's count runs under one advisory lock, in the same transaction: two tabs at 4 can't make 6
+    expect(h.mock.sql.transaction).toHaveBeenCalledTimes(1);
+    expect(h.mock.calls[0]!.text).toContain("pg_advisory_xact_lock");
+    const pin = h.mock.calls[1]!;
     expect(pin.text).toContain("update idea_clusters set pinned = true");
     expect(pin.text).toContain("not pinned");
     expect(pin.text).toContain("stage <> 'dismissed'");
@@ -26,31 +29,33 @@ describe("setPinned (Top of Mind, FR-35)", () => {
   });
 
   it("with the Bee kill switch off, a pin writes no fact proposal", async () => {
-    h.mock.queue.push([cluster]);
+    h.mock.queue.push([], [cluster]);
     await setPinned(4, true, {});
     expect(texts().some((t) => t.includes("fact_proposals"))).toBe(false);
   });
 
   it("with the switch on, a pin queues one pending idea fact for the weekly writer (never a direct Bee call)", async () => {
-    h.mock.queue.push([cluster], [{ first_name: "Ann" }], []);
+    h.mock.queue.push([], [cluster], [{ first_name: "Ann" }], []);
     expect(await setPinned(4, true, ON)).toEqual({ changed: true });
     const insert = h.mock.calls.find((c) => c.text.includes("insert into fact_proposals"))!;
     expect(insert.text).toContain("'idea'");
     expect(insert.text).toContain("where not exists");
     expect(insert.values).toContain("Developing an idea: Station crates (mentioned 2 times since Oct)");
     expect(insert.values).toContain("[4]");
+    // an unpin landing between the pin and this insert leaves no pending fact behind
+    expect(insert.text).toContain("and exists (select 1 from idea_clusters where id = ? and pinned)");
   });
 
   it("never proposes a fact whose title names a person, or for an idea already linked to a Bee fact", async () => {
-    h.mock.queue.push([{ ...cluster, title: "Ann's ramen zine" }], [{ first_name: "Ann" }]);
+    h.mock.queue.push([], [{ ...cluster, title: "Ann's ramen zine" }], [{ first_name: "Ann" }]);
     await setPinned(4, true, ON);
-    h.mock.queue.push([{ ...cluster, bee_fact_id: 99 }]);
+    h.mock.queue.push([], [{ ...cluster, bee_fact_id: 99 }]);
     await setPinned(5, true, ON);
     expect(texts().some((t) => t.includes("insert into fact_proposals"))).toBe(false);
   });
 
   it("at the cap: nothing changes and the owner is told why", async () => {
-    h.mock.queue.push([], [{ pinned: false, stage: "sprouting" }]);
+    h.mock.queue.push([], [], [{ pinned: false, stage: "sprouting" }]);
     const r = await setPinned(4, true, ON);
     expect(r.changed).toBe(false);
     expect(r.refused).toBe(`Top of Mind holds ${PIN_CAP} ideas. Unpin one to make room.`);
@@ -58,12 +63,19 @@ describe("setPinned (Top of Mind, FR-35)", () => {
   });
 
   it("pinning an idea that is already pinned is a quiet no-op", async () => {
-    h.mock.queue.push([], [{ pinned: true, stage: "ready" }]);
+    h.mock.queue.push([], [], [{ pinned: true, stage: "ready" }]);
     expect(await setPinned(4, true, ON)).toEqual({ changed: false });
   });
 
+  it("unpinning when the fact was already sent (or claimed) says it stays in Bee", async () => {
+    h.mock.queue.push([{ id: 4 }], [], [{ "?column?": 1 }]);
+    expect(await setPinned(4, false, ON)).toEqual({ changed: true, note: FACT_KEPT_NOTE });
+    expect(FACT_KEPT_NOTE).toBe("Unpinned. Its Bee fact stays until you delete it in the Bee app.");
+    expect(h.mock.calls[2]!.text).toContain("bee_fact_id is not null or write_started_at is not null");
+  });
+
   it("unpinning drops the pin's fact only while it is unsent and unclaimed", async () => {
-    h.mock.queue.push([{ id: 4 }], []);
+    h.mock.queue.push([{ id: 4 }], [], []);
     expect(await setPinned(4, false, ON)).toEqual({ changed: true });
     expect(h.mock.calls[0]!.text).toContain("set pinned = false");
     expect(h.mock.calls[0]!.text).toContain("and pinned");

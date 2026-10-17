@@ -56,8 +56,9 @@ const toCandidate = (r: Record<string, unknown>): ClusterCandidate => ({
 });
 
 // Top of Mind (FR-35): pinned ideas this close to a new mention are offered to the cluster choice even when they are
-// not among the 5 nearest. Dismissed ones never are. Two at most get through (compost.ts caps the options at 7).
+// not among the 5 nearest. Dismissed ones never are. compost.ts caps all options at MAX_CLUSTER_OPTIONS.
 export const PINNED_CANDIDATE_MAX_DISTANCE = 0.5;
+export const MAX_CLUSTER_OPTIONS = 7; // the 5 nearest plus up to 2 nearby pinned ideas
 
 export async function pinnedClustersNear(embedding: readonly number[], maxDistance = PINNED_CANDIDATE_MAX_DISTANCE): Promise<ClusterCandidate[]> {
   const v = toVectorLiteral(embedding);
@@ -68,7 +69,7 @@ export async function pinnedClustersNear(embedding: readonly number[], maxDistan
     from idea_clusters c
     where c.pinned and c.stage <> 'dismissed' and c.centroid is not null and c.centroid <=> ${v}::vector < ${maxDistance}
     order by c.centroid <=> ${v}::vector
-    limit 7`;
+    limit ${MAX_CLUSTER_OPTIONS}`;
   return rows.map(toCandidate);
 }
 
