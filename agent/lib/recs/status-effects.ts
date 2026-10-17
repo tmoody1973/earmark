@@ -1,3 +1,4 @@
+import { beeTodoEffect } from "../sync/bee-todos";
 import type { RecStatus } from "../types";
 
 // Side effects of a tip's status change, owned by other tasks. setRecStatus (status.ts) runs them in this order after
@@ -21,9 +22,9 @@ export interface StatusEffect {
 }
 
 export const STATUS_EFFECTS: readonly StatusEffect[] = [
-  // bee-todos: M3-T7 adds its entry here, e.g.
-  //   { name: "bee-todos", run: beeTodoEffect } — complete or remove the rec's Bee todo when it leaves "queued"
-  //   (skip origin "bee"), drain the todo queue when a slot opens or fills.
+  // M3-T7: entering or leaving "queued" nudges the Bee todo reconciler (sync/bee-todos.ts) now instead of at the next
+  // bee-changes tick. It needs no origin check: it writes Bee only where Bee differs from Postgres.
+  { name: "bee-todos", run: (c) => beeTodoEffect(c) },
   // notion: M3-T2b when NOTION_TOKEN exists, e.g.
   //   { name: "notion", run: async (c) => { if (c.origin !== "notion") await pushRecToNotion(c.recId); } }
 ];

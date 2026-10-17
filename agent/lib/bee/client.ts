@@ -57,6 +57,12 @@ const TodoSchema = z.object({
   completed: z.boolean(),
   alarm_at: Timestamp.nullable().optional(),
 });
+// POST /v1/todos reply (M3-T7): wrapped ({todo}) or bare is unverified live, so both are accepted. Only the id is read:
+// Bee has already made the todo by the time we parse, so an unexpected extra/missing field must not throw.
+const CreatedTodoSchema = z.union([
+  z.object({ todo: z.object({ id: z.number() }).passthrough() }).transform((b) => b.todo),
+  z.object({ id: z.number() }).passthrough(),
+]);
 const Cursor = z.string().nullable().optional().transform((c) => c ?? null);
 
 // GET /v1/changes (observed 2026-10-16): the cursor/window fields are TOP level (no `meta` wrapper) and the lists hold
@@ -157,6 +163,13 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     getJournal: (id: string) => call(`/v1/journals/${encodeURIComponent(id)}`, JournalSchema),
     listTodos: (p: Page = {}) =>
       call(`/v1/todos${query(p)}`, z.object({ todos: z.array(TodoSchema), next_cursor: Cursor })),
+    // Todo writes (M3-T7): only sync/bee-todos.ts calls these, behind BEE_TODO_WRITES. A 404 surfaces as
+    // BeeApiError.status. The PUT reply is unverified live and nothing reads it.
+    createTodo: (input: { text: string }) =>
+      call("/v1/todos", CreatedTodoSchema, { method: "POST", body: JSON.stringify({ text: input.text }) }),
+    updateTodo: async (id: number, patch: { text?: string; completed?: boolean }): Promise<void> => {
+      await call(`/v1/todos/${id}`, z.unknown(), { method: "PUT", body: JSON.stringify(patch) });
+    },
     changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),
     // `q`, not `query`: that name is the query-string helper above. signal: a caller's own timeout (default 15 s).
     neuralSearch: (q: string, opts: { since?: number; until?: number; limit?: number } = {}, signal?: AbortSignal) =>
