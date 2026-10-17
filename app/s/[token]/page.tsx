@@ -54,13 +54,16 @@ export default async function PublishedSpacePage({ params }: Props) {
       {space.tips.length === 0 ? (
         <p className="empty pub-empty">Nothing here yet</p>
       ) : (
-        <ul className="shelf-grid" aria-label="Picks">
+        <>
+        <h2 className="visually-hidden">Picks</h2>
+        <ul className="shelf-grid">
           {space.tips.map((tip) => (
             <li key={tip.id} className="space-item">
               <RecCard card={tip} />
             </li>
           ))}
         </ul>
+        </>
       )}
     </main>
   );

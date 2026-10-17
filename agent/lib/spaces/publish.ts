@@ -31,7 +31,8 @@ async function acceptedTips(spaceId: number): Promise<TipRow[]> {
 /** A tip as a stranger sees it: the name only with consent (and never the owner, via credit()), none of the owner's state. */
 function toPublicTip(r: TipRow): RecCardData {
   const card = toRecCard({ ...r, first_name: r.consent ? r.first_name : null, context_summary: null });
-  return { ...card, why: null, rating: null, status: "new" };
+  // lat/lng null: a place card then shows its designed no-image state, not the owner-only map tile
+  return { ...card, why: null, rating: null, status: "new", lat: null, lng: null };
 }
 
 export interface PublishedSpace { id: number; name: string; ruleSentence: string; indexable: boolean; tips: RecCardData[]; dates: string[] }
@@ -68,7 +69,9 @@ export async function setIndexable(id: number, on: boolean): Promise<boolean> {
   return rows.length > 0;
 }
 
-export async function setNameConsent(recommenderId: number, on: boolean): Promise<boolean> {
+/** Records (or clears) a recommender's OK to be named. Only for someone who gave a tip that is public in this Space. */
+export async function setNameConsent(spaceId: number, recommenderId: number, on: boolean): Promise<boolean> {
+  if (!(await acceptedTips(spaceId)).some((r) => Number(r.recommender_id) === recommenderId)) return false;
   const rows = await db()`
     update recommenders set public_name_consent_at = ${on ? new Date().toISOString() : null}::timestamptz
     where id = ${recommenderId} returning id`;

@@ -27,11 +27,16 @@ describe("publishSpace / unpublishSpace", () => {
     expect(await unpublishSpace(1)).toBe(true);
     expect(text(0)).toContain("published_token = null");
   });
-  it("consent off clears the timestamp", async () => {
-    sql.mockResolvedValueOnce([{ id: 7 }]);
-    await setNameConsent(7, false);
-    expect(text(0)).toContain("public_name_consent_at");
-    expect(sql.mock.calls[0].slice(1)).toEqual([null, 7]);
+  it("consent off clears the timestamp, for someone with a public tip in this Space", async () => {
+    sql.mockResolvedValueOnce([tip({ recommender_id: 7 })]).mockResolvedValueOnce([{ id: 7 }]);
+    expect(await setNameConsent(1, 7, false)).toBe(true);
+    expect(text(1)).toContain("public_name_consent_at");
+    expect(sql.mock.calls[1].slice(1)).toEqual([null, 7]);
+  });
+  it("refuses consent for someone with no public tip in this Space", async () => {
+    sql.mockResolvedValueOnce([tip({ recommender_id: 7 })]);
+    expect(await setNameConsent(1, 99, true)).toBe(false);
+    expect(sql).toHaveBeenCalledTimes(1); // only the read; nothing written
   });
 });
 
@@ -71,12 +76,14 @@ describe("getPublishedSpace", () => {
   });
   it("strips anything that is someone's words or the owner's private state", async () => {
     sql.mockResolvedValueOnce([{ id: 1, name: "Picks", rule_sentence: "x", indexable: false }]).mockResolvedValueOnce([
-      tip({ context_summary: "she said it was the best", rating: "loved", status: "tried" }),
+      tip({ context_summary: "she said it was the best", rating: "loved", status: "tried", lat: 43.0, lng: -87.9 }),
     ]);
     const [t] = (await getPublishedSpace("a".repeat(43)))!.tips;
     expect(t.why).toBeNull();
     expect(t.rating).toBeNull();
     expect(t.status).toBe("new");
+    expect(t.lat).toBeNull(); // no owner-only map tile on the public page
+    expect(t.lng).toBeNull();
   });
 });
 

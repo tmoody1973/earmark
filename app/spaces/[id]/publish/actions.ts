@@ -49,7 +49,7 @@ export async function consentAction(spaceId: number, recommenderId: number, on: 
   const sid = id(spaceId);
   const rid = id(recommenderId);
   if (gardenReadOnly()) return { changed: false };
-  const changed = await publish.setNameConsent(rid, z.boolean().parse(on));
+  const changed = await publish.setNameConsent(sid, rid, z.boolean().parse(on));
   done(sid);
   return { changed };
 }
