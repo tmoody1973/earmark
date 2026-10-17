@@ -2,7 +2,7 @@ import { db } from "../db";
 import { ownerFirstName } from "../env";
 import { validNameFor } from "../pipeline/attribution";
 import { clampExcerpt } from "../pipeline/excerpt";
-import { sameNormalizedName } from "../pipeline/same-moment";
+import { normalizeName, sameNormalizedName } from "../pipeline/same-moment";
 import type { LatLng } from "../geo";
 import type { AttributionSource, RecType, Source } from "../types";
 
@@ -30,12 +30,12 @@ export interface CaptureRec {
 
 // ONE transaction per capture. Same conversation + same normalized name as an existing rec -> upgrade it (fill in
 // image / links / Apple Music id, keep its status and recommender). Otherwise insert, upserting the recommender.
-// Neon transactions are a fixed batch of statements, so the duplicate lookup happens just before it; a second
-// capture racing between the two would insert a duplicate, which a single-owner app accepts (decision 033).
 //
-// `recentDuplicateMs` (song captures): a rec from the same source with the same normalized title (and artist, when
-// given) created within that window is returned untouched with `duplicate: true`, whether or not a conversation was
-// picked. This is what makes a double press of the Action button save once.
+// `recentDuplicateMs` (song captures): double-press guard. The insert path takes a transaction-scoped advisory lock
+// on source + normalized title, then inserts only `where not exists` a rec from the same source created inside the
+// window with the same title (and artist, when given) or the same Apple Music id. The lock serializes two presses
+// racing each other; the statement after the lock sees the first press's committed row. When nothing is inserted the
+// existing rec's id comes back with `duplicate: true`. An upgrade that would change nothing is also `duplicate: true`.
 export interface SaveOptions {
   recentDuplicateMs?: number;
 }
@@ -45,30 +45,29 @@ export interface SaveResult {
   duplicate?: boolean;
 }
 
+// SQL twin of normalizeName() (same-moment.ts): lower, drop (..)/[..] asides and apostrophes, punctuation -> space,
+// trim, drop a leading article. Written inline because Neon tagged templates only take values as parameters.
 export async function saveCaptureRec(rec: CaptureRec, opts: SaveOptions = {}): Promise<SaveResult> {
   const sql = db();
-  if (opts.recentDuplicateMs) {
-    const dupId = await findRecentDuplicate(rec, opts.recentDuplicateMs);
-    if (dupId !== null) return { id: dupId, upgraded: false, duplicate: true };
-  }
-  const existingId = await findExisting(rec);
+  const existing = await findExisting(rec);
   const photo = rec.photo;
   const photoArgs = photo
     ? [photo.takenAt.toISOString(), photo.where?.lat ?? null, photo.where?.lng ?? null, photo.conversationId, photo.thumbnailUrl]
     : [null, null, null, null, null];
   const links = JSON.stringify(rec.links);
 
-  if (existingId !== null) {
+  if (existing !== null) {
+    if (!upgradeWouldChange(existing, rec)) return { id: existing.id, upgraded: false, duplicate: true };
     const [upd] = await sql.transaction((txn) => [
       txn`update recommendations set
             image_url = coalesce(image_url, ${rec.imageUrl}::text),
             links = ${links}::jsonb || links,
             apple_music_id = coalesce(apple_music_id, ${rec.appleMusicId}::text),
             updated_at = now()
-          where id = ${existingId}::bigint
+          where id = ${existing.id}::bigint
           returning id`,
       txn`insert into photos (recommendation_id, taken_at, lat, lng, linked_bee_conversation_id, thumbnail_url)
-          select ${existingId}::bigint, ${photoArgs[0]}::timestamptz, ${photoArgs[1]}::float8, ${photoArgs[2]}::float8, ${photoArgs[3]}::bigint, ${photoArgs[4]}::text
+          select ${existing.id}::bigint, ${photoArgs[0]}::timestamptz, ${photoArgs[1]}::float8, ${photoArgs[2]}::float8, ${photoArgs[3]}::bigint, ${photoArgs[4]}::text
           where ${photo ? true : false}::boolean`,
     ]);
     return { id: Number(upd![0]!.id), upgraded: true };
@@ -78,20 +77,37 @@ export async function saveCaptureRec(rec: CaptureRec, opts: SaveOptions = {}): P
   const source: AttributionSource = name ? rec.attributionSource : "none";
   const rawText = clampExcerpt(rec.rawText);
   const excerpt = clampExcerpt(rec.excerpt);
-  const [ins] = await sql.transaction((txn) => [
-    txn`with r as (
+  const guard = Boolean(opts.recentDuplicateMs);
+  const windowSecs = (opts.recentDuplicateMs ?? 0) / 1000;
+  const titleKey = normalizeName(rec.canonicalName);
+  const creatorKey = rec.creator ? normalizeName(rec.creator) : null;
+  const [, ins, dup] = await sql.transaction((txn) => [
+    txn`select pg_advisory_xact_lock(hashtext(${`${rec.source}:${titleKey}`}::text))`,
+    txn`with ok as (
+          select 1 as one where not (${guard}::boolean and exists (
+            select 1 from recommendations d
+            where d.source = ${rec.source}::text
+              and d.created_at > now() - make_interval(secs => ${windowSecs}::float8)
+              and (
+                (regexp_replace(btrim(regexp_replace(regexp_replace(regexp_replace(lower(d.canonical_name), '[(][^)]*[)]|[[][^]]*[]]', ' ', 'g'), '[''’]', '', 'g'), '[^[:alnum:]]+', ' ', 'g')), '^(the|a|an) ', '') = ${titleKey}::text
+                 and (${creatorKey}::text is null or regexp_replace(btrim(regexp_replace(regexp_replace(regexp_replace(lower(coalesce(d.creator, '')), '[(][^)]*[)]|[[][^]]*[]]', ' ', 'g'), '[''’]', '', 'g'), '[^[:alnum:]]+', ' ', 'g')), '^(the|a|an) ', '') = ${creatorKey}::text))
+                or (${rec.appleMusicId}::text is not null and d.apple_music_id = ${rec.appleMusicId}::text)
+              )
+          ))
+        ), r as (
           insert into recommenders (first_name, recs_given)
-          select ${name}::text, 1 where ${name}::text is not null
+          select ${name}::text, 1 where ${name}::text is not null and exists (select 1 from ok)
           on conflict (first_name_key) do update set recs_given = recommenders.recs_given + 1
           returning id
         ), i as (
           insert into recommendations (type, raw_text, canonical_name, creator, recommender_id, attribution_source, excerpt,
                                        bee_conversation_id, said_at, source, status, confidence,
                                        image_url, links, apple_music_id)
-          values (${rec.type}::text, ${rawText}::text, ${rec.canonicalName}::text, ${rec.creator}::text, (select id from r),
-                  ${source}::text, ${excerpt}::text, ${rec.beeConversationId}::bigint, ${rec.saidAt.toISOString()}::timestamptz,
-                  ${rec.source}::text, 'new', ${rec.confidence}::real,
-                  ${rec.imageUrl}::text, ${links}::jsonb, ${rec.appleMusicId}::text)
+          select ${rec.type}::text, ${rawText}::text, ${rec.canonicalName}::text, ${rec.creator}::text, (select id from r),
+                 ${source}::text, ${excerpt}::text, ${rec.beeConversationId}::bigint, ${rec.saidAt.toISOString()}::timestamptz,
+                 ${rec.source}::text, 'new', ${rec.confidence}::real,
+                 ${rec.imageUrl}::text, ${links}::jsonb, ${rec.appleMusicId}::text
+          where exists (select 1 from ok)
           returning id
         ), p as (
           insert into photos (recommendation_id, taken_at, lat, lng, linked_bee_conversation_id, thumbnail_url)
@@ -99,25 +115,45 @@ export async function saveCaptureRec(rec: CaptureRec, opts: SaveOptions = {}): P
           from i where ${photo ? true : false}::boolean
         )
         select id from i`,
+    // Only read when the insert was skipped (ins empty): the earliest recent rec that tripped the guard.
+    txn`select d.id from recommendations d
+        where ${guard}::boolean and d.source = ${rec.source}::text
+          and d.created_at > now() - make_interval(secs => ${windowSecs}::float8)
+          and (
+            (regexp_replace(btrim(regexp_replace(regexp_replace(regexp_replace(lower(d.canonical_name), '[(][^)]*[)]|[[][^]]*[]]', ' ', 'g'), '[''’]', '', 'g'), '[^[:alnum:]]+', ' ', 'g')), '^(the|a|an) ', '') = ${titleKey}::text
+             and (${creatorKey}::text is null or regexp_replace(btrim(regexp_replace(regexp_replace(regexp_replace(lower(coalesce(d.creator, '')), '[(][^)]*[)]|[[][^]]*[]]', ' ', 'g'), '[''’]', '', 'g'), '[^[:alnum:]]+', ' ', 'g')), '^(the|a|an) ', '') = ${creatorKey}::text))
+            or (${rec.appleMusicId}::text is not null and d.apple_music_id = ${rec.appleMusicId}::text)
+          )
+        order by d.id limit 1`,
   ]);
-  return { id: Number(ins![0]!.id), upgraded: false };
+  if (ins!.length > 0) return { id: Number(ins![0]!.id), upgraded: false };
+  if (dup!.length === 0) throw new Error("capture insert skipped without a duplicate");
+  return { id: Number(dup![0]!.id), upgraded: false, duplicate: true };
 }
 
-async function findExisting(rec: CaptureRec): Promise<number | null> {
+interface ExistingRec {
+  id: number;
+  imageUrl: string | null;
+  appleMusicId: string | null;
+  links: Record<string, unknown>;
+}
+
+// An upgrade only fills gaps: image, Apple Music id, and link keys the rec does not have yet.
+function upgradeWouldChange(e: ExistingRec, rec: CaptureRec): boolean {
+  return (
+    (e.imageUrl === null && rec.imageUrl !== null) ||
+    (e.appleMusicId === null && rec.appleMusicId !== null) ||
+    Object.keys(rec.links).some((k) => !(k in e.links)) ||
+    rec.photo !== undefined // a photo capture always adds its photos row
+  );
+}
+
+async function findExisting(rec: CaptureRec): Promise<ExistingRec | null> {
   if (rec.beeConversationId === null) return null;
-  const rows = await db()`select id, canonical_name from recommendations
+  const rows = await db()`select id, canonical_name, image_url, apple_music_id, links from recommendations
                           where bee_conversation_id = ${rec.beeConversationId} order by id`;
   const hit = rows.find((r) => sameNormalizedName(String(r.canonical_name), rec.canonicalName));
-  return hit ? Number(hit.id) : null;
-}
-
-async function findRecentDuplicate(rec: CaptureRec, windowMs: number): Promise<number | null> {
-  const rows = await db()`select id, canonical_name, creator from recommendations
-                          where source = ${rec.source}::text and created_at > now() - make_interval(secs => ${windowMs / 1000}::float8)
-                          order by id desc`;
-  const hit = rows.find(
-    (r) => sameNormalizedName(String(r.canonical_name), rec.canonicalName) &&
-      (!rec.creator || (r.creator !== null && sameNormalizedName(String(r.creator), rec.creator))),
-  );
-  return hit ? Number(hit.id) : null;
+  return hit
+    ? { id: Number(hit.id), imageUrl: (hit.image_url as string | null) ?? null, appleMusicId: (hit.apple_music_id as string | null) ?? null, links: (hit.links as Record<string, unknown>) ?? {} }
+    : null;
 }

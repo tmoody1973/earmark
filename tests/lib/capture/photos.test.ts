@@ -146,6 +146,23 @@ describe("handlePhotoCapture", () => {
       process.env.EARMARK_CAPTURE_TOKEN = saved;
     }
   });
+  it.each([
+    ["findConversation", { findConversation: vi.fn(async () => { throw new Error("bee down"); }) }],
+    ["pickWindow", { pickWindow: vi.fn(async () => { throw new Error("model down"); }) }],
+    ["attribute", { attribute: vi.fn(async () => { throw new Error("model down"); }) }],
+  ])("still saves, unlinked, when %s throws", async (_n, over) => {
+    const d = deps(over);
+    const res = await handlePhotoCapture(req(photoForm()), d as never);
+    expect(res.status).toBe(201);
+    expect(d.save.mock.calls[0]![0]).toMatchObject({ beeConversationId: null, recommenderName: null, attributionSource: "none", excerpt: "" });
+    expect(d.save.mock.calls[0]![0].photo.conversationId).toBeNull();
+    expect(d.afterCreated).toHaveBeenCalledWith(42);
+  });
+  it("still fails the request when classification throws (nothing to save)", async () => {
+    const d = deps({ classify: vi.fn(async () => { throw new Error("model down"); }) });
+    expect((await handlePhotoCapture(req(photoForm()), d as never)).status).toBe(500);
+    expect(d.save).not.toHaveBeenCalled();
+  });
   it("deletes the uploaded thumbnail when the save fails, and answers 500 without detail", async () => {
     const d = deps({ save: vi.fn(async (_rec: unknown) => { throw new Error("db down with secret text"); }) });
     const res = await handlePhotoCapture(req(photoForm()), d as never);

@@ -20,7 +20,7 @@ const deps = (over: Record<string, unknown> = {}) => ({
   afterCreated: vi.fn((_id: number) => undefined),
   ...over,
 });
-const good = { title: "Movement 1", artist: "Floating Points", apple_music_url: AM, captured_at: "2026-10-18T19:00:00Z", lat: "43.04", lng: "-87.91" };
+const good = { title: "Movement 1", artist: "Floating Points", apple_music_url: AM, captured_at: new Date(Date.now() - 60_000).toISOString(), lat: "43.04", lng: "-87.91" };
 
 describe("appleMusicSongId", () => {
   it("reads the ?i= song id from an album URL", () => {
@@ -73,6 +73,8 @@ describe("handleSongCapture", () => {
     ["lng out of range", { title: "x", lat: "10", lng: "181" }],
     ["lat without lng", { title: "x", lat: "10" }],
     ["non-numeric lat", { title: "x", lat: "abc", lng: "1" }],
+    ["captured_at over a day in the future", { title: "x", captured_at: new Date(Date.now() + 2 * 86_400_000).toISOString() }],
+    ["captured_at over a day in the past", { title: "x", captured_at: new Date(Date.now() - 2 * 86_400_000).toISOString() }],
     ["JSON that is not an object", null],
   ])("400 on %s", async (_n, body) => {
     const d = deps();
@@ -113,8 +115,33 @@ describe("handleSongCapture", () => {
     const d = deps({ save: vi.fn(async () => ({ id: 55, upgraded: false, duplicate: true })) });
     const res = await handleSongCapture(post(good), d as never);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ duplicate: true, recId: 55 });
+    expect(await res.json()).toMatchObject({ duplicate: true, id: 55 });
     expect(d.afterCreated).not.toHaveBeenCalled();
+  });
+  it("accepts a captured_at within a day of now", async () => {
+    const d = deps();
+    expect((await handleSongCapture(post({ title: "x", captured_at: new Date(Date.now() - 3_600_000).toISOString() }), d as never)).status).toBe(201);
+  });
+  it("413 when content-length or the real byte size is over 16 KB (measured in bytes)", async () => {
+    const d = deps();
+    const big = new Request("https://earmark.test/api/capture/song", {
+      method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json", "content-length": "20000" }, body: JSON.stringify({ title: "x" }),
+    });
+    expect((await handleSongCapture(big, d as never)).status).toBe(413);
+    // 6000 four-byte characters = 24 000 bytes but only 6000 string characters
+    expect((await handleSongCapture(post({ title: "x", artist: "😀".repeat(100), apple_music_url: "https://music.apple.com/" + "é".repeat(8000) }), d as never)).status).toBe(413);
+    expect(d.save).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["findConversation", { findConversation: vi.fn(async () => { throw new Error("bee down"); }) }],
+    ["pickWindow", { pickWindow: vi.fn(async () => { throw new Error("model down"); }) }],
+    ["attribute", { attribute: vi.fn(async () => { throw new Error("model down"); }) }],
+  ])("still saves, unlinked, when %s throws", async (_n, over) => {
+    const d = deps(over);
+    const res = await handleSongCapture(post(good), d as never);
+    expect(res.status).toBe(201);
+    expect(d.save.mock.calls[0]![0]).toMatchObject({ beeConversationId: null, recommenderName: null, attributionSource: "none", excerpt: "", canonicalName: "Movement 1" });
+    expect(d.afterCreated).toHaveBeenCalledWith(77);
   });
   it("500 when the save fails, and schedules nothing", async () => {
     const d = deps({ save: vi.fn(async () => { throw new Error("boom"); }) });
