@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({ mock: undefined as unknown as ReturnType<typeof im
 vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 
 import { buildLedger, tasteLine } from "../../../agent/lib/garden/ledger";
-import { getRecommenderPage, getTasteLedger, type RecCardData } from "../../../agent/lib/garden/queries";
+import { HIDDEN_TIP_STATUSES, getRecommenderPage, getTasteLedger, type RecCardData } from "../../../agent/lib/garden/queries";
 
 type Tip = Pick<RecCardData, "id" | "name" | "saidAt" | "status" | "rating" | "recommender">;
 let nextId = 1;
@@ -76,14 +76,16 @@ describe("ledger queries", () => {
   beforeEach(() => { h.mock = makeMockDb(); });
   afterEach(() => { delete process.env.EARMARK_OWNER_FIRST_NAME; });
 
-  it("reads every visible tip (not dismissed or composted) with no row limit, and never the counter columns", async () => {
+  it("reads every visible tip (the shelf's own rule) with no row limit, only the columns it counts", async () => {
     h.mock.queue.push([row({ id: 1 }), row({ id: 2, recommender_id: null, first_name: null })]);
     const ledger = await getTasteLedger();
     expect(ledger.people).toHaveLength(1);
     expect(ledger.unknown).toBe(1);
     const text = h.mock.calls[0].text;
-    expect(text).toContain("r.status not in ('dismissed','composted')");
+    expect(text).toContain("r.status <> all(?::text[])");
+    expect(h.mock.calls[0].values).toContain(HIDDEN_TIP_STATUSES);
     expect(text).not.toMatch(/\blimit\b/);
+    for (const unused of ["image_url", "context_summary", "links", "creator", "lat"]) expect(text).not.toContain(unused);
     expect(text).not.toContain("recs_");
     expect(text).not.toContain("raw_text");
     expect(text).not.toContain("excerpt");
@@ -104,6 +106,8 @@ describe("ledger queries", () => {
     expect(page?.recs.map((r) => r.id)).toEqual([1, 2]);
     expect(h.mock.calls[0].values).toContain(3);
     expect(h.mock.calls[0].text).toContain("order by r.said_at desc");
+    expect(h.mock.calls[0].text).toContain("r.status <> all(?::text[])");
+    expect(h.mock.calls[0].values).toContain(HIDDEN_TIP_STATUSES);
   });
 
   it("has no page for an unknown id, a person with no visible tips, or the owner", async () => {
