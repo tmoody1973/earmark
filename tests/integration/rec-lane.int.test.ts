@@ -24,7 +24,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   };
   const row = async (id: number) => (await c.query(
     `select status, canonical_name, creator, image_url, links, enrichment_status, enrich_attempts, review_reason,
-            art_retry_mbid, art_retries, extract(epoch from (enrich_next_at - now())) / 60 as next_in_min
+            art_retry_mbid, art_retries, extract(epoch from (enrich_next_at - now())) / 60 as next_in_min,
+            extract(epoch from (now() - pending_since)) / 60 as pending_for_min
      from recommendations where id = $1`, [id])).rows[0];
   const match = (over: Partial<EnrichmentMatch> = {}): EnrichmentMatch =>
     ({ canonicalName: "Night Garden", creator: "Mara Vell", yearOrAddress: "2021", imageUrl: "https://img/new.jpg",
@@ -66,8 +67,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(b.links).toEqual({ openlibrary: "https://openlibrary.org/works/OL1W", url: "https://mine.example" });
     expect(b.review_reason).toBe("no_recommender"); // matched, but nobody to credit
     // Jev saw candidates and said none fits: one more look an hour later, then final.
+    await c.query(`update recommendations set pending_since = now() - interval '9 days' where id = $1`, [maybe]);
+    await c.query(`update recommendations set enrich_next_at = now(), enrich_attempts = 0 where id = $1`, [maybe]);
+    await sweepRecLane({ enrich, pick, env: {}, onlyIds: [maybe] }); // first look again, to watch the clock restart
     const m1 = await row(maybe);
     expect(m1).toMatchObject({ enrichment_status: "pending", enrich_attempts: 1, review_reason: null });
+    expect(Number(m1.pending_for_min)).toBeLessThan(1);
     expect(Number(m1.next_in_min)).toBeGreaterThan(59);
     await c.query(`update recommendations set enrich_next_at = now() where id = $1`, [maybe]);
     expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [maybe] })).toMatchObject({ tried: 1, noMatch: 1 });
@@ -86,6 +91,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const enrich = vi.fn(async () => null) as unknown as Enrich; // nothing found: Jev never asked
     expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: [id] })).toMatchObject({ tried: 1, noMatch: 1, jevCalls: 0 });
     expect(await row(id)).toMatchObject({ enrichment_status: "no_match", enrich_attempts: 0, review_reason: "no_match" });
+  });
+
+  it("reasons are set only on final outcomes, and a later final outcome replaces an earlier reason", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec();
+    await c.query(`update recommendations set review_reason = 'no_recommender' where id = $1`, [id]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const flaky = vi.fn(async () => { throw Object.assign(new Error("x"), { name: "TimeoutError" }); }) as unknown as Enrich;
+    await sweepRecLane({ enrich: flaky, pick, env: {}, onlyIds: [id] }); // retry: not final, reason untouched
+    expect(await row(id)).toMatchObject({ enrichment_status: "pending", review_reason: "no_recommender" });
+
+    await c.query(`update recommendations set enrich_next_at = now() where id = $1`, [id]);
+    const nothing = vi.fn(async () => null) as unknown as Enrich;
+    await sweepRecLane({ enrich: nothing, pick, env: {}, onlyIds: [id] });
+    expect(await row(id)).toMatchObject({ enrichment_status: "no_match", review_reason: "no_match" });
   });
 
   it("a failed rec backs off, is skipped while waiting, and is given up after the last attempt", async () => {
@@ -125,8 +145,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     await sweepRecLane({ enrich: ok, pick, env: {}, onlyIds: [first, second] });
     expect(vi.mocked(ok).mock.calls.map(([r]) => (r as RecToEnrich).id)).toEqual([second]);
 
+    // The week is counted from when the tip entered the queue, not from when it was said.
+    const backlog = await addRec();
+    await c.query(`update recommendations set created_at = now() - interval '30 days' where id = $1`, [backlog]);
+    await sweepRecLane({ enrich: busy, pick, env: {}, onlyIds: [backlog] });
+    expect(await row(backlog)).toMatchObject({ enrichment_status: "pending", enrich_attempts: 0 });
+
     const old = await addRec();
-    await c.query(`update recommendations set created_at = now() - interval '8 days' where id = $1`, [old]);
+    await c.query(`update recommendations set pending_since = now() - interval '8 days' where id = $1`, [old]);
     await sweepRecLane({ enrich: busy, pick, env: {}, onlyIds: [old] });
     expect(await row(old)).toMatchObject({ enrichment_status: "failed", enrich_attempts: 0 });
   });
@@ -197,8 +223,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const { runRecLane } = await lane();
     const id = await addRec();
     await c.query(`update recommendations set enrich_next_at = now() + interval '1 hour' where id = $1`, [id]);
+    await c.query(`update recommendations set pending_since = now() - interval '9 days' where id = $1`, [id]);
     expect(await runRecLane(id)).toEqual({ queued: true });
     expect(Number((await row(id)).next_in_min)).toBeLessThanOrEqual(0);
+    expect(Number((await row(id)).pending_for_min)).toBeLessThan(1); // the give-up clock restarts
     await c.query(`update recommendations set enrichment_status = 'matched' where id = $1`, [id]);
     expect(await runRecLane(id)).toEqual({ queued: false });
   });

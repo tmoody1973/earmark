@@ -18,7 +18,7 @@ export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip; tips with no c
 export const MAX_ATTEMPTS = 5; // failures (not 503s, not second looks' own no_match) → then 'failed'
 export const SWEEP_BUDGET_MS = 240_000; // stop starting new tips after 4 min, far inside the 15-min lease
 export const BUSY_RETRY_MINUTES = 15; // a 503/429 sends that tip to the back for this long, attempt not counted
-export const BUSY_GIVE_UP_DAYS = 7; // …unless the tip is older than this: then it's 'failed'
+export const BUSY_GIVE_UP_DAYS = 7; // …unless it has been pending (pending_since) longer than this: then it's 'failed'
 export const SECOND_LOOK_MINUTES = 60;
 export const MAX_ART_RETRIES_PER_RUN = 3;
 export const MAX_ART_TRIES = 3;
@@ -64,7 +64,7 @@ export interface SweepDeps {
 
 /** "Enrich this tip soon": pulls a pending tip to the front of the next sweep. Never calls a provider. */
 export async function runRecLane(recId: number): Promise<{ queued: boolean }> {
-  const rows = await db()`update recommendations set enrich_next_at = now()
+  const rows = await db()`update recommendations set enrich_next_at = now(), pending_since = now()
     where id = ${recId} and enrichment_status = 'pending' returning id`;
   return { queued: rows.length > 0 };
 }
@@ -125,7 +125,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       } else if (r.jevCalls > jevBefore && attempts === 0) {
         // Jev saw candidates and said none fits: one more look later (a flaky near-0.8 call, rec 160). The second
         // no_match is final. ponytail: "first look" = no attempts yet, so a tip that errored earlier gets no second look.
-        await db()`update recommendations set enrich_attempts = 1,
+        await db()`update recommendations set enrich_attempts = 1, pending_since = now(),
             enrich_next_at = now() + make_interval(mins => ${SECOND_LOOK_MINUTES})
           where id = ${id} and enrichment_status = 'pending'`;
         r.secondLook++;
@@ -171,10 +171,11 @@ async function saveMatch(id: number, m: EnrichmentMatch): Promise<void> {
     where id = ${id} and enrichment_status = 'pending' and status <> all(${SWEEP_SKIPS_STATUSES}::text[])`;
 }
 
-// 503/429: to the back of the line without an attempt, so one busy service never pins the queue; a week-old tip gives up.
+// 503/429: to the back of the line without an attempt, so one busy service never pins the queue; a tip pending for
+// over a week gives up.
 async function saveBusy(id: number): Promise<void> {
   await db()`update recommendations set enrich_next_at = now() + make_interval(mins => ${BUSY_RETRY_MINUTES}),
-      enrichment_status = case when created_at < now() - make_interval(days => ${BUSY_GIVE_UP_DAYS}) then 'failed' else 'pending' end
+      enrichment_status = case when pending_since < now() - make_interval(days => ${BUSY_GIVE_UP_DAYS}) then 'failed' else 'pending' end
     where id = ${id} and enrichment_status = 'pending'`;
 }
 
@@ -188,10 +189,12 @@ async function saveFailure(id: number, attempts: number): Promise<boolean> {
   return gaveUp;
 }
 
+// Final outcomes only (matched, final no_match, failed): a still-pending tip keeps whatever reason it has. A final
+// outcome recomputes from scratch, so it replaces an earlier reason (no_recommender → no_match).
 async function applyReviewReason(id: number): Promise<void> {
   const [row] = await db()`select status, review_reason, recommender_id, enrichment_status from recommendations where id = ${id}`;
-  if (!row) return; // forgotten mid-sweep
-  const reason = reviewReasonFor(row as Parameters<typeof reviewReasonFor>[0]);
+  if (!row || row.enrichment_status === "pending") return; // forgotten mid-sweep, or not final yet
+  const reason = reviewReasonFor({ ...(row as Parameters<typeof reviewReasonFor>[0]), review_reason: null });
   if (reason !== row.review_reason) await db()`update recommendations set review_reason = ${reason} where id = ${id}`;
 }
 
