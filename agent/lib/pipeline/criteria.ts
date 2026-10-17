@@ -63,6 +63,8 @@ export const REC_TYPE_CRITERIA = {
     "Examples that are video: 'watch this YouTube video about bridges'; 'you have to see this TikTok'; " +
     "'check out that clip of the cat playing piano'. " +
     "A film or TV series is film_tv, even when it streams online ('you should watch Severance' is film_tv). " +
+    "A full-length documentary or film is film_tv, even on YouTube; a clip, vlog or video essay is video. " +
+    "A video the speaker made, or one merely mentioned, is not a tip: choose none unless someone is told to watch it. " +
     "A podcast is podcast, even when it is filmed ('listen to the latest Hard Fork' is podcast). " +
     "A song's music video is video only when the video itself is the tip ('you have to watch the video for X'); " +
     "a tip to hear the song is song.",

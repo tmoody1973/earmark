@@ -32,7 +32,7 @@ export async function enrichRec(rec: RecToEnrich, deps: EnrichDeps = {}): Promis
   if (MUSIC.has(rec.type)) {
     return enrichMusic({ recId: rec.id, query, described, excerpt: rec.excerpt }, { fetchImpl, pick, apple: appleAccess(env) });
   }
-  if (rec.type === "video") return enrichVideo({ ...query, url: youtubeVideoUrl(rec.links) }, fetchImpl);
+  if (rec.type === "video") return enrichVideo({ ...query, url: youtubeVideoUrl(rec.links) }, rec.excerpt, fetchImpl);
   const provider = providerFor(rec.type, env);
   if (!provider) throw new Error(`enrich: no provider configured for ${rec.type}`);
   return pick({ described, excerpt: rec.excerpt }, await runProvider(provider.def, query, fetchImpl));

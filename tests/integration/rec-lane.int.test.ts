@@ -420,10 +420,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const enrich: Enrich = (r, deps) => enrichRec(r, { ...deps, fetchImpl: fetchImpl as never });
 
     const res = await sweepRecLane({ enrich, pick, env: {}, onlyIds: [spoken, emailed] });
-    expect(res).toMatchObject({ status: "done", tried: 2, matched: 2, jevCalls: 0 });
+    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, noMatch: 1, jevCalls: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(1); // only the tip that carries a URL; a spoken title runs no search
-    expect(await row(spoken)).toMatchObject({ enrichment_status: "matched", image_url: null,
-      links: { primary: "https://www.youtube.com/results?search_query=Veritasium" } });
+    // link only (nothing identified): no_match, so it reaches review (M3-T9), but the search link is kept for the card
+    expect(await row(spoken)).toMatchObject({ enrichment_status: "no_match", review_reason: "no_match", image_url: null,
+      canonical_name: "Veritasium", links: { primary: "https://www.youtube.com/results?search_query=Veritasium" } });
     const e = await row(emailed);
     expect(e).toMatchObject({ enrichment_status: "matched", canonical_name: "The Art of Code - Dylan Beattie",
       creator: "NDC Conferences", image_url: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg" });
