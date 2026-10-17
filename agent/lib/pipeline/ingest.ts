@@ -2,6 +2,7 @@ import { createBeeClient, toDate } from "../bee/client";
 import { parseEarmarkTrigger } from "../bee/trigger";
 import { conversationRef, isJournalComplete, type BeeEvent } from "../bee/events";
 import { shapeOf } from "../bee/webhook";
+import { handleLocationUpdate } from "../recs/nudges";
 import { draftBlooms } from "../ideas/one-pager";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
 import { handleTodoChange } from "../sync/handlers";
@@ -73,6 +74,11 @@ async function dispatch(evt: BeeEvent, deps: Partial<PipelineDeps>): Promise<voi
       const r = await processConversation(evt.data.conversation_id, deps);
       console.log(`[bee] conversation ${evt.data.conversation_id}`, r);
       return draftIfBloomed(r.saved);
+    }
+    case "update-location": {
+      const outcome = await handleLocationUpdate(evt.data.location);
+      console.info("[earmark] update-location", { outcome });
+      return;
     }
     case "journal-created":
     case "journal-updated": {

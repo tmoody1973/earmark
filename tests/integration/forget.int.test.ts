@@ -2,6 +2,17 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 import type { ExternalDeps, ForgetHook, ForgetHookContext } from "../../agent/lib/privacy/forget";
 
+// Lane C's episodes hook deletes audio with @vercel/blob's del: faked here, so no Blob call is made.
+const blobDel = vi.hoisted(() => vi.fn<(url: string) => Promise<void>>(async () => {}));
+vi.mock("@vercel/blob", async (orig) => ({ ...(await orig<typeof import("@vercel/blob")>()), del: blobDel }));
+
+// Lane C's place_nudges hook deletes Bee todos through createBeeClient: faked here too, so no Bee call is made.
+const beeDel = vi.hoisted(() => vi.fn<(id: number) => Promise<void>>(async () => {}));
+vi.mock("../../agent/lib/bee/client", async (orig) => ({
+  ...(await orig<typeof import("../../agent/lib/bee/client")>()),
+  createBeeClient: () => ({ deleteTodo: beeDel }),
+}));
+
 // Real Neon test on the `test` branch: needs TEST_DATABASE_URL (never production). Skipped when absent.
 // External services are fakes: no Bee, Notion or Blob call is ever made from here.
 const RUN = Date.now() % 1_000_000_000;
@@ -70,12 +81,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
   });
 
   afterAll(async () => {
+    await c.query(`delete from bee_sync where entity_type = 'place_nudge' and bee_id = $1`, [beeId(9)]);
+    await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and bee_id = any($1::bigint[])`, [[beeId(5), beeId(6)]]);
     await c.query(`delete from recommendations where id = any($1::bigint[])`, [recIds]);
     await c.query(`delete from idea_clusters where id = any($1::bigint[])`, [clusterIds]);
     await c.query(`delete from spaces where id = any($1::bigint[])`, [spaceIds]);
     await c.query(`delete from recommenders where first_name like $1`, [`${NAME}%`]);
     await c.query(`delete from resort_backup where run_id = $1`, [`it-forget-${RUN}`]);
     await c.query(`delete from fact_proposals where text = $1`, [`it-forget-${RUN}`]);
+    await c.query(`delete from gardener_runs where output_md like $1`, [`%it-forget-${RUN}%`]);
+    await c.query(`delete from episodes where script_md like $1`, [`%it-forget-${RUN}%`]);
     c.release();
     await pool.end();
   });
@@ -388,6 +403,72 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await forget(c, { type: "mention", id: live }, { yes: true, deps: fakeDeps() as ExternalDeps });
     expect(await count(`idea_mentions where cluster_id = $1`, [cid])).toBe(0);
   });
+
+  it("lane C hooks: forgetting a rec removes the episode and gardener draft naming its recommender, audio last", async () => {
+    const { forget } = await mod();
+    const { FORGET_HOOKS } = await import("../../agent/lib/privacy/forget-hooks");
+    const who = `${NAME}c`;
+    const id = await addRec(await addRecommender(who));
+    const week = (RUN % 100_000) * 2; // days after 2300-01-01: unique per run, never a real week
+    const episode = async (offset: number, script: string, audio: string) => Number((await one(
+      `insert into episodes (week_of, script_md, audio_url) values (date '2300-01-01' + $1::int, $2, $3) returning id`,
+      [week + offset, `${script} it-forget-${RUN}`, audio])).id);
+    const named = await episode(0, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
+    const other = await episode(1, "Nobody named.", `https://blob.test/${RUN}-other.mp3`);
+    const run = async (text: string) => Number((await one(
+      `insert into gardener_runs (gardener_id, output_md) values ((select id from gardeners order by id limit 1), $1) returning id`,
+      [`${text} it-forget-${RUN}`])).id);
+    const draft = await run(`## Pitch\n${who}'s tip.`);
+    const keep = await run("No one named.");
+    blobDel.mockClear();
+    beeDel.mockClear();
+    // a rec nudged on two days: each day is its own place_nudges row and its own Bee todo
+    const nudge = async (day: string, bee: number) => {
+      const nid = Number((await one(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, $2::date, $3) returning id`, [id, day, bee])).id);
+      await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [nid, bee]);
+      return nid;
+    };
+    // negative control: a live nudge of a DIFFERENT rec must survive, Bee todo included
+    const otherRec = await addRec(null);
+    const otherNudge = Number((await one(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, date '2026-10-18', $2) returning id`, [otherRec, beeId(9)])).id);
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [otherNudge, beeId(9)]);
+    const nudgeIds = [await nudge("2026-10-18", beeId(7)), await nudge("2026-10-19", beeId(8))];
+    // a loved rec's thank-you receipt with its Bee reminder (M5-T6), and a negative control on another rec
+    const receipt = async (recId: number, bee: number) => {
+      const rid = Number((await one(
+        `insert into rec_receipts (recommendation_id, message, share_token, bee_todo_id) values ($1, 'it-forget thanks', $2, $3) returning id`,
+        [recId, `it-forget-${RUN}-${bee}`, bee])).id);
+      await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('rec_receipt', $1, 'todo', $2)`, [rid, bee]);
+      return rid;
+    };
+    const otherReceipt = await receipt(otherRec, beeId(5));
+    const receiptId = await receipt(id, beeId(6));
+
+    const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    expect(r.lines).toContain(`hook place_nudges: place_nudges 2 (bee todos ${beeId(7)}, ${beeId(8)})`);
+    expect(r.lines).toContain(`hook rec_receipts: rec_receipts 1 (bee todos ${beeId(6)})`);
+    expect(beeDel.mock.calls).toEqual([[beeId(7)], [beeId(8)], [beeId(6)]]);
+    expect(await count(`bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [receiptId])).toBe(0);
+    expect(await count(`bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [otherReceipt])).toBe(1);
+    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = any($1::bigint[])`, [nudgeIds])).toBe(0);
+    expect(beeDel.mock.calls.flat()).not.toContain(beeId(9));
+    expect(beeDel.mock.calls.flat()).not.toContain(beeId(5));
+    expect(await count(`place_nudges where id = $1`, [otherNudge])).toBe(1);
+    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge])).toBe(1);
+    // clean up now: a lingering pending rec would be picked up by the enrichment int test sweeping the shared test DB
+    await c.query(`delete from bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [otherNudge]);
+    await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [otherReceipt]);
+    await c.query(`delete from recommendations where id = $1`, [otherRec]); // its receipt cascades
+    expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
+    expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
+    expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
+    expect(r.lines.join("\n")).not.toContain(who);
+    expect(blobDel.mock.calls).toEqual([[`https://blob.test/${RUN}-named.mp3`]]);
+    expect(await count(`episodes where id = any($1::bigint[])`, [[named, other]])).toBe(1);
+    expect(await count(`gardener_runs where id = any($1::bigint[])`, [[draft, keep]])).toBe(1);
+    expect(await count(`recommendations where id = $1`, [id])).toBe(0);
+  });
+
   // Merges (M4-T6, decision 027): a forget that touches a merge ends its undo, and leaves no text behind anywhere.
   const MOVED_AT = "2026-10-04T15:00:00.000Z";
   const mergedPair = async () => {

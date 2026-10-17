@@ -63,6 +63,10 @@ export default async function Garden() {
             <div>
               <h1>Earmark</h1>
               <p>Small moments. A bigger mind.</p>
+              <Link className="garden-lookback" href="/search">
+                <Icon name="search" size={16} />
+                Look back by who, where or when
+              </Link>
             </div>
             <Icon name="sprout" size={30} className="garden-mark" />
           </header>
