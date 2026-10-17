@@ -283,6 +283,44 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(await why(id)).toEqual({ context_summary: "The noodles are hand-pulled.", done: true });
   });
 
+  it("tips whose call always fails go to the back, never block older tips, and give up after 3 attempts", async () => {
+    const { sweepRecLane, MAX_SUMMARY_ATTEMPTS } = await lane();
+    const older = await addRec({ name: "older" });
+    const bad = [await addRec({ name: "bad" }), await addRec({ name: "bad" }), await addRec({ name: "bad" })]; // newest first in line
+    const all = [older, ...bad];
+    await c.query(`update recommendations set enrichment_status = 'matched' where id = any($1::bigint[])`, [all]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const summarize = vi.fn(async (i: { name: string }) => {
+      if (i.name === "bad") throw Object.assign(new Error("x"), { name: "AI_APICallError" });
+      return "Worth the drive for the view.";
+    });
+    const run = () => sweepRecLane({ env: {}, onlyIds: all, summarize });
+
+    expect(await run()).toMatchObject({ summarized: 0, summaryFailed: 3 }); // 3 in a row: the run stops asking
+    expect(await why(older)).toEqual({ context_summary: null, done: false });
+    expect(await run()).toMatchObject({ summarized: 1 }); // the least-tried tip goes first
+    expect(await why(older)).toEqual({ context_summary: "Worth the drive for the view.", done: true });
+
+    for (let i = 2; i < MAX_SUMMARY_ATTEMPTS; i++) await run();
+    expect(await run()).toMatchObject({ summarized: 0 }); // nothing left to ask
+    const gaveUp = await c.query(`select context_summary, summarized_at is not null as done, summary_attempts
+      from recommendations where id = any($1::bigint[])`, [bad]);
+    expect(gaveUp.rows).toEqual(bad.map(() => ({ context_summary: null, done: true, summary_attempts: MAX_SUMMARY_ATTEMPTS })));
+    expect(summarize.mock.calls.filter(([i]) => i.name === "bad")).toHaveLength(bad.length * MAX_SUMMARY_ATTEMPTS);
+  });
+
+  it("a crash in the why step is logged and the sweep still embeds and finishes", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec({ name: "crashy" });
+    await c.query(`update recommendations set enrichment_status = 'matched', bee_conversation_id = 4244 where id = $1`, [id]);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const beeSummary = () => { throw Object.assign(new Error("x"), { name: "TypeError" }); }; // throws before any promise
+    const embedRecs = vi.fn(async () => 0);
+    expect(await sweepRecLane({ env: {}, onlyIds: [id], beeSummary: beeSummary as never, embedRecs })).toMatchObject({ status: "done" });
+    expect(embedRecs).toHaveBeenCalled();
+    expect(err.mock.calls.flat().join(" ")).toMatch(/rec-lane whys failed.*error=TypeError/);
+  });
+
   it("a match that renames a tip drops its embedding; a match that changes nothing keeps it", async () => {
     const { sweepRecLane } = await lane();
     const renamed = await addRec({ name: "night garden" });

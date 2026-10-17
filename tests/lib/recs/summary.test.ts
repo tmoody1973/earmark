@@ -48,6 +48,26 @@ describe("writeContextSummary", () => {
     expect(SUMMARY_INSTRUCTIONS).toMatch(/first names only/i);
   });
 
+  it("names the recommender by first name, or no one when unknown; never 'the speaker'", () => {
+    expect(SUMMARY_INSTRUCTIONS).toMatch(/recommender by the first name given/i);
+    expect(SUMMARY_INSTRUCTIONS).toMatch(/unknown, write the line without naming anyone/i);
+    expect(SUMMARY_INSTRUCTIONS).toMatch(/never write "the speaker" or "someone"/i);
+    expect(SUMMARY_INSTRUCTIONS.replace(/never write "the speaker" or "someone"/i, "")).not.toMatch(/the speaker|someone/i);
+  });
+
+  it("the owner becomes 'you' in the excerpt and Bee summary, so the why is not lost to the output guard", async () => {
+    vi.stubEnv("EARMARK_OWNER_FIRST_NAME", "Tarik Moody");
+    const g = gen("x");
+    const excerpt = "tarik you should try it, Tarik's kind of place, " + Array.from({ length: 30 }, () => "w").join(" ");
+    await write(g, { excerpt, beeSummary: "Ann told Tarik about Ramen-Ya at lunch." });
+    const prompt = g.mock.calls[0]![0].prompt;
+    expect(prompt).not.toMatch(/tarik/i);
+    expect(prompt).toContain("you you should try it, your kind of place");
+    expect(prompt).toContain("Ann told you about Ramen-Ya");
+    const ex = prompt.split("<excerpt>\n")[1]!.split("\n</excerpt>")[0]!;
+    expect(ex.split(/\s+/).length).toBeLessThanOrEqual(25);
+  });
+
   it("bounds a long Bee summary before it reaches the model", async () => {
     const g = gen("x");
     await write(g, { beeSummary: Array.from({ length: 500 }, () => "word").join(" ") });

@@ -30,6 +30,7 @@ export const REC_LANE_LEASE = "rec_lane_lease"; // sync_cursors row: cursor = th
 // while a backlog lasts and none once it's gone. Embeddings: one embedMany call per run (recEmbedText, 30 s timeout).
 export const MAX_SUMMARIES_PER_RUN = 10;
 export const MAX_SUMMARY_FAILURES_IN_A_ROW = 3; // the gateway is down: stop asking until the next run
+export const MAX_SUMMARY_ATTEMPTS = 3; // a tip whose call fails 3 times is done: summarized_at set, why null
 export const MAX_EMBEDS_PER_RUN = 20;
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
@@ -166,7 +167,13 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     await applyReviewReason(id);
   }
   if (!overBudget()) await retryArt(d, r);
-  if (!overBudget()) await writeWhys(d, r, overBudget);
+  if (!overBudget()) {
+    try {
+      await writeWhys(d, r, overBudget);
+    } catch (err) {
+      logEnrichError("rec-lane whys", {}, err); // the embed step below still runs
+    }
+  }
   if (!overBudget()) {
     try {
       r.embedded = await d.embedRecs(MAX_EMBEDS_PER_RUN); // what the whys above just changed, plus any backlog
@@ -180,14 +187,15 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
 // The why (M3-T5): each visible tip or maybe is asked once (summarized_at), newest visible first, maybes last. The
 // excerpt is the source; Bee's conversation summary is context, and Bee being down only drops that context. A changed
 // why drops the embedding, so the embed step above writes it again from the new text (recEmbedText includes the why).
-// ponytail: a tip whose call always fails is asked again each run (1 call/run); add an attempts column if logs show one.
+// Least-tried first, so a tip whose call keeps failing goes to the back and never blocks the rest; after
+// MAX_SUMMARY_ATTEMPTS failures it is done with no why.
 async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
   const rows = await db()`
     select r.id, r.canonical_name, r.excerpt, r.bee_conversation_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.summarized_at is null and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
-    order by r.status = 'needs_review', r.id desc
+    order by r.summary_attempts, r.status = 'needs_review', r.id desc
     limit ${MAX_SUMMARIES_PER_RUN}`;
   let failuresInARow = 0;
   for (const row of rows) {
@@ -209,6 +217,9 @@ async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Prom
     } catch (err) {
       logEnrichError("rec-lane summary", { rec: id }, err);
       r.summaryFailed++;
+      await db()`update recommendations set summary_attempts = summary_attempts + 1,
+          summarized_at = case when summary_attempts + 1 >= ${MAX_SUMMARY_ATTEMPTS} then now() end
+        where id = ${id} and summarized_at is null`;
       failuresInARow++;
     }
   }
