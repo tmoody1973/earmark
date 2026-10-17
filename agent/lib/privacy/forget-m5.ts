@@ -1,7 +1,7 @@
 import { del } from "@vercel/blob";
 import { db } from "../db";
 
-// FR-30 coverage for the M5 stores, called by `pnpm forget` (existing or future) with a person's first name.
+// FR-30 coverage for the M5 stores, to be called by the forget script once it exists (wiring pending), with a person's first name.
 //   forgetPersonInEpisodes(firstName) -> { episodesDeleted }
 // Deletes every weekly episode whose script names the person (whole word, any case) and the episode's Blob audio.
 // The audio is deleted first; if that fails nothing is removed and the error is thrown so the forget can be re-run.
@@ -20,6 +20,7 @@ export async function forgetPersonInEpisodes(
   const name = firstName.trim();
   if (!name) return { episodesDeleted: 0 };
   const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, "iu");
+  // Loading every script is fine: there is one episode per week.
   const rows = (await deps.sql`select id, script_md, audio_url from episodes`) as { id: number | string; script_md: string; audio_url: string | null }[];
   const hits = rows.filter((r) => re.test(r.script_md));
   for (const r of hits) {

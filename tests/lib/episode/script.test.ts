@@ -30,3 +30,15 @@ it("retries when the owner's own name appears, and fails closed if it still does
   await expect(writeEpisodeScript(data, "2026-10-18", bad as never, "Odette")).rejects.toThrow(/owner/);
   expect(bad).toHaveBeenCalledTimes(2);
 });
+
+it("applies the same checks to the title, and to excerpt length and names in the script", async () => {
+  const t = vi.fn()
+    .mockResolvedValueOnce({ output: { title: "Odette's week", script: "word ".repeat(900) } })
+    .mockResolvedValueOnce(good());
+  await writeEpisodeScript(data, "2026-10-18", t as never, "Odette");
+  expect(t.mock.calls[1][0].prompt).toContain("owner");
+
+  const q = vi.fn().mockResolvedValue({ output: { title: "T", script: `Ann said "${"w ".repeat(30)}" ${"word ".repeat(900)}` } });
+  await expect(writeEpisodeScript(data, "2026-10-18", q as never, "Odette")).rejects.toMatchObject({ name: "ScriptRejectedError", message: expect.not.stringContaining("w w") });
+  expect(q).toHaveBeenCalledTimes(2);
+});

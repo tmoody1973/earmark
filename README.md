@@ -100,7 +100,7 @@ Setup: create an IAM user whose only permission is `polly:SynthesizeSpeech`, mak
 
 Feed address to add in a podcast app (Follow a Show by URL): `https://<production-host>/feed/<EARMARK_FEED_TOKEN>`. It lists only approved episodes, newest first. Anyone with the address can listen, so treat it like a password (decision 035); rotate by changing the token and re-subscribing.
 
-Approval: a new episode is saved unpublished. Once the gardeners screen lands (M5-T12) the episode appears there as a pending run; approving it sets `published_at` and it shows up in the feed. Until then nothing reaches the feed. One episode per Chicago week: running it again for the same week does nothing and costs nothing.
+Approval: a new episode is saved unpublished. Once the gardeners screen lands (M5-T12) the episode appears there as a pending run; approving it sets `published_at` and it shows up in the feed. Until then nothing reaches the feed. Follow-up: FR-30 wiring is pending. `forgetPersonInEpisodes` (agent/lib/privacy/forget-m5.ts) deletes a person's episodes and audio but no forget script calls it yet. One episode per Chicago week: running it again for the same week does nothing and costs nothing.
 
 ## Privacy and consent
 

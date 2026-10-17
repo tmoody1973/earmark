@@ -28,3 +28,11 @@ it("only ever queries approved episodes", async () => {
   await call("f".repeat(40));
   expect((sql.mock.calls[0][0] as string[]).join(" ")).toContain("published_at is not null");
 });
+it("404s (not 500) when the config is malformed, so the route is not confirmed", async () => {
+  vi.resetModules();
+  process.env.EARMARK_FEED_TOKEN = "short";
+  const { GET: G } = await import("../../app/feed/[token]/route");
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect((await G(new Request("https://earmark.test/feed/x"), { params: Promise.resolve({ token: "short" }) })).status).toBe(404);
+  err.mockRestore();
+});

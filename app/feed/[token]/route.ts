@@ -8,7 +8,13 @@ export const dynamic = "force-dynamic";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export async function GET(req: Request, { params }: { params: Promise<{ token: string }> }) {
-  const token = getEnv().EARMARK_FEED_TOKEN;
+  let token: string | undefined;
+  try {
+    token = getEnv().EARMARK_FEED_TOKEN;
+  } catch (e) {
+    // A config error (e.g. a malformed token) must look exactly like a wrong token, not a 500 that confirms the route.
+    console.error(`[feed] config error err=${e instanceof Error ? e.name : "unknown"}`);
+  }
   // 404, not 401: a wrong token must not confirm that this route exists.
   if (!token || !safeEqual((await params).token, token)) return new Response("not found", { status: 404 });
   const eps = (await db()`
