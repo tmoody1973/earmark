@@ -34,6 +34,7 @@ const EnvSchema = z.object({
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender
+  NUDGE_RADIUS_M: z.coerce.number().int().min(50).max(2000).default(300), // FR-16 place nudges; Bee location accuracy is unknown
 });
 export type Env = z.infer<typeof EnvSchema>;
 

@@ -69,9 +69,8 @@ type CreditRow = Pick<GardenRecRow, "recommender_id" | "first_name">;
 
 // Read-time guard: the garden's owner is never credited, even if an old row slipped past the write-side check.
 // First name against first name, as the write side compares (attribution.ts), so "Tarik Moody" in the env still matches.
-function credit(r: CreditRow): RecCardData["recommender"] {
+export function credit(r: CreditRow, owner = ownerFirstName()): RecCardData["recommender"] {
   const firstName = r.first_name?.trim();
-  const owner = ownerFirstName();
   const isOwnerName = !!firstName && !!owner && firstName.toLowerCase() === firstNameOnly(owner).toLowerCase();
   return r.recommender_id && firstName && !isOwnerName ? { id: Number(r.recommender_id), firstName } : null;
 }

@@ -1,7 +1,8 @@
 import { del } from "@vercel/blob";
 import type { PoolClient } from "@neondatabase/serverless";
 import type { ForgetHook } from "./forget";
-import { forgetPersonInEpisodes, forgetPersonInGardenerRuns, type Sql } from "./forget-m5";
+import { createBeeClient } from "../bee/client";
+import { forgetPersonInEpisodes, forgetPersonInGardenerRuns, forgetPlaceNudges, type Sql } from "./forget-m5";
 
 // Forgetters owned by other lanes, run by `pnpm forget --yes` INSIDE the locked Postgres transaction, after the item's
 // rows are deleted and after the Bee/Notion/Blob deletes. Use `ctx.c` (a pg PoolClient: `ctx.c.query(text, values)`) for
@@ -24,6 +25,14 @@ export const FORGET_HOOKS: readonly ForgetHook[] = [
       if (!ctx.recommenderFirstName) return "gardener_runs 0";
       const { runIds } = await forgetPersonInGardenerRuns(ctx.recommenderFirstName, { sql: sqlOver(ctx.c) });
       return `gardener_runs ${runIds.length}${ids(runIds)}`;
+    },
+  },
+  {
+    name: "place_nudges",
+    run: async (ctx) => {
+      if (ctx.target.type !== "rec") return "place_nudges 0";
+      const { beeTodoIds } = await forgetPlaceNudges(ctx.target.id, { sql: sqlOver(ctx.c), deleteTodo: (id) => createBeeClient().deleteTodo(id) });
+      return `place_nudges ${beeTodoIds.length}${beeTodoIds.length ? ` (bee todos ${beeTodoIds.join(", ")})` : ""}`;
     },
   },
   {

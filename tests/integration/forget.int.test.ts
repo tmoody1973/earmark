@@ -6,6 +6,13 @@ import type { ExternalDeps, ForgetHook, ForgetHookContext } from "../../agent/li
 const blobDel = vi.hoisted(() => vi.fn<(url: string) => Promise<void>>(async () => {}));
 vi.mock("@vercel/blob", async (orig) => ({ ...(await orig<typeof import("@vercel/blob")>()), del: blobDel }));
 
+// Lane C's place_nudges hook deletes Bee todos through createBeeClient: faked here too, so no Bee call is made.
+const beeDel = vi.hoisted(() => vi.fn<(id: number) => Promise<void>>(async () => {}));
+vi.mock("../../agent/lib/bee/client", async (orig) => ({
+  ...(await orig<typeof import("../../agent/lib/bee/client")>()),
+  createBeeClient: () => ({ deleteTodo: beeDel }),
+}));
+
 // Real Neon test on the `test` branch: needs TEST_DATABASE_URL (never production). Skipped when absent.
 // External services are fakes: no Bee, Notion or Blob call is ever made from here.
 const RUN = Date.now() % 1_000_000_000;
@@ -412,8 +419,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const draft = await run(`## Pitch\n${who}'s tip.`);
     const keep = await run("No one named.");
     blobDel.mockClear();
+    beeDel.mockClear();
+    await c.query(`insert into place_nudges (recommendation_id, nudged_on, bee_todo_id) values ($1, date '2026-10-18', $2)`, [id, beeId(7)]);
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('place_nudge', $1, 'todo', $2)`, [id, beeId(7)]);
 
     const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    expect(r.lines).toContain(`hook place_nudges: place_nudges 1 (bee todos ${beeId(7)})`);
+    expect(beeDel.mock.calls).toEqual([[beeId(7)]]);
+    expect(await count(`bee_sync where entity_type = 'place_nudge' and entity_id = $1`, [id])).toBe(0);
+    expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
     expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
     expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
     expect(r.lines.join("\n")).not.toContain(who);

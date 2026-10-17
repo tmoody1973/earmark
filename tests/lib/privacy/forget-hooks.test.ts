@@ -9,7 +9,14 @@ vi.mock("@vercel/blob", () => {
   return { del: blob.del, BlobNotFoundError };
 });
 
+const bee = vi.hoisted(() => ({ deleteTodo: vi.fn<(id: number) => Promise<void>>() }));
+vi.mock("../../../agent/lib/bee/client", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/bee/client")>()),
+  createBeeClient: () => ({ deleteTodo: bee.deleteTodo }),
+}));
+
 const NAME = "Ann";
+let nudgeTodos: { bee_id: string }[] = [];
 const EPISODES = [
   { id: "4", script_md: "Ann suggested a ramen spot.", audio_url: "https://blob.test/ann-4.mp3" },
   { id: "5", script_md: "Only Annabel and Joanna.", audio_url: "https://blob.test/5.mp3" },
@@ -27,6 +34,7 @@ function fakeClient(fail?: RegExp) {
       if (fail?.test(text)) throw Object.assign(new Error("db down"), { name: "NeonDbError" });
       if (/from episodes/.test(text)) return { rows: EPISODES };
       if (/from gardener_runs/.test(text)) return { rows: RUNS };
+      if (/from bee_sync/.test(text)) return { rows: nudgeTodos };
       return { rows: [] };
     }),
   };
@@ -42,14 +50,44 @@ const hook = async (name: string) => {
 
 beforeEach(() => {
   log.length = 0;
+  nudgeTodos = [];
+  bee.deleteTodo.mockReset();
+  bee.deleteTodo.mockImplementation(async (id) => { log.push(`bee todo ${id}`); });
   blob.del.mockReset();
   blob.del.mockImplementation(async (url) => { log.push(`blob ${url}`); });
 });
 
 describe("FORGET_HOOKS (lane C)", () => {
-  it("registers gardener_runs before episodes, so the Blob delete is the last thing the transaction does", async () => {
+  it("registers gardener_runs and place_nudges before episodes, so the Blob delete is the last thing the transaction does", async () => {
     const { FORGET_HOOKS } = await import("../../../agent/lib/privacy/forget-hooks");
-    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "episodes"]);
+    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "place_nudges", "episodes"]);
+  });
+
+  it("place_nudges: deletes the rec's nudge bee_sync rows in the transaction, then their Bee todos; line has ids only", async () => {
+    nudgeTodos = [{ bee_id: "99" }, { bee_id: "100" }];
+    const c = fakeClient();
+    const line = await (await hook("place_nudges")).run(ctx(c));
+    expect(line).toBe("place_nudges 2 (bee todos 99, 100)");
+    expect(c.query.mock.calls[0]![0].replace(/\s+/g, " ")).toContain("delete from bee_sync where entity_type = 'place_nudge' and entity_id = $1 and bee_object = 'todo'");
+    expect(c.query.mock.calls[0]![1]).toEqual([1]);
+    expect(log.filter((l) => l.startsWith("bee todo"))).toEqual(["bee todo 99", "bee todo 100"]);
+  });
+
+  it("place_nudges: only a rec target; anything else is 0 and touches nothing", async () => {
+    const c = fakeClient();
+    const idea = { ...ctx(c), target: { type: "idea", id: 1 } } as ForgetHookContext;
+    expect(await (await hook("place_nudges")).run(idea)).toBe("place_nudges 0");
+    expect(c.query).not.toHaveBeenCalled();
+    expect(bee.deleteTodo).not.toHaveBeenCalled();
+  });
+
+  it("place_nudges: a Bee 404 counts as already gone; any other failure throws so the forget rolls back", async () => {
+    const { BeeApiError } = await import("../../../agent/lib/bee/client");
+    nudgeTodos = [{ bee_id: "99" }];
+    bee.deleteTodo.mockRejectedValueOnce(new BeeApiError(404, "/v1/todos/99", "gone"));
+    expect(await (await hook("place_nudges")).run(ctx(fakeClient()))).toBe("place_nudges 1 (bee todos 99)");
+    bee.deleteTodo.mockRejectedValueOnce(new BeeApiError(503, "/v1/todos/99", "down"));
+    await expect((await hook("place_nudges")).run(ctx(fakeClient()))).rejects.toThrow("Bee API 503");
   });
 
   it("episodes: deletes only episodes naming the person through ctx.c with $n parameters, then their audio last", async () => {
