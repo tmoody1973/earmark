@@ -9,6 +9,9 @@ import { issueServiceToken } from "../mcp/oauth";
 
 export const FALLBACK = "Sorry, I couldn't reach your garden just now.";
 const MAX_SPOKEN_CHARS = 600;
+// Per step, and reasoning counts: too small a cap leaves nothing for the answer after the tool call.
+// The persona and trimForSpeech keep what is spoken short.
+export const MAX_STEP_TOKENS = 800;
 
 const Turn = z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(600) });
 export const SimInput = z.object({ question: z.string().trim().min(1).max(300), history: z.array(Turn).max(6) });
@@ -89,11 +92,15 @@ export async function runTurn(input: TurnInput, deps?: SimDeps): Promise<TurnRes
       instructions: PERSONA,
       tools: (await client.tools()) as ToolSet,
       stopWhen: isStepCount(4),
-      maxOutputTokens: 150,
+      maxOutputTokens: MAX_STEP_TOKENS,
       messages: [...input.history.map((t) => ({ role: t.role, content: t.text })), { role: "user" as const, content: input.question }],
     });
     const answer = trimForSpeech(result.text.trim());
-    if (!answer) return { answer: FALLBACK, toolsUsed: [] };
+    if (!answer) {
+      // Reason code only: never text. Makes a truncated or empty model turn diagnosable.
+      console.error(`[alexa-sim] reason=empty_text finish=${result.finishReason ?? "unknown"} tools=${toolNames(result.steps).length}`);
+      return { answer: FALLBACK, toolsUsed: [] };
+    }
     const toolsUsed = toolNames(result.steps);
     console.log(`[alexa-sim] tools=${toolsUsed.join(",") || "none"} count=${toolsUsed.length}`);
     const audio = await speak(answer, d.synthesize);
