@@ -17,7 +17,7 @@ export default defineSchedule({
       console.log("[bee-changes] done", await runBeeChangesSync());
     } catch (err) {
       console.error(`[bee-changes] failed; cursor not advanced error=${err instanceof Error ? err.name : "unknown"}`);
-      throw err;
+      throw new Error(err instanceof Error ? err.name : "unknown"); // never the message: a BeeApiError carries Bee's response body
     } finally {
       const drafted = await draftBlooms().catch((err: unknown) => {
         console.error(`[draft] tail failed error=${err instanceof Error ? err.name : "unknown"}`);

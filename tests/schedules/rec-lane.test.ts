@@ -27,7 +27,7 @@ describe("rec-lane schedule", () => {
   it("logs only the error name when the sweep throws, and re-throws", async () => {
     const boom = Object.assign(new Error("SECRET text"), { name: "NeonDbError" });
     vi.mocked(sweepRecLane).mockRejectedValueOnce(boom);
-    await expect(s.run()).rejects.toBe(boom);
+    await expect(s.run()).rejects.toThrow(new Error(boom.name));
     expect(lines.join("\n")).toContain("error=NeonDbError");
     expect(lines.join("\n")).not.toContain("SECRET");
   });

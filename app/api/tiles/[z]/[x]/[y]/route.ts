@@ -29,7 +29,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ z: stri
       headers: { "content-type": "image/png", "cache-control": `private, max-age=${WEEK}` },
     });
   } catch (err) {
-    console.error("osm tile fetch failed", { z, x, y, err: String(err) });
+    // Name only: the coordinates pin a friend's place, and a message could carry the URL.
+    console.error(`[tiles] fetch failed error=${err instanceof Error ? err.name : "unknown"}`);
     return new Response(null, { status: 502 });
   }
 }

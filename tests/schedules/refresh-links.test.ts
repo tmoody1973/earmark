@@ -24,7 +24,7 @@ describe("refresh-links schedule (M4-T6)", () => {
   it("logs the error name only and re-throws", async () => {
     const boom = Object.assign(new Error("idea text must not be logged"), { name: "NeonDbError" });
     vi.mocked(refreshLinks).mockRejectedValueOnce(boom);
-    await expect(s.run()).rejects.toBe(boom);
+    await expect(s.run()).rejects.toThrow(new Error(boom.name));
     const logged = vi.mocked(console.error).mock.calls.flat().join(" ");
     expect(logged).toContain("NeonDbError");
     expect(logged).not.toContain("idea text");
