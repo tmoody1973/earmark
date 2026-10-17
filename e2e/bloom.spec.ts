@@ -2,14 +2,16 @@ import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { neon } from "@neondatabase/serverless";
 import { expect, test, type Page } from "@playwright/test";
 
-// The live bloom (M4-T4), end to end on the Neon TEST branch: the dev server must run against it
-// (DATABASE_URL=<TEST_DATABASE_URL value>; README). With the page open, a third mention is committed the way the
+// The live bloom (M4-T4), end to end on the Neon TEST branch (playwright.config.ts starts the dev server on it and
+// the startup guard refuses anything else). With the page open, a third mention is committed the way the
 // save transaction writes it (mention + stage → ready + garden events in one transaction), and the page must bloom
 // the plant in place, slide a chip into the New row and announce it, within one poll or two.
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL;
 const TEST_DB = process.env.TEST_DATABASE_URL;
 if (!OWNER_EMAIL || !TEST_DB) throw new Error("E2E_OWNER_EMAIL and TEST_DATABASE_URL must be set in .env.local");
 const sql = neon(TEST_DB);
+// It writes (seeds and third mentions), so it never runs in a read-only real-data run.
+test.skip(process.env.E2E_REAL === "1", "writes the test branch; real-data runs (E2E_REAL=1) are read-only");
 const MARK = "e2e-bloom"; // idea_clusters.summary / recommendations.raw_text of the rows this spec owns
 const TITLE = "A weekly crate-digging segment"; // invented test data
 const SHOTS = "docs/design/screens"; // git-ignored
@@ -122,7 +124,7 @@ test("a third mention blooms the plant in place, chips the New row and announces
   await page.goto("/");
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   const plant = plantOf(page, id);
-  await expect(plant, "the dev server must read the TEST branch (see the spec header)").toHaveAttribute("data-level", "sprout");
+  await expect(plant, "the seeded idea must be on the page (the server reads the TEST branch)").toHaveAttribute("data-level", "sprout");
   await expect(page.getByTestId("bloom-announcer")).toHaveText("");
   // on a phone the first card can sit under the tab bar: centre it, the New row stays in view above
   await plant.evaluate((el) => el.scrollIntoView({ block: "center" }));
