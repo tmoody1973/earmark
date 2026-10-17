@@ -13,8 +13,10 @@ const VARIANTS = {
   other: "note",
 } as const satisfies Record<RecType, CardVariant>;
 
+// A type the database has but this build does not know (a newer type, mid-rollout) is drawn as a note card: without
+// the fallback its card throws and the whole garden page fails to render (M4-T10).
 export function cardVariant(type: RecType): CardVariant {
-  return VARIANTS[type];
+  return VARIANTS[type] ?? "note";
 }
 
 /** Only web links survive, and always as https (http is upgraded), so a card never loads mixed content or a script URL. */

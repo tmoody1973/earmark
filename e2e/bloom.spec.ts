@@ -97,7 +97,8 @@ const shiftScore = (page: Page) =>
 // move the count a few px (≈0.00003). Everything else (cards, chips, rows, "See all") must not move at all.
 async function expectNoShift(page: Page) {
   const { score, from } = await shiftScore(page);
-  const other = from.filter((s) => !s.startsWith("P.idea-meta "));
+  // the meta line's own words, including the pinned seed's "Top of mind" part that follows them (M4-T9)
+  const other = from.filter((s) => !s.startsWith("P.idea-meta ") && !s.startsWith("SPAN.idea-meta-part "));
   expect(other, "nothing but the changed meta words may move").toEqual([]);
   expect(score, `layout shifts from: ${from.join(", ")}`).toBeLessThan(0.001);
 }
