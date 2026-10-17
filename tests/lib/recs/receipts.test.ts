@@ -9,10 +9,11 @@ vi.mock("../../../agent/lib/recs/status", () => ({ setRecStatus: (...a: unknown[
 
 import {
   approveReceipt, chicagoLocalToUtc, deferReceipt, draftReceipt, getPublicReceipt, handleReceiptTodoChange,
-  markReceiptSentFromTodo,
+  markReceiptSentFromTodo, receiptUrl,
 } from "../../../agent/lib/recs/receipts";
 
 const text = (call: unknown[]) => (call[0] as TemplateStringsArray).join("?");
+const NOW = new Date("2026-10-16T12:00:00Z");
 const TOKEN = "A".repeat(43);
 const lovedRec = { id: 4, canonical_name: "Ramen Kyuu", creator: null, type: "place", rating: "loved", excerpt: "the broth is the reason to go, she said twice", recommender_id: 7, first_name: "Ann" };
 
@@ -40,6 +41,15 @@ describe("draftReceipt", () => {
     expect(sql.mock.calls[1].slice(1)).toContain("Ann — went to Ramen Kyuu on your tip. You were right. Thank you.");
     expect(text(sql.mock.calls[0])).not.toContain("excerpt");
   });
+  it("clamps name, creator and type to 120 characters in the prompt", async () => {
+    sql.mockResolvedValueOnce([{ ...lovedRec, canonical_name: "N".repeat(500), creator: "C".repeat(500), type: "T".repeat(500) }]).mockResolvedValueOnce([{ id: 1, share_token: "t" }]);
+    let prompt = "";
+    await draftReceipt(4, (async (o: { prompt: string }) => { prompt = o.prompt; return { output: { message: "Ann — thank you so much." } }; }) as never);
+    expect(prompt).toContain("N".repeat(120));
+    expect(prompt).not.toContain("N".repeat(121));
+    expect(prompt).not.toContain("C".repeat(121));
+    expect(prompt).not.toContain("T".repeat(121));
+  });
   it("refuses a rec that is not loved or has no recommender", async () => {
     sql.mockResolvedValueOnce([{ ...lovedRec, rating: "fine" }]);
     await expect(draftReceipt(4, vi.fn() as never)).rejects.toThrow(/loved/);
@@ -57,26 +67,28 @@ describe("draftReceipt", () => {
 describe("approveReceipt", () => {
   it("saves the edited note, marks the tip thanked through setRecStatus and returns the public link", async () => {
     sql.mockResolvedValueOnce([{ share_token: TOKEN, recommendation_id: 4 }]);
-    const url = await approveReceipt(11, "  Thank you, Ann.  ");
+    const url = await approveReceipt(4, 11, "  Thank you, Ann.  ");
+    expect(text(sql.mock.calls[0])).toContain("recommendation_id =");
+    expect(sql.mock.calls[0].slice(1)).toContain(4);
     expect(url).toBe(`https://earmark.test/r/${TOKEN}`);
     expect(sql.mock.calls[0].slice(1)).toContain("Thank you, Ann.");
     expect(text(sql.mock.calls[0])).not.toContain("recommendations");
     expect(setStatus).toHaveBeenCalledWith(4, "thanked", "garden");
   });
   it("refuses an empty note and an unknown receipt", async () => {
-    await expect(approveReceipt(11, "   ")).rejects.toThrow(/empty/);
+    await expect(approveReceipt(4, 11, "   ")).rejects.toThrow(/empty/);
     sql.mockResolvedValueOnce([]);
-    await expect(approveReceipt(99, "hi there")).rejects.toThrow(/not found/);
+    await expect(approveReceipt(4, 99, "hi there")).rejects.toThrow(/not found/);
     expect(setStatus).not.toHaveBeenCalled();
   });
 });
 
 describe("deferReceipt", () => {
-  const row = { id: 11, canonical_name: "Ramen Kyuu", recommender_id: 7, first_name: "Ann" };
+  const row = { id: 11, canonical_name: "Ramen Kyuu", recommender_id: 7, first_name: "Ann", bee_todo_id: null };
   it("creates an Earmark todo with the alarm and stores its id", async () => {
     sql.mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
     createTodo.mockResolvedValueOnce({ todoId: 501 });
-    await deferReceipt(11, new Date("2026-10-20T23:00:00Z"));
+    await deferReceipt(11, new Date("2026-10-20T23:00:00Z"), NOW);
     expect(createTodo).toHaveBeenCalledWith({
       entityType: "rec_receipt", entityId: 11, text: "Earmark · Thank Ann for the Ramen Kyuu tip", alarmAt: "2026-10-20T23:00:00.000Z",
     });
@@ -89,12 +101,23 @@ describe("deferReceipt", () => {
   ] as const)("says why in plain English when the todo is skipped (%s)", async (skipped, msg) => {
     sql.mockResolvedValueOnce([row]);
     createTodo.mockResolvedValueOnce({ skipped });
-    await expect(deferReceipt(11, new Date("2026-10-20T23:00:00Z"))).rejects.toThrow(msg);
+    await expect(deferReceipt(11, new Date("2026-10-20T23:00:00Z"), NOW)).rejects.toThrow(msg);
     expect(sql).toHaveBeenCalledTimes(1);
+  });
+  it("does not overwrite the alarm when the todo is already open", async () => {
+    sql.mockResolvedValueOnce([{ ...row, bee_todo_id: 501 }]);
+    createTodo.mockResolvedValueOnce({ todoId: 501 });
+    await expect(deferReceipt(11, new Date("2026-10-20T23:00:00Z"), NOW)).rejects.toThrow("A Bee reminder for this thank-you is already open");
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a time in the past before touching Bee", async () => {
+    sql.mockResolvedValueOnce([row]);
+    await expect(deferReceipt(11, new Date("2026-10-15T23:00:00Z"), NOW)).rejects.toThrow("Pick a time in the future");
+    expect(createTodo).not.toHaveBeenCalled();
   });
   it("does not set a reminder to thank the owner", async () => {
     sql.mockResolvedValueOnce([{ ...row, first_name: "Tarik" }]);
-    await expect(deferReceipt(11, new Date())).rejects.toThrow(/recommender/);
+    await expect(deferReceipt(11, new Date("2026-10-20T23:00:00Z"), NOW)).rejects.toThrow(/recommender/);
     expect(createTodo).not.toHaveBeenCalled();
   });
 });
@@ -107,6 +130,8 @@ describe("chicagoLocalToUtc", () => {
   it("rejects anything that is not a date and time", () => {
     expect(() => chicagoLocalToUtc("")).toThrow(/date and time/);
     expect(() => chicagoLocalToUtc("tomorrow")).toThrow(/date and time/);
+    expect(() => chicagoLocalToUtc("2026-02-30T10:00")).toThrow("That date and time don't exist");
+    expect(() => chicagoLocalToUtc("2026-13-01T10:00")).toThrow("That date and time don't exist");
   });
 });
 
@@ -115,6 +140,9 @@ describe("markReceiptSentFromTodo / handleReceiptTodoChange", () => {
     sql.mockResolvedValueOnce([{ recommendation_id: 4 }]);
     await markReceiptSentFromTodo(11);
     expect(setStatus).toHaveBeenCalledWith(4, "thanked", "bee");
+    // privacy: an unreviewed draft must never become public
+    expect(text(sql.mock.calls[0])).not.toContain("approved_at");
+    expect(text(sql.mock.calls[0])).toContain("sent_via = coalesce(sent_via, 'text')");
   });
   it("does nothing for a receipt that no longer exists", async () => {
     sql.mockResolvedValueOnce([]);
@@ -128,6 +156,12 @@ describe("markReceiptSentFromTodo / handleReceiptTodoChange", () => {
     sql.mockResolvedValueOnce([{ recommendation_id: 4 }]);
     await handleReceiptTodoChange(11, { id: 9, text: "x", completed: true });
     expect(setStatus).toHaveBeenCalledWith(4, "thanked", "bee");
+  });
+});
+
+describe("receiptUrl", () => {
+  it("builds the public link from the token and the public base URL", () => {
+    expect(receiptUrl(TOKEN)).toBe(`https://earmark.test/r/${TOKEN}`);
   });
 });
 

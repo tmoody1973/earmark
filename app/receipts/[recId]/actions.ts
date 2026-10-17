@@ -25,7 +25,7 @@ export async function draftAction(recId: number, _prev: ReceiptResult): Promise<
 export async function approveAction(recId: number, receiptId: number, message: string): Promise<{ url: string } | { error: string }> {
   await requireOwner();
   try {
-    const url = await approveReceipt(receiptId, message);
+    const url = await approveReceipt(recId, receiptId, message);
     revalidatePath(`/receipts/${recId}`);
     return { url };
   } catch (err) {

@@ -16,7 +16,7 @@ export default async function ReceiptCard({ params }: { params: Promise<{ token:
     <main className="receipt-card">
       <p className="receipt-message">{receipt.message}</p>
       <figure>
-        {image && <img src={image} alt="" width={160} height={160} />}
+        {image && <img src={image} alt="" referrerPolicy="no-referrer" width={160} height={160} />}
         <figcaption>
           <strong>{receipt.name}</strong>
           {receipt.creator && <span> · {receipt.creator}</span>}
