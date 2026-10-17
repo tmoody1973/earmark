@@ -54,8 +54,9 @@ export function parseJsonl<T>(text: string): { rows: T[]; skipped: number } {
   const rows: T[] = [];
   let skipped = 0;
   lines.forEach((l, i) => {
-    try { rows.push(JSON.parse(l) as T); } catch (err) {
-      if (i !== lines.length - 1) throw err;
+    try { rows.push(JSON.parse(l) as T); } catch {
+      // the message names the line, never its content (lines hold private window text)
+      if (i !== lines.length - 1) throw new Error(`malformed JSONL at line ${i + 1}`);
       skipped++;
     }
   });
