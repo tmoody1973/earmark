@@ -1,7 +1,8 @@
 // FR-30 (M3-T11): forget one rec, idea or mention everywhere. Adapted from PostHog draft PR #8; decision 011.
-// Order: every Postgres row goes in ONE transaction (commit), then the outside copies (Bee todos/facts, Notion page,
-// Blob thumbnails), then other lanes' hooks. An outside failure after the commit is reported by id + err.name and
-// counted, never swallowed; a 404 means already gone. Logs and plans carry ids and counts only, never text.
+// Order: the outside copies first (Bee todos/facts, Notion page, Blob thumbnails; a 404 means already gone), then every
+// Postgres row in ONE locked transaction, then other lanes' hooks. Any other outside failure (or an unconfigured service
+// that has refs) aborts BEFORE Postgres, so the refs are still there and re-running the command retries safely.
+// Logs and plans carry ids and counts only, never text.
 import { del } from "@vercel/blob";
 import type { PoolClient } from "@neondatabase/serverless";
 import { createBeeClient, type BeeClient } from "../bee/client";
@@ -9,10 +10,11 @@ import { inTransaction } from "../db";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
 export interface ForgetRefs { beeTodoIds: number[]; beeFactIds: number[]; notionPageIds: string[]; blobUrls: string[] }
-export type ExternalStep =
+export type ForgetStep =
   | { kind: "bee_todo" | "bee_fact"; beeId: number }
   | { kind: "notion_page"; pageId: string }
-  | { kind: "blob"; url: string; n: number };
+  | { kind: "blob"; url: string; n?: number }
+  | { kind: "db"; target: ForgetTarget };
 export interface ForgetPlan {
   target: ForgetTarget;
   resolved: ForgetTarget; // the idea, when the mention asked for is its idea's last
@@ -22,18 +24,32 @@ export interface ForgetPlan {
   refs: ForgetRefs;
   recommender: { id: number; firstName: string; removed: boolean } | null; // firstName is for hooks only, never printed
 }
-// null = that service is not configured: the step is skipped, said so, and counted as not done.
+// null = that service is not configured: a step that needs it is skipped, said so, and aborts before Postgres.
 export interface ExternalDeps {
   deleteTodo(id: number): Promise<void>;
   deleteFact(id: number): Promise<void>;
   trashNotionPage: ((pageId: string) => Promise<void>) | null;
   deleteBlob: ((url: string) => Promise<void>) | null;
 }
+export interface ForgetDeps extends ExternalDeps { deleteRows(target: ForgetTarget): Promise<void> }
 // Other lanes' forgetters (lane C: M5 episodes, gardener runs), listed in forget-hooks.ts. Run after the commit;
-// `run` returns one log line of ids/counts (never text); a throw is reported like an outside failure.
+// `run` returns one log line of ids/counts (never text); a throw is reported and counted.
 export interface ForgetHookContext { target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean }
 export interface ForgetHook { name: string; run(ctx: ForgetHookContext): Promise<string> }
-export interface ForgetResult { plan: ForgetPlan; lines: string[]; incomplete: number }
+export interface ForgetResult { plan: ForgetPlan; lines: string[]; incomplete: number; aborted: boolean } // aborted = Postgres untouched
+
+// An outside step failed (or its service is not configured): nothing in Postgres was touched. `lines` = what was done
+// plus the failing id with err.name; the message is the cause's and is never printed.
+export class ForgetAbortedError extends Error {
+  override name = "ForgetAbortedError";
+  constructor(readonly lines: string[], cause: unknown) {
+    super(cause instanceof Error ? cause.message : "outside delete not done", { cause });
+  }
+}
+// The locked re-read found outside refs the outside pass did not cover (one was added meanwhile): rolled back.
+export class ForgetRefsChangedError extends Error {
+  override name = "ForgetRefsChangedError";
+}
 
 const NONE: ForgetRefs = { beeTodoIds: [], beeFactIds: [], notionPageIds: [], blobUrls: [] };
 const nums = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(Number))];
@@ -187,54 +203,62 @@ async function deleteMention(c: PoolClient, id: number): Promise<void> {
     where c.id = $1`, [clusterId, JSON.stringify(kept)]);
 }
 
-export function planExternal(refs: ForgetRefs): ExternalStep[] {
+export function planForget(target: ForgetTarget, refs: ForgetRefs & { exists: boolean }): ForgetStep[] {
+  if (!refs.exists) return [];
   return [
     ...refs.beeTodoIds.map((beeId) => ({ kind: "bee_todo" as const, beeId })),
     ...refs.beeFactIds.map((beeId) => ({ kind: "bee_fact" as const, beeId })),
     ...refs.notionPageIds.map((pageId) => ({ kind: "notion_page" as const, pageId })),
     ...refs.blobUrls.map((url, i) => ({ kind: "blob" as const, url, n: i + 1 })),
+    { kind: "db" as const, target },
   ];
 }
 
 // A thumbnail URL is printed as its position only: the path may carry a name.
-const label = (s: ExternalStep) =>
-  s.kind === "blob" ? `blob #${s.n}` : s.kind === "notion_page" ? `notion_page ${s.pageId}` : `${s.kind} ${s.beeId}`;
+const label = (s: ForgetStep) =>
+  s.kind === "blob" ? `blob #${s.n ?? 1}` : s.kind === "notion_page" ? `notion_page ${s.pageId}`
+    : s.kind === "db" ? `postgres ${s.target.type} ${s.target.id}` : `${s.kind} ${s.beeId}`;
 const errName = (err: unknown) => (err instanceof Error ? err.name : "unknown");
 const SKIPPED = { notion_page: "notion not configured (NOTION_TOKEN)", blob: "blob not configured (BLOB_READ_WRITE_TOKEN)" };
 
-function runnerFor(s: ExternalStep, deps: ExternalDeps): (() => Promise<void>) | null {
+function runnerFor(s: ForgetStep, deps: ForgetDeps): (() => Promise<void>) | null {
   switch (s.kind) {
     case "bee_todo": return () => deps.deleteTodo(s.beeId);
     case "bee_fact": return () => deps.deleteFact(s.beeId);
     case "notion_page": { const trash = deps.trashNotionPage; return trash && (() => trash(s.pageId)); }
     case "blob": { const delBlob = deps.deleteBlob; return delBlob && (() => delBlob(s.url)); }
+    case "db": return () => deps.deleteRows(s.target);
   }
 }
 
-export async function executeExternal(steps: readonly ExternalStep[], deps: ExternalDeps): Promise<{ lines: string[]; incomplete: number }> {
-  const lines: string[] = [];
-  let incomplete = 0;
+// Outside steps first; a 404 is "already gone" (so a re-run is idempotent). Any other outside failure, or a step whose
+// service is not configured, throws ForgetAbortedError before the db step runs. A db failure is thrown as is.
+export async function executeForget(steps: readonly ForgetStep[], deps: ForgetDeps): Promise<string[]> {
+  const log: string[] = [];
   for (const s of steps) {
     const run = runnerFor(s, deps);
     if (!run) {
-      lines.push(`skipped: ${SKIPPED[s.kind as keyof typeof SKIPPED]} ${label(s)}`);
-      incomplete += 1;
-      continue;
+      const line = `skipped: ${SKIPPED[s.kind as keyof typeof SKIPPED]} ${label(s)}`;
+      throw new ForgetAbortedError([...log, line], new Error(line));
     }
     try {
       await run();
-      lines.push(`deleted ${label(s)}`);
+      log.push(`deleted ${label(s)}`);
     } catch (err) {
+      if (s.kind === "db") throw err;
       if ((err as { status?: number })?.status === 404) {
-        lines.push(`already gone ${label(s)}`);
+        log.push(`already gone ${label(s)}`);
         continue;
       }
-      lines.push(`FAILED ${label(s)} error=${errName(err)}`);
-      incomplete += 1;
+      throw new ForgetAbortedError([...log, `FAILED ${label(s)} error=${errName(err)}`], err);
     }
   }
-  return { lines, incomplete };
+  return log;
 }
+
+const covered = (now: ForgetRefs, done: ForgetRefs) =>
+  (Object.keys(now) as (keyof ForgetRefs)[]).every((k) => (now[k] as unknown[]).every((v) => (done[k] as unknown[]).includes(v)));
+
 
 // Notion's 2026-03-11 API (docs/research/integrations.md §2): `in_trash` replaced `archived`.
 // ponytail: one call, no retry/rate limit; M3-T1's Notion client replaces it.
@@ -293,19 +317,34 @@ async function runHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): P
   return { lines, incomplete };
 }
 
-// Dry run (yes false) reads inside a READ ONLY transaction and touches nothing outside.
+
+// Dry run (yes false) reads inside a READ ONLY transaction and touches nothing. With yes: read refs → outside deletes →
+// one locked transaction that re-reads the plan (refused if an outside ref appeared meanwhile) and deletes → hooks.
 export async function forget(
   c: PoolClient, target: ForgetTarget, opts: { yes: boolean; deps?: ExternalDeps; hooks?: readonly ForgetHook[] },
 ): Promise<ForgetResult> {
-  const plan = await inTransaction(c, !opts.yes, async () => {
-    const p = await readPlan(c, target, opts.yes);
-    if (opts.yes && p.exists) await deleteRows(c, p);
-    return { value: p, commit: opts.yes && p.exists };
-  });
-  if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0 };
-  const ext = await executeExternal(planExternal(plan.refs), opts.deps ?? defaultExternalDeps());
+  const plan = await inTransaction(c, true, async () => ({ value: await readPlan(c, target, false), commit: false }));
+  if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0, aborted: false };
+  let committed = plan;
+  const deleteInTransaction = async () => {
+    committed = await inTransaction(c, false, async () => {
+      const p = await readPlan(c, target, true);
+      if (!p.exists) return { value: p, commit: false };
+      if (!covered(p.refs, plan.refs)) throw new ForgetRefsChangedError("an outside copy appeared since the outside deletes; re-run");
+      await deleteRows(c, p);
+      return { value: p, commit: true };
+    });
+  };
+  let lines: string[];
+  try {
+    lines = await executeForget(planForget(target, { exists: true, ...plan.refs }), { ...(opts.deps ?? defaultExternalDeps()), deleteRows: deleteInTransaction });
+  } catch (err) {
+    if (err instanceof ForgetAbortedError) return { plan, lines: err.lines, incomplete: 1, aborted: true };
+    throw err;
+  }
   const hooks = await runHooks(opts.hooks ?? [], {
-    target: plan.resolved, recommenderFirstName: plan.recommender?.firstName ?? null, recommenderRemoved: plan.recommender?.removed ?? false,
+    target: committed.resolved, recommenderFirstName: committed.recommender?.firstName ?? null,
+    recommenderRemoved: committed.recommender?.removed ?? false,
   });
-  return { plan, lines: [...ext.lines, ...hooks.lines], incomplete: ext.incomplete + hooks.incomplete };
+  return { plan: committed, lines: [...lines, ...hooks.lines], incomplete: hooks.incomplete, aborted: false };
 }

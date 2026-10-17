@@ -164,14 +164,45 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(await count(`resort_backup where table_name = 'idea_clusters' and row_id = $1`, [cid])).toBe(0);
   });
 
-  it("an outside failure after the commit is reported, not swallowed; Postgres is already clean", async () => {
+  it("an outside failure aborts before Postgres, so the same command can be re-run", async () => {
     const { forget } = await mod();
     const id = await addRec(null, { beeTodoId: beeId(5) });
     const d = fakeDeps();
     d.deleteTodo.mockRejectedValueOnce(Object.assign(new Error("boom"), { name: "BeeApiError", status: 500 }));
     const r = await forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps });
     expect(r.incomplete).toBe(1);
-    expect(r.lines).toContain(`FAILED bee_todo ${beeId(5)} error=BeeApiError`);
+    expect(r.lines).toEqual([`FAILED bee_todo ${beeId(5)} error=BeeApiError`]);
+    expect(await count(`recommendations where id = $1`, [id])).toBe(1);
+
+    const again = await forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps });
+    expect(again.incomplete).toBe(0);
+    expect(await count(`recommendations where id = $1`, [id])).toBe(0);
+  });
+
+  it("outside deletes succeed, then Postgres fails: nothing is half-deleted and a re-run completes (404 = done)", async () => {
+    const { forget } = await mod();
+    const id = await addRec(null, { beeTodoId: beeId(6), notionPageId: `pg2-${RUN}` });
+    let failed = false;
+    const flaky = {
+      query: (text: string, values?: unknown[]) => {
+        if (!failed && text.startsWith("delete from recommendations")) {
+          failed = true;
+          throw Object.assign(new Error("connection lost"), { name: "NeonDbError" });
+        }
+        return c.query(text, values);
+      },
+    } as unknown as PoolClient;
+    const d = fakeDeps();
+    await expect(forget(flaky, { type: "rec", id }, { yes: true, deps: d as ExternalDeps })).rejects.toMatchObject({ name: "NeonDbError" });
+    expect(d.deleteTodo).toHaveBeenCalledWith(beeId(6));
+    expect(await count(`recommendations where id = $1`, [id])).toBe(1); // rolled back whole
+
+    const gone = () => Promise.reject(Object.assign(new Error("not found"), { name: "BeeApiError", status: 404 }));
+    d.deleteTodo.mockImplementation(gone);
+    d.trashNotionPage.mockImplementation(gone);
+    const again = await forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps });
+    expect(again.incomplete).toBe(0);
+    expect(again.lines).toEqual([`already gone bee_todo ${beeId(6)}`, `already gone notion_page pg2-${RUN}`, `deleted postgres rec ${id}`]);
     expect(await count(`recommendations where id = $1`, [id])).toBe(0);
   });
 });
