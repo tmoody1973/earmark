@@ -24,6 +24,13 @@ describe("buildModelReport", () => {
     expect(JSON.stringify(m)).not.toContain("window");
   });
 
+  it("each prediction carries its predicted and labeled rec type, so a type flip is traceable by id (no text)", () => {
+    const m = buildModelReport("m", runs, 0);
+    expect(m.predictions[2]).toEqual({ id: "1-0", label: "rec_to_user", predicted: "rec_to_user", confidence: 0.94,
+      recType: "song", labelRecType: "album" });
+    expect(Object.keys(m.predictions[0]!).sort()).toEqual(["confidence", "id", "label", "labelRecType", "predicted", "recType"]);
+  });
+
   it("flip rate looks only at the shuffled runs (fixed order excluded)", () => {
     const flippy: SnippetRun = { id: "x", label: runs[0]!.label, results: [r("neither", 0.9), r("rec_to_user", 0.9), r("rec_to_user", 0.9)] };
     expect(buildModelReport("m", [flippy], 0).flipRate).toBe(0);

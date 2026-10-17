@@ -25,7 +25,8 @@ export interface ModelReport {
   recTypeAccuracy: number | null; jokingAccuracy: number; flipRate: number; ece: number; brier: number;
   reliability: ReturnType<typeof reliabilityTable>; inputTokens: number; costUsd: number;
   subsets: Record<SubsetTag, SubsetReport | null>;
-  predictions: Array<Prediction & { id: string }>;
+  // recType / labelRecType: traceable rec-type flips by snippet id (ids and labels only, never window text)
+  predictions: Array<Prediction & { id: string; recType: string; labelRecType: string }>;
 }
 
 export interface TriageReport { date: string; labeledCount: number; triageModel: string; models: Record<string, ModelReport> }
@@ -43,7 +44,8 @@ function subsetReport(runs: SnippetRun[], tag: SubsetTag): SubsetReport | null {
 
 export function buildModelReport(model: string, runs: SnippetRun[], inputTokens: number): ModelReport {
   const predictions = runs.flatMap((r) =>
-    r.results.map((x) => ({ id: r.id, label: r.label.kind, predicted: x.kind, confidence: x.kindProbability })),
+    r.results.map((x) => ({ id: r.id, label: r.label.kind, predicted: x.kind, confidence: x.kindProbability,
+      recType: x.recType, labelRecType: r.label.rec_type })),
   );
   const recTyped = runs.filter((r) => r.label.rec_type !== "none").flatMap((r) => r.results.map((x) => (x.recType === r.label.rec_type ? 1 : 0)));
   const joking = runs.flatMap((r) => r.results.map((x) => ((x.jokingProbability >= 0.5) === r.label.joking ? 1 : 0)));

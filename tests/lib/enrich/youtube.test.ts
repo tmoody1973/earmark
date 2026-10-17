@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrichRec, type RecToEnrich } from "../../../agent/lib/enrich/enrich";
+import { MATCH_ACCEPT } from "../../../agent/lib/enrich/match";
 import { youtubeSearchUrl, youtubeVideoUrl } from "../../../agent/lib/enrich/youtube";
 
 // Recorded fixture = one real keyless oEmbed call (2026-10-17) for https://www.youtube.com/watch?v=6avJHaC3C2U.
@@ -45,6 +46,14 @@ describe("enrichRec for a video (keyless)", () => {
       canonicalName: "The Art of Code", creator: "Dylan Beattie", imageUrl: null,
       links: { primary: "https://www.youtube.com/results?search_query=The%20Art%20of%20Code%20Dylan%20Beattie" },
     });
+    expect(m!.matchConfidence).toBeLessThan(MATCH_ACCEPT); // link only: the lane files it as no_match (review), never matched
+  });
+
+  it("a spoken TikTok links to a TikTok search instead of YouTube", async () => {
+    const m = await enrichRec(video({ canonical_name: "the dancing goat", creator: null, excerpt: "you have to see this TikTok of the dancing goat" }),
+      { env: {}, pick: neverPick, fetchImpl: vi.fn() as never });
+    expect(m!.links).toEqual({ primary: "https://www.tiktok.com/search?q=the%20dancing%20goat" });
+    expect(m!.matchConfidence).toBeLessThan(MATCH_ACCEPT);
   });
 
   it("with a known URL: oEmbed gives the title, the channel and the thumbnail; the card links to the video", async () => {
@@ -58,6 +67,21 @@ describe("enrichRec for a video (keyless)", () => {
       imageUrl: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg", links: { youtube: url },
     });
     expect(m!.links).not.toHaveProperty("primary");
+    expect(m!.matchConfidence).toBeGreaterThanOrEqual(MATCH_ACCEPT);
+  });
+
+  it("keeps a thumbnail only from i.ytimg.com", async () => {
+    const m = await enrichRec(video({ links: { urls: ["https://youtu.be/x"] } }), { env: {}, pick: neverPick,
+      fetchImpl: (async () => json({ ...fixture, thumbnail_url: "https://evil.example/i.ytimg.com/vi/x/hqdefault.jpg" })) as never });
+    expect(m).toMatchObject({ canonicalName: "The Art of Code - Dylan Beattie", imageUrl: null });
+  });
+
+  it("reads at most 64 KB of an oEmbed body: a bigger one is treated as no data (link only), not parsed", async () => {
+    const huge = JSON.stringify({ ...fixture, pad: "x".repeat(70 * 1024) });
+    const m = await enrichRec(video({ links: { urls: ["https://youtu.be/x"] } }), { env: {}, pick: neverPick,
+      fetchImpl: (async () => new Response(huge, { status: 200 })) as never });
+    expect(m).toMatchObject({ canonicalName: "The Art of Code", imageUrl: null, links: { youtube: "https://youtu.be/x" } });
+    expect(m!.matchConfidence).toBeLessThan(MATCH_ACCEPT);
   });
 
   it("a removed (400/404) or private (401/403) video still links to the URL, with no image and no retry", async () => {
@@ -65,6 +89,7 @@ describe("enrichRec for a video (keyless)", () => {
       const m = await enrichRec(video({ links: { urls: ["https://youtu.be/gone"] } }),
         { env: {}, pick: neverPick, fetchImpl: (async () => json({}, status)) as never });
       expect(m).toMatchObject({ canonicalName: "The Art of Code", imageUrl: null, links: { youtube: "https://youtu.be/gone" } });
+      expect(m!.matchConfidence).toBeLessThan(MATCH_ACCEPT); // unconfirmed: no_match (review), link kept
     }
   });
 
