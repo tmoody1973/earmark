@@ -21,6 +21,20 @@ describe("getDeveloperToken", () => {
   });
 });
 
+describe("getDeveloperToken cache", () => {
+  const pem = () => generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  it("reuses a token only for the same team, key id and private key", async () => {
+    const a = { teamId: "TEAM000001", keyId: "KEY0000001", privateKey: pem() };
+    const t1 = await getDeveloperToken(a, 1_900_000_000_000);
+    expect(await getDeveloperToken(a, 1_900_000_000_000)).toBe(t1);
+    expect(part(await getDeveloperToken({ ...a, teamId: "TEAM000002" }, 1_900_000_000_000), 1).iss).toBe("TEAM000002");
+    const rotated = { ...a, privateKey: pem() };
+    const t3 = await getDeveloperToken(rotated, 1_900_000_000_000);
+    const [h, p, s] = t3.split(".");
+    expect(verify("sha256", Buffer.from(`${h}.${p}`), { key: createPublicKey(rotated.privateKey), dsaEncoding: "ieee-p1363" }, Buffer.from(s!, "base64url"))).toBe(true);
+  });
+});
+
 describe("appleMusicConfig", () => {
   it("is null unless all three Apple values are set", () => {
     expect(appleMusicConfig({})).toBeNull();

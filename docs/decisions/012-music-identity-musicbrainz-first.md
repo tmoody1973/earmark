@@ -15,10 +15,14 @@ Two details came from running it read-only on the three real music tips in produ
 - **The artist is a hint, not a requirement.** Bee heard "Salt" for the band SAULT. A search that required the artist found three wrong albums and Jev rightly said "none fits". The search now ranks the exact title first, then title words, then the artist spelled approximately (up to two letters off, only for words of 4+ letters), so the right album comes back and Jev accepted it (0.86).
 - **A song's cover comes from an original release only.** A song's first listed release is often a compilation ("Viral TikTok Hits") or a DJ mix with someone else's cover. No original release means no picture, which the card already handles.
 
+A few safety rules for the search itself: a title like "AND ALSO THE TREES" is searched as words, not as search commands; a blank name is "no match" without asking MusicBrainz; a search MusicBrainz cannot understand (HTTP 400) is "no match", never retried. When two candidates share a title and what was said does not say which one (no artist), Jev is told to answer "none fits" rather than guess.
+
+**Binding for M3-T4 (controller ruling): how MusicBrainz is called.** Only from the cron sweep, one tip at a time, while holding a Postgres advisory lock (a database-wide "only one runner at a time" flag), and the sweep stops at the first 503 (MusicBrainz's "too many requests"). Never from the webhook that receives Bee events. This keeps Earmark under one request per second from every server instance, not just within one process.
+
 Apple Music, when configured, only adds a link to a match MusicBrainz and Jev already settled, and only when Apple's result has the same title and artist (no second Jev call).
 
-**What we gave up:** Approximate artist spelling can surface a different real band with a similar name; Jev's same-item check is the only guard, so a near-miss artist is the most likely wrong match. MusicBrainz allows one request per second per server address; Earmark spaces requests inside one process, but two serverless instances at once could exceed it and get refused (logged as status 503; the tip is retried later, never in a loop). Songs with no original release show no art.
+**What we gave up:** Approximate artist spelling can surface a different real band with a similar name; Jev's same-item check is the only guard, so a near-miss artist is the most likely wrong match. MusicBrainz allows one request per second per server address; enrichment waits for the cron sweep instead of happening the moment a tip arrives, so a new tip's art and link can lag by up to one sweep interval. Songs with no original release show no art.
 
-**How we'll know if this was right:** After M3-T4 runs the lane on real tips, count music tips that end matched, no match, and later corrected by Tarik. Wrong matches cluster on near-miss artists → tighten the fuzzy rule. Repeated 503s in logs → move the one-per-second spacing into the database.
+**How we'll know if this was right:** After M3-T4 runs the lane on real tips, count music tips that end matched, no match, and later corrected by Tarik. Wrong matches cluster on near-miss artists → tighten the fuzzy rule. Any 503 in the sweep logs means the lock or the spacing is not holding.
 
 **What actually happened:**

@@ -63,6 +63,19 @@ describe("pickMatch", () => {
   });
 });
 
+describe("ambiguous titles", () => {
+  it("tells Jev to abstain when what was said does not say which candidate it is", async () => {
+    const twins = [c("Blue Hours", "Mara Vell", "Album"), c("Blue Hours", "Odd Lantern", "Album")];
+    const decide = decideReturning(NONE_FITS, { [NONE_FITS]: 0.9 });
+    const m = await pickMatch({ described: "Blue Hours", excerpt: "you should hear Blue Hours" }, twins, { model: "m", decideImpl: decide as never });
+    expect(m).toBeNull();
+    const call = callOf(decide);
+    const text = [JSON.stringify(call.questions.match), JSON.stringify(call.state)].join(" ");
+    expect(text).toContain("If what was said does not tell you which candidate it is, choose none_fits.");
+    expect(call.questions.match.criteria[NONE_FITS]).toContain("If what was said does not tell you which candidate it is, choose none_fits.");
+  });
+});
+
 describe("describeCandidate", () => {
   it("joins the known parts", () => {
     expect(describeCandidate(c("Night Garden", "Mara Vell", "Album"))).toBe("Night Garden — Mara Vell — 2021 — Album");

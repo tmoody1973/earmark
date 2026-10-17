@@ -23,7 +23,8 @@ const BOUNDARY =
   "A different edition, remaster, deluxe version or format of the same album, book or film is the same item " +
   "(a 2021 remaster of 'Night Garden' by Mara Vell is the same as 'Night Garden' by Mara Vell). " +
   "A different artist or author, a cover version, a remix, a live album, a compilation, a tribute, or a different place " +
-  "with a similar name is a different item ('Night Garden (Remix)', or 'Night Garden' by a tribute band, is different).";
+  "with a similar name is a different item ('Night Garden (Remix)', or 'Night Garden' by a tribute band, is different). " +
+  "If what was said does not tell you which candidate it is, choose none_fits.";
 
 const unquote = (s: string) => s.replaceAll('"', "'");
 

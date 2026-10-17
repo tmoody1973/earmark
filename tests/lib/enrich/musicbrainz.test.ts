@@ -49,6 +49,17 @@ describe("musicBrainzProvider.parse (recorded release-group search)", () => {
     expect(parse([rel("comp", ["Compilation"]), rel("orig", [])]).releaseGroupId).toBe("orig");
     expect(parse([rel("mix", ["DJ-mix"])]).releaseGroupId).toBeUndefined();
   });
+
+  it("original = earliest-dated release with no secondary types, not credited to Various Artists; detail names it", () => {
+    const VA = [{ name: "Various Artists", artist: { id: "89ad4ac3-39f7-470e-963a-56509c546377", name: "Various Artists" } }];
+    const r = (id: string, date: string | undefined, extra: object = {}) =>
+      ({ id: `r-${id}`, title: `T-${id}`, date, "release-group": { id, "primary-type": "Album" }, ...extra });
+    const parse = (releases: unknown[]) => musicBrainzProvider.parse({ recordings: [{ id: "r1", title: "S", releases }] }, q("song", "S"))[0]!;
+    const song = parse([r("va", "1990", { "artist-credit": VA }), r("late", "2005"), r("nodate", undefined), r("early", "1999-05-01")]);
+    expect(song.releaseGroupId).toBe("early");
+    expect(song.detail).toBe("from T-early");
+    expect(parse([r("va", "1990", { "artist-credit": VA })]).detail).toBe("from T-va"); // no original → first release still described
+  });
 });
 
 describe("musicBrainzProvider.build", () => {
@@ -123,6 +134,29 @@ describe("Cover Art Archive", () => {
       return new Response("", { status: 404 });
     });
     expect(await coverArtUrl("rg1", fetchImpl as never)).toBeNull();
+  });
+});
+
+describe("safe queries", () => {
+  it("neutralises Lucene operator words in names", () => {
+    const query = mbQuery(q("album", "AND ALSO THE TREES", "NOT OR AND"));
+    expect(query).not.toMatch(/\b(AND|OR|NOT)\b/);
+    expect(query).toBe('releasegroup:"and ALSO THE TREES"^2 releasegroup:(and ALSO THE TREES) artist:(not or and)');
+  });
+
+  it("returns no match for a blank name without calling the provider", async () => {
+    const fetchImpl = vi.fn();
+    expect(await runProvider(musicBrainzProvider, q("album", "   ", "x"), fetchImpl as never)).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("ignores a blank creator instead of sending artist:()", () => {
+    expect(mbQuery(q("album", "X", "  "))).toBe('releasegroup:"X"^2 releasegroup:(X)');
+  });
+
+  it("treats HTTP 400 (query the service could not parse) as no match, not a retryable error", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 400 }));
+    expect(await runProvider(musicBrainzProvider, q("artist", "A"), fetchImpl as never)).toEqual([]);
   });
 });
 
