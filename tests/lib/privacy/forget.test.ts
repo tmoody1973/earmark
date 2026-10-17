@@ -95,7 +95,7 @@ describe("deleteRows", () => {
     expect(texts.some((t) => t.includes("delete from bee_sync"))).toBe(true);
     expect(texts.some((t) => t.includes("delete from notion_sync"))).toBe(true);
     expect(texts.some((t) => t.includes("delete from recommendations"))).toBe(true);
-    expect(texts.some((t) => t.includes("delete from recommenders") && t.includes("recs_given = 0"))).toBe(true);
+    expect(texts.some((t) => t.includes("delete from recommenders") && t.includes("not exists"))).toBe(true);
     expect(mock.current!.sql.transaction).toHaveBeenCalledOnce();
   });
 
