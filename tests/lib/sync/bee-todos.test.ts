@@ -6,7 +6,7 @@ vi.mock("../../../agent/lib/db", () => ({ db: () => { throw new Error("db must n
 import { beeTodoEffect, drainTodoQueue } from "../../../agent/lib/sync/bee-todos";
 import { STATUS_EFFECTS } from "../../../agent/lib/recs/status-effects";
 
-const bee = () => ({ listTodos: vi.fn(), createTodo: vi.fn(), updateTodo: vi.fn(), deleteTodo: vi.fn() });
+const bee = () => ({ listTodos: vi.fn(), createTodo: vi.fn(), updateTodo: vi.fn(), deleteTodo: vi.fn(), getTodo: vi.fn() });
 
 beforeEach(() => {
   vi.restoreAllMocks();

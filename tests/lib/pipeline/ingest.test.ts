@@ -11,6 +11,7 @@ vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
 vi.mock("../../../agent/lib/recs/nudges", () => ({ handleLocationUpdate: vi.fn(async () => "none") }));
 vi.mock("../../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
+vi.mock("../../../agent/lib/sync/handlers", () => ({ handleTodoChange: vi.fn(async () => {}), handleFactChange: vi.fn() }));
 
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
 import { handleLiveUtterance } from "../../../agent/lib/pipeline/live";
@@ -20,6 +21,7 @@ import { handleLocationUpdate } from "../../../agent/lib/recs/nudges";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
+import { handleTodoChange } from "../../../agent/lib/sync/handlers";
 import type { BeeClient } from "../../../agent/lib/bee/client";
 
 const evt = (event: string, data: unknown) => parseBeeEnvelope({ event, ts: "t", data });
@@ -186,5 +188,15 @@ describe("handleBeeEvent", () => {
       await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12 }));
       expect(draftBlooms).not.toHaveBeenCalled();
     });
+  });
+});
+
+// M3-T8: the live stream and /v1/changes share one todo path. The stream is at-most-once; the feed is the guarantee.
+describe("handleBeeEvent todo events", () => {
+  it("routes todo-updated and todo-deleted to handleTodoChange by id", async () => {
+    await handleBeeEvent(evt("todo-updated", { todo: { id: 10, text: "x", completed: true } }));
+    await handleBeeEvent(evt("todo-deleted", { todo: { id: 11 } }));
+    expect(handleTodoChange).toHaveBeenCalledWith(10);
+    expect(handleTodoChange).toHaveBeenCalledWith(11);
   });
 });

@@ -20,11 +20,14 @@ const MAX_LIST_PAGES = 10; // 1 000 todos; a longer list is "incomplete" and no 
 const BEE_TODOS_LEASE = "bee_todos_lease"; // sync_cursors row, the rec lane's lease pattern (lane.ts)
 const DEFAULT_BASE_URL = "https://earmark-two.vercel.app";
 
-type TodoBee = Pick<BeeClient, "listTodos" | "createTodo" | "updateTodo" | "deleteTodo">;
+type TodoBee = Pick<BeeClient, "listTodos" | "createTodo" | "updateTodo" | "deleteTodo" | "getTodo">;
 export interface DrainDeps {
   bee: TodoBee;
   env: Record<string, string | undefined>;
   onlyIds: number[] | null; // integration tests: never touch other rows
+  /** Backstop (M3-T8): the inbound rec handler, passed by the bee-changes schedule (todo-handlers.ts imports this file). */
+  checkLinked?: (recId: number, todo: Todo | null) => Promise<void>;
+  lease?: string; // integration tests: their own lease name (shared TEST branch)
 }
 export interface DrainCounts { created: number; adopted: number; completed: number; removed: number; open: number; failed: boolean }
 export type DrainResult = { status: "skipped" } | { status: "locked" } | ({ status: "done" } & DrainCounts);
@@ -38,11 +41,12 @@ function writesOn(env: Record<string, string | undefined>): boolean {
   return false;
 }
 
-// One Bee todo writer at a time (schedule, status nudges, M5), else two could each create the same todo.
-async function withLease<T>(work: () => Promise<T>): Promise<T | "locked"> {
+// One Bee todo writer at a time (schedule, status nudges, M5, inbound changes in todo-handlers.ts), else two could each
+// create the same todo or one could undo the other's link. `name`: integration tests use their own (shared TEST branch).
+export async function withLease<T>(work: () => Promise<T>, name = BEE_TODOS_LEASE): Promise<T | "locked"> {
   const token = randomUUID();
   const took = await db()`
-    insert into sync_cursors (name, cursor) values (${BEE_TODOS_LEASE}, ${token})
+    insert into sync_cursors (name, cursor) values (${name}, ${token})
     on conflict (name) do update set cursor = excluded.cursor, updated_at = now()
       where sync_cursors.updated_at < now() - ${CLAIM_LEASE}::interval
     returning cursor`;
@@ -50,7 +54,7 @@ async function withLease<T>(work: () => Promise<T>): Promise<T | "locked"> {
   try {
     return await work();
   } finally {
-    await db()`delete from sync_cursors where name = ${BEE_TODOS_LEASE} and cursor = ${token}`;
+    await db()`delete from sync_cursors where name = ${name} and cursor = ${token}`;
   }
 }
 
@@ -84,8 +88,8 @@ async function readBee(bee: TodoBee): Promise<BeeView> {
 export async function drainTodoQueue(deps: Partial<DrainDeps> = {}): Promise<DrainResult> {
   const env = deps.env ?? process.env;
   if (!writesOn(env)) return { status: "skipped" };
-  const d: DrainDeps = { bee: deps.bee ?? createBeeClient(), env, onlyIds: deps.onlyIds ?? null };
-  const out = await withLease(() => reconcile(d));
+  const d: DrainDeps = { bee: deps.bee ?? createBeeClient(), env, onlyIds: deps.onlyIds ?? null, checkLinked: deps.checkLinked };
+  const out = await withLease(() => reconcile(d), deps.lease);
   return out === "locked" ? { status: "locked" } : { status: "done", ...out };
 }
 
@@ -114,6 +118,28 @@ async function reconcile(d: DrainDeps): Promise<DrainCounts> {
       console.error(`[bee-todos] ${op} failed rec=${recId} error=${errName(err)}`);
       r.failed = true;
       return "failed";
+    }
+  }
+
+  // 0. Backstop (M3-T8, scheduled run only): a queued tip whose todo is not open in Bee was completed or deleted there
+  // and the change never landed (stream is at-most-once; a todo change is dropped after 5 failed tries). Bee's list or
+  // one GET (a read, but it takes a slot of the per-run cap) gives the todo; the inbound rec handler applies it:
+  // completed → tried, 404 → back to 'new' (decision 016). Queued linked tips number about the 10-open cap: no limit.
+  if (d.checkLinked) {
+    const linked = await db()`
+      select id, bee_todo_id from recommendations
+      where status = 'queued' and bee_todo_id is not null
+        and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
+      order by updated_at, id`;
+    for (const row of linked) {
+      const recId = Number(row.id);
+      const beeId = Number(row.bee_todo_id);
+      const listed = view.inBee.get(beeId);
+      if (listed && !listed.completed) continue;
+      if (!listed && writes >= MAX_WRITES_PER_RUN) return r;
+      const got = listed ?? (await write("check", recId, () => d.bee.getTodo(beeId)));
+      if (got === "failed") return r;
+      await d.checkLinked(recId, got === "gone" ? null : got);
     }
   }
 
@@ -238,7 +264,7 @@ export async function createEarmarkTodo(
 
 // Upsert the entity's bee_sync row. For a tip (onlyQueuedRec) it is one statement with the guarded rec update: saved
 // only while the tip is still queued without a todo, so the rec and bee_sync never disagree.
-async function saveTodo(entityType: string, entityId: number, beeId: number, text: string, onlyQueuedRec: boolean): Promise<boolean> {
+export async function saveTodo(entityType: string, entityId: number, beeId: number, text: string, onlyQueuedRec: boolean): Promise<boolean> {
   const state = JSON.stringify({ text, completed: false });
   const rows = onlyQueuedRec
     ? await db()`
@@ -261,7 +287,7 @@ async function saveTodo(entityType: string, entityId: number, beeId: number, tex
 
 // kept = Bee still holds the todo, completed: its bee_sync row stays (forget deletes it from Bee; a re-queue reopens
 // it). Otherwise the todo is gone and so is the row. Either way the tip no longer has an open todo.
-async function saveLeft(recId: number, beeId: number, kept: boolean): Promise<void> {
+export async function saveLeft(recId: number, beeId: number, kept: boolean): Promise<void> {
   if (kept) {
     await db()`
       with r as (update recommendations set bee_todo_id = null where id = ${recId} and bee_todo_id = ${beeId} returning id)
