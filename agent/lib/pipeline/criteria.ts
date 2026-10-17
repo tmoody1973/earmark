@@ -28,7 +28,7 @@ export const KIND_CRITERIA = {
     "scheduling, opinions about something that already exists, or recommending an existing thing.",
   rec_to_user:
     "One person tells or urges another person ('you') to try, hear, read, watch, visit, go to or buy a specific, named thing " +
-    "that already exists, for their own use or enjoyment: an album, song, artist, book, place, podcast, film, show, app or product " +
+    "that already exists, for their own use or enjoyment: an album, song, artist, book, place, podcast, film, show, video, app or product " +
     "— or enthusiastically praises such a named thing to them as worth trying ('Kopp's has the best custard in town'). " +
     "Typical wording: 'you have to try…', 'you'd love…', 'check out…', 'you should read…'. " +
     "Also choose this when someone says a named thing was recommended to them ('Dana told me to check out…'). " +
@@ -54,9 +54,20 @@ export const REC_TYPE_CRITERIA = {
   book: "A book, or an author named as the thing to read.",
   place: "A physical place: restaurant, bar, café, shop, venue, museum, park, neighbourhood or city.",
   podcast: "A podcast or a specific podcast episode.",
-  film_tv: "A film, TV series, documentary or a specific episode.",
+  // Add-on (video tips): the boundary examples below are synthetic, written for Jev's literal reading (decision 009).
+  film_tv:
+    "A film, TV series, documentary or a specific episode, on any screen or service. " +
+    "A YouTube video, a TikTok or a short clip is video, not this.",
+  video:
+    "A video or a channel to watch online: a YouTube video or channel, a TikTok, a video essay or a short clip. " +
+    "Examples that are video: 'watch this YouTube video about bridges'; 'you have to see this TikTok'; " +
+    "'check out that clip of the cat playing piano'. " +
+    "A film or TV series is film_tv, even when it streams online ('you should watch Severance' is film_tv). " +
+    "A podcast is podcast, even when it is filmed ('listen to the latest Hard Fork' is podcast). " +
+    "A song's music video is video only when the video itself is the tip ('you have to watch the video for X'); " +
+    "a tip to hear the song is song.",
   other:
-    "Any other specific named thing: a game, app, product, article, newsletter, event, radio show, YouTube channel, comedian or visual artist.",
+    "Any other specific named thing: a game, app, product, article, newsletter, event, radio show, comedian or visual artist.",
   none: "No specific named thing is recommended in `window`.",
 } as const;
 

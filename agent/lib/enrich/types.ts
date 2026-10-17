@@ -2,7 +2,8 @@ import type { RecType } from "../types";
 
 // recommendations.links (jsonb): service name → https URL. cardLink() prefers apple_music, then any https value.
 export type RecLinks = Partial<Record<
-  "apple_music" | "musicbrainz" | "discogs" | "url" | "openlibrary" | "wikipedia" | "tmdb" | "google_maps" | "podcast_index" | "apple_podcasts",
+  "apple_music" | "musicbrainz" | "discogs" | "url" | "openlibrary" | "wikipedia" | "tmdb" | "google_maps" | "podcast_index" | "apple_podcasts"
+  | "youtube" | "primary", // primary: a video tip's YouTube search link when no video URL is known (youtube.ts)
   string
 >>;
 
@@ -23,7 +24,10 @@ export interface EnrichmentMatch extends Candidate {
   matchConfidence: number;
   artRetry?: string; // release group whose Cover Art Archive lookup errored (5xx/timeout, not 404): the lane retries art
 }
-export interface EnrichQuery { type: RecType; name: string; creator: string | null; lat: number | null; lng: number | null }
+export interface EnrichQuery {
+  type: RecType; name: string; creator: string | null; lat: number | null; lng: number | null;
+  url?: string | null; // a video tip's YouTube link, when its stored links carry one (youtube.ts)
+}
 export interface ProviderDef {
   build(q: EnrichQuery): Promise<{ url: string; init: RequestInit }>;
   parse(json: unknown, q: EnrichQuery): Candidate[];

@@ -117,7 +117,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
   if (waitingForKeys.length) console.log(`[rec-lane] waiting for provider keys: ${waitingForKeys.join(",")}`);
 
   const due = (await db()`
-    select id, type, canonical_name, creator, excerpt, lat, lng, enrich_attempts
+    select id, type, canonical_name, creator, excerpt, lat, lng, links, enrich_attempts
     from recommendations
     where enrichment_status = 'pending' and enrich_next_at <= now()
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${types}::text[])

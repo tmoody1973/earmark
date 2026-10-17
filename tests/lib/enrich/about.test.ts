@@ -33,8 +33,9 @@ describe("aboutSubject: whose note a tip gets", () => {
     expect(aboutSubject(rec("podcast", "Song Exploder"))).toBe("Song Exploder");
     expect(aboutSubject(rec("film_tv", "The Bear"))).toBe("The Bear");
   });
-  it("no subject → no lookup: 'other', or an album or book with no known maker", () => {
+  it("no subject → no lookup: 'other', a video (add-on: store nothing), or an album or book with no known maker", () => {
     expect(aboutSubject(rec("other", "Theremin"))).toBeNull();
+    expect(aboutSubject(rec("video", "The Art of Code", "NDC Conferences"))).toBeNull();
     expect(aboutSubject(rec("album", "Night Garden"))).toBeNull();
     expect(aboutSubject(rec("book", "Night Garden", "  "))).toBeNull();
   });

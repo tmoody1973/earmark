@@ -45,6 +45,7 @@ const KINDS: Partial<Record<RecType, { subject: "creator" | "name"; hint: string
   place: { subject: "name", hint: "", fits: (d) => !PERSON.test(d) && !LIFESPAN.test(d) },
   podcast: { subject: "name", hint: "podcast", fits: (d) => /\bpodcasts?\b/i.test(d) && !PERSON.test(d) },
   film_tv: { subject: "name", hint: "", fits: (d) => SCREEN.test(d) && !PERSON.test(d) },
+  // video: none on purpose (add-on). A channel is rarely on Wikipedia and a namesake is easy to hit: store nothing.
 };
 const isMusic = (t: RecType) => t === "album" || t === "song" || t === "artist";
 

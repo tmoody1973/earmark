@@ -75,6 +75,15 @@ describe("triageWindow", () => {
     for (const k of [...Object.keys(KIND_CRITERIA), ...Object.keys(REC_TYPE_CRITERIA)]) expect(k).not.toMatch(/^\d+$/);
   });
 
+  it("offers video as a rec type with its boundary cases, and no longer files YouTube under other", () => {
+    expect(REC_TYPE_CRITERIA.video).toMatch(/YouTube/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/TikTok/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/film_tv/);
+    expect(REC_TYPE_CRITERIA.video).toMatch(/podcast/);
+    expect(REC_TYPE_CRITERIA.film_tv).toMatch(/is video, not this/);
+    expect(REC_TYPE_CRITERIA.other).not.toMatch(/YouTube/);
+  });
+
   it("lists neither first so position bias favours dropping", () => {
     expect(Object.keys(KIND_CRITERIA)[0]).toBe("neither");
   });
