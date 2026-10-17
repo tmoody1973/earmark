@@ -42,8 +42,8 @@ export function Backlinks({ ideaId, idea, links }: { ideaId: number; idea: { men
     startTransition(async () => {
       if (op) apply(op);
       try {
-        await run();
-        setSaid(done);
+        const refused = await run(); // a string: the server said why nothing changed (the row comes back)
+        setSaid(typeof refused === "string" ? refused : done);
       } catch (err) {
         console.error("backlink action failed", (err as Error).name);
         setSaid("That didn’t save. Try again.");
@@ -65,7 +65,7 @@ export function Backlinks({ ideaId, idea, links }: { ideaId: number; idea: { men
   const merge = (l: IdeaBacklink) => {
     setConfirming(null);
     refocus();
-    act({ hide: keyOf(l.key) }, () => mergeIdeas(ideaId, l.plant.id), `Merged “${l.plant.title}” into this idea. You can undo it under Merged in.`);
+    act({ hide: keyOf(l.key) }, async () => (await mergeIdeas(ideaId, l.plant.id)).refused, `Merged “${l.plant.title}” into this idea. You can undo it under Merged in.`);
   };
   const undo = (m: MergeRef) => {
     refocus();
