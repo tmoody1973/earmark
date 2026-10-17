@@ -103,16 +103,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("one-pager drafting on the Neon 
     const { resetDraftAttempts, claimDraftableClusters } = await mods();
     await resetDraftAttempts(id);
     expect(await row(id)).toMatchObject({ draft_attempts: 0, draft_claimed_at: null });
-    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 1 }]);
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toMatchObject([{ id, attempts: 1, claim: expect.any(String) }]);
     err.mockRestore();
   });
 
   it("a live claim blocks other runners; a stale one (crashed run, older than the lease) is re-taken", async () => {
     const id = await bloomedCluster(40);
     const { db, claimDraftableClusters } = await mods();
-    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 1 }]);
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toMatchObject([{ id, attempts: 1, claim: expect.any(String) }]);
     expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([]);
     await db()`update idea_clusters set draft_claimed_at = now() - interval '16 minutes' where id = ${id}`;
-    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toEqual([{ id, attempts: 2 }]);
+    expect(await claimDraftableClusters({ clusterIds: [id], limit: 1 })).toMatchObject([{ id, attempts: 2, claim: expect.any(String) }]);
   });
 });
