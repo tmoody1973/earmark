@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createBeeClient, type BeeClient } from "../bee/client";
 import { db } from "../db";
 import { getEnv } from "../env";
+import { TIMELINE_TZ } from "../ideas/timeline-format";
 import { nameAppearsIn } from "../pipeline/attribution";
 
 // FR-19: Earmark proposes facts about the owner's taste and ideas. Each one goes to Bee as an UNCONFIRMED fact; the owner
@@ -64,7 +65,7 @@ export async function proposeTasteFacts(
     if (p?.type !== "boolean" || p.probability < ABOUT_USER_THRESHOLD) continue;
     await db()`
       insert into fact_proposals (text, kind, evidence_ids)
-      values (${statement}, 'taste', ${JSON.stringify(evidence.map((r) => Number(r.id)))}::jsonb) returning id`;
+      values (${statement}, 'taste', ${JSON.stringify(evidence.map((r) => Number(r.id)))}::jsonb)`;
     existing.add(statement.toLowerCase());
     kept.push(statement);
   }
@@ -80,7 +81,7 @@ export async function proposeIdeaFacts(): Promise<number> {
     id: number; title: string; mention_count: number; first_mentioned_at: string;
   }[];
   for (const c of rows) {
-    const since = new Date(c.first_mentioned_at).toLocaleString("en-US", { month: "short", timeZone: "America/Chicago" });
+    const since = new Date(c.first_mentioned_at).toLocaleString("en-US", { month: "short", timeZone: TIMELINE_TZ });
     const text = `Developing an idea: ${c.title} (mentioned ${c.mention_count} times since ${since})`.slice(0, 2000);
     await db()`insert into fact_proposals (text, kind, evidence_ids) values (${text}, 'idea', ${JSON.stringify([Number(c.id)])}::jsonb)`;
   }
