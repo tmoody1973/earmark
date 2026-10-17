@@ -11,6 +11,8 @@ export const MIN_WORDS = 700; // hard floor; the retry asks for 850-1100, so onl
 export const MAX_WORDS = 1100;
 
 const MAX_ATTEMPTS = 3; // first draft plus two retries
+// The weekly episode runs inside a gardener's 5-minute claim lease: 3 × 60 s here plus Polly (voice.ts) stays under it.
+const SCRIPT_TIMEOUT_MS = 60_000;
 export const FIX_TEXT: Record<Reason, string> = {
   owner: "Never name the owner; the listener is only \"you\".",
   excerpt: "Keep every quotation to 25 words or fewer.",
@@ -31,6 +33,7 @@ export async function writeEpisodeScript(
       instructions: EPISODE_RULES,
       output: Output.object({ schema: ScriptSchema }),
       prompt: `Week of ${weekOf}. Data:\n${JSON.stringify(data)}${extra}`,
+      abortSignal: AbortSignal.timeout(SCRIPT_TIMEOUT_MS),
     });
   // Title and script are both checked: the title ends up in script_md and the public-feed <title>.
   const issuesOf = (o: { title: string; script: string }) => [...findIssues(o.script, data, owner), ...findIssues(o.title, data, owner)];

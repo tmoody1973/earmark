@@ -5,6 +5,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { Todo } from "../bee/client";
+import { publicImageUrl } from "../capture/thumbs";
 import { db } from "../db";
 import { getEnv, ownerFirstName, requireEnv } from "../env";
 import { credit } from "../garden/queries";
@@ -63,7 +64,7 @@ export async function draftReceipt(recId: number, generateImpl: typeof generateT
 }
 
 /** The public link for a receipt's share token. */
-export const receiptUrl = (token: string) => `${requireEnv("EARMARK_PUBLIC_BASE_URL")}/r/${token}`;
+export const receiptUrl = (token: string, base = requireEnv("EARMARK_PUBLIC_BASE_URL")) => `${base}/r/${token}`;
 
 // `defer`: the server action passes Next's after() so the tap never waits on status side effects (Bee); agent/ never imports next/*.
 export async function approveReceipt(
@@ -71,12 +72,14 @@ export async function approveReceipt(
 ): Promise<string> {
   const clean = message.trim().slice(0, 280);
   if (!clean) throw new ReceiptError("The note is empty; write something first");
+  // before any write: an unset base URL must not leave the tip thanked with no link to share
+  const base = requireEnv("EARMARK_PUBLIC_BASE_URL");
   const [row] = (await db()`
     update rec_receipts set message = ${clean}, approved_at = now(), sent_via = 'link'
     where id = ${receiptId} and recommendation_id = ${recId} returning share_token, recommendation_id`) as { share_token: string; recommendation_id: number | string }[];
   if (!row) throw new ReceiptError(`receipt ${receiptId} not found`);
   await setRecStatus(Number(row.recommendation_id), "thanked", "garden", { defer });
-  return receiptUrl(row.share_token);
+  return receiptUrl(row.share_token, base);
 }
 
 export async function deferReceipt(receiptId: number, alarmAt: Date, now: Date = new Date()): Promise<void> {
@@ -133,5 +136,5 @@ export async function getPublicReceipt(token: string): Promise<PublicReceipt | n
     where rr.share_token = ${token} and rr.approved_at is not null`) as {
     message: string; canonical_name: string; creator: string | null; image_url: string | null; type: string;
   }[];
-  return row ? { message: row.message, name: row.canonical_name, creator: row.creator, imageUrl: row.image_url, type: row.type } : null;
+  return row ? { message: row.message, name: row.canonical_name, creator: row.creator, imageUrl: publicImageUrl(row.image_url), type: row.type } : null;
 }

@@ -18,13 +18,13 @@ vi.mock("../../../agent/lib/bee/client", async (orig) => ({
 const NAME = "Ann";
 let nudgeTodos: { bee_id: string }[] = [];
 const EPISODES = [
-  { id: "4", script_md: "Ann suggested a ramen spot.", audio_url: "https://blob.test/ann-4.mp3" },
-  { id: "5", script_md: "Only Annabel and Joanna.", audio_url: "https://blob.test/5.mp3" },
-  { id: "6", script_md: "no audio yet, but ann is named", audio_url: null },
+  { id: "4", week_of: "2026-10-04", script_md: "Ann suggested a ramen spot.", audio_url: "https://blob.test/ann-4.mp3" },
+  { id: "5", week_of: "2026-10-11", script_md: "Only Annabel and Joanna.", audio_url: "https://blob.test/5.mp3" },
+  { id: "6", week_of: "2026-09-27", script_md: "no audio yet, but ann is named", audio_url: null },
 ];
 const RUNS = [
-  { id: "7", output_md: "## Pitch\nAnn's ramen tip." },
-  { id: "8", output_md: "Nobody named, only Annabel." },
+  { id: "7", output_md: "## Pitch\nAnn's ramen tip.", status: "approved", created_at: new Date("2026-10-10T12:00:00Z") },
+  { id: "8", output_md: "Nobody named, only Annabel.", status: "draft", created_at: new Date("2026-10-13T12:00:00Z") },
 ];
 
 function fakeClient(fail?: RegExp) {
@@ -39,8 +39,8 @@ function fakeClient(fail?: RegExp) {
     }),
   };
 }
-const ctx = (c: ReturnType<typeof fakeClient>, firstName: string | null = NAME): ForgetHookContext =>
-  ({ c: c as never, target: { type: "rec", id: 1 }, recommenderFirstName: firstName, recommenderRemoved: true });
+const ctx = (c: ReturnType<typeof fakeClient>, firstName: string | null = NAME, savedAt: Date | null = null): ForgetHookContext =>
+  ({ c: c as never, target: { type: "rec", id: 1 }, recommenderFirstName: firstName, recommenderRemoved: true, savedAt });
 const hook = async (name: string) => {
   const { FORGET_HOOKS } = await import("../../../agent/lib/privacy/forget-hooks");
   const h = FORGET_HOOKS.find((x) => x.name === name);
@@ -58,9 +58,9 @@ beforeEach(() => {
 });
 
 describe("FORGET_HOOKS (lane C)", () => {
-  it("registers gardener_runs, place_nudges and rec_receipts before episodes, so the Blob delete is the last thing the transaction does", async () => {
+  it("registers place_nudges and rec_receipts before episodes_and_drafts, so the Blob delete is the last thing the transaction does", async () => {
     const { FORGET_HOOKS } = await import("../../../agent/lib/privacy/forget-hooks");
-    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["gardener_runs", "place_nudges", "rec_receipts", "episodes"]);
+    expect(FORGET_HOOKS.map((h) => h.name)).toEqual(["place_nudges", "rec_receipts", "episodes_and_drafts"]);
   });
 
   it("place_nudges: deletes the orphaned nudge bee_sync rows (every day's) in the transaction, then their Bee todos; line has ids only", async () => {
@@ -115,61 +115,61 @@ describe("FORGET_HOOKS (lane C)", () => {
     await expect((await hook("rec_receipts")).run(ctx(fakeClient()))).rejects.toThrow("Bee API 503");
   });
 
-  it("episodes: deletes only episodes naming the person through ctx.c with $n parameters, then their audio last", async () => {
+  // Monday 2026-10-12 10:00 Chicago -> the week of Sunday 2026-10-11
+  const SAVED = new Date("2026-10-12T15:00:00Z");
+  const SWEEP = "3 episodes (weeks 2026-09-27–2026-10-11) and 2 drafts, including 1 awaiting approval";
+
+  it("episodes_and_drafts: through ctx.c with $n parameters, drafts then episodes, audio last; the line has counts, weeks and ids only", async () => {
     const c = fakeClient();
-    const line = await (await hook("episodes")).run(ctx(c));
-    expect(line).toBe("episodes 2 (ids 4, 6), audio 1");
+    expect(await (await hook("episodes_and_drafts")).run(ctx(c, NAME, SAVED)))
+      .toBe(`deleted ${SWEEP}; audio 2 (episode ids 4, 5, 6; draft ids 7, 8)`);
     expect(c.query.mock.calls.map(([text, values]) => [text.replace(/\s+/g, " ").trim(), values])).toEqual([
-      ["select id, script_md, audio_url from episodes", []],
+      ["select id, week_of::text as week_of, script_md, audio_url from episodes", []],
+      ["select id, output_md, status, created_at from gardener_runs", []],
+      ["delete from gardener_runs where id = $1", [7]],
+      ["delete from gardener_runs where id = $1", [8]],
       ["delete from episodes where id = $1", [4]],
+      ["delete from episodes where id = $1", [5]],
       ["delete from episodes where id = $1", [6]],
     ]);
-    expect(log.at(-1)).toBe("blob https://blob.test/ann-4.mp3");
-    expect(blob.del).toHaveBeenCalledTimes(1);
+    expect(log.slice(-2)).toEqual(["blob https://blob.test/ann-4.mp3", "blob https://blob.test/5.mp3"]);
   });
 
-  it("episodes: an audio file that is already gone (404 / not found) counts as done", async () => {
+  it("episodes_and_drafts preview (the dry run): the same counts, reads only, deletes nothing", async () => {
+    const c = fakeClient();
+    expect(await (await hook("episodes_and_drafts")).preview!(ctx(c, NAME, SAVED))).toBe(`will also delete ${SWEEP}`);
+    expect(c.query.mock.calls.every(([text]) => text.trim().startsWith("select"))).toBe(true);
+    expect(blob.del).not.toHaveBeenCalled();
+  });
+
+  it("an item with no recommender (an idea): every episode from its save week and every draft after it, named or not", async () => {
+    const idea = { ...ctx(fakeClient(), null, SAVED), target: { type: "idea", id: 3 } } as ForgetHookContext;
+    expect(await (await hook("episodes_and_drafts")).run(idea))
+      .toBe("deleted 1 episode (week 2026-10-11) and 1 draft, including 1 awaiting approval; audio 1 (episode ids 5; draft ids 8)");
+  });
+
+  it("an audio file that is already gone (404 / not found) counts as done; any other Blob failure throws", async () => {
     const { BlobNotFoundError } = await import("@vercel/blob");
     blob.del.mockRejectedValueOnce(new (BlobNotFoundError as unknown as new () => Error)());
-    expect(await (await hook("episodes")).run(ctx(fakeClient()))).toBe("episodes 2 (ids 4, 6), audio 1");
-    blob.del.mockRejectedValueOnce(Object.assign(new Error("gone"), { status: 404 }));
-    expect(await (await hook("episodes")).run(ctx(fakeClient()))).toBe("episodes 2 (ids 4, 6), audio 1");
-  });
-
-  it("episodes: any other Blob failure throws (lane A rolls the rows back, a re-run retries)", async () => {
+    expect(await (await hook("episodes_and_drafts")).run(ctx(fakeClient()))).toContain("audio 1");
     blob.del.mockRejectedValueOnce(Object.assign(new Error("blob down"), { status: 503 }));
-    await expect((await hook("episodes")).run(ctx(fakeClient()))).rejects.toThrow("blob down");
+    await expect((await hook("episodes_and_drafts")).run(ctx(fakeClient()))).rejects.toThrow("blob down");
   });
 
-  it("episodes: a DB error propagates and no audio is deleted", async () => {
-    await expect((await hook("episodes")).run(ctx(fakeClient(/delete from episodes/)))).rejects.toMatchObject({ name: "NeonDbError" });
+  it("a DB error propagates and no audio is deleted", async () => {
+    await expect((await hook("episodes_and_drafts")).run(ctx(fakeClient(/delete from episodes/)))).rejects.toMatchObject({ name: "NeonDbError" });
     expect(blob.del).not.toHaveBeenCalled();
   });
 
-  it("gardener_runs: deletes only drafts naming the person through ctx.c", async () => {
+  it("with neither a name nor a save time it touches nothing and says 0", async () => {
     const c = fakeClient();
-    expect(await (await hook("gardener_runs")).run(ctx(c))).toBe("gardener_runs 1 (ids 7)");
-    expect(c.query.mock.calls.map(([text, values]) => [text.replace(/\s+/g, " ").trim(), values])).toEqual([
-      ["select id, output_md from gardener_runs", []],
-      ["delete from gardener_runs where id = $1", [7]],
-    ]);
-  });
-
-  it("gardener_runs: a DB error propagates", async () => {
-    await expect((await hook("gardener_runs")).run(ctx(fakeClient(/gardener_runs/)))).rejects.toMatchObject({ name: "NeonDbError" });
-  });
-
-  it("without a recommender first name both hooks touch nothing and say 0", async () => {
-    const c = fakeClient();
-    expect(await (await hook("episodes")).run(ctx(c, null))).toBe("episodes 0");
-    expect(await (await hook("gardener_runs")).run(ctx(c, null))).toBe("gardener_runs 0");
+    expect(await (await hook("episodes_and_drafts")).run(ctx(c, null))).toBe("deleted 0 episodes and 0 drafts, including 0 awaiting approval; audio 0");
     expect(c.query).not.toHaveBeenCalled();
-    expect(blob.del).not.toHaveBeenCalled();
   });
 
-  it("output lines carry ids and counts only, never the name, script text or audio URL", async () => {
-    const lines = [await (await hook("gardener_runs")).run(ctx(fakeClient())), await (await hook("episodes")).run(ctx(fakeClient()))];
-    for (const l of lines) expect(l).toMatch(/^[a-z_]+ \d+( \(ids [\d, ]+\))?(, audio \d+)?$/);
-    expect(lines.join(" ")).not.toMatch(/ann|ramen|blob/i);
+  it("output lines never carry the name, script text or audio URL", async () => {
+    const h = await hook("episodes_and_drafts");
+    const lines = [await h.run(ctx(fakeClient(), NAME, SAVED)), await h.preview!(ctx(fakeClient(), NAME, SAVED))];
+    expect(lines.join(" ")).not.toMatch(/ann|ramen|blob|pitch/i);
   });
 });

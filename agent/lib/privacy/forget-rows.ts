@@ -2,6 +2,7 @@
 // deleting them (deleteRows), always inside the caller's transaction. Ids and counts only, never text.
 import type { PoolClient } from "@neondatabase/serverless";
 import { lineIndexFor, TimelineAmbiguousError, type StampedEntry } from "../ideas/timeline-match";
+import { GARDENER_LEASE_MS } from "../gardeners/schedule";
 import { CLAIM_LEASE } from "../store/conversations";
 
 export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
@@ -14,10 +15,12 @@ export interface ForgetPlan {
   updates: Record<string, number>; // rows recomputed per table
   refs: ForgetRefs;
   recommender: { id: number; firstName: string; removed: boolean } | null; // firstName is for hooks only, never printed
+  savedAt: Date | null; // when the item first entered Earmark (for hooks: nothing made before it can hold it), never printed
   notes: string[]; // dry-run warnings (ids only)
   retitle?: boolean; // the forgotten mention is the one the idea's title came from
   draftInFlight?: number; // id of an idea whose one-pager draft claim is inside its lease: --yes refuses
   mergedInto?: number; // the idea was merged into this one and the merge can still be undone: --yes refuses
+  gardenerInFlight?: boolean; // a gardener (or the weekly episode) run holds its claim: --yes refuses
 }
 
 // A forgotten mention's timeline line could not be found: rather than leave it behind, the transaction fails.
@@ -28,16 +31,25 @@ export class ForgetTimelineError extends Error {
 export const UNTITLED = "Untitled idea";
 const TITLE_NOTE = "title came from this mention: forget the whole idea, or it will be retitled";
 const TIMELINE_NOTE = "the dry run cannot check this mention's timeline line; --yes stops safely (nothing deleted) if it is missing";
+const GARDENER_NOTE = "a gardener run is in progress: --yes will refuse; retry in a few minutes";
+// A run that claimed inside the lease and has not stamped last_run_at (run.ts stamps it with its claim time) may still
+// be reading data, and would save its output after this forget commits. Under the lock every gardener row is locked
+// (FOR UPDATE cannot sit on an aggregate, hence the per-row flag): a claim that starts now waits for this commit and
+// then reads data without the item.
+const GARDENERS_LIVE = `select (last_attempt_at >= now() - $1::int * interval '1 millisecond'
+    and (last_run_at is null or last_run_at < last_attempt_at)) as live from gardeners`;
 const draftNote = (id: number) => `a draft is being written for idea ${id} now: --yes will refuse; retry in a few minutes`;
 // The idea row (locked when executing) and whether a drafter holds a live claim on it (one-pager claim, migration 009).
+// saved_at: the idea's or any of its mentions' first save (a merge can move in mentions older than the idea row).
 const IDEA_ROW = `select bee_fact_id, notion_page_id,
+    least(created_at, (select min(m.created_at) from idea_mentions m where m.cluster_id = idea_clusters.id)) as saved_at,
     (draft_claimed_at is not null and draft_claimed_at >= now() - interval '${CLAIM_LEASE}') as drafting
   from idea_clusters where id = $1`;
 const NONE: ForgetRefs = { beeTodoIds: [], beeFactIds: [], notionPageIds: [], blobUrls: [] };
 const nums = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(Number))];
 const strs = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(String))];
 const missing = (target: ForgetTarget, resolved = target): ForgetPlan =>
-  ({ target, resolved, exists: false, deletes: {}, updates: {}, refs: NONE, recommender: null, notes: [] });
+  ({ target, resolved, exists: false, deletes: {}, updates: {}, refs: NONE, recommender: null, savedAt: null, notes: [] });
 
 async function rows(c: PoolClient, text: string, values: unknown[]): Promise<Record<string, unknown>[]> {
   return (await c.query(text, values)).rows;
@@ -82,7 +94,7 @@ async function shared(c: PoolClient, type: "rec" | "idea", id: number) {
 
 async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promise<ForgetPlan> {
   const [r] = await rows(c, `
-    select r.bee_todo_id, r.notion_page_id, r.recommender_id, p.first_name,
+    select r.bee_todo_id, r.notion_page_id, r.recommender_id, p.first_name, r.created_at as saved_at,
            (select count(*)::int from recommendations o where o.recommender_id = r.recommender_id and o.id <> r.id) as others
     from recommendations r left join recommenders p on p.id = r.recommender_id where r.id = $1${lock}`, [target.id]);
   if (!r) return missing(target);
@@ -98,7 +110,7 @@ async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promi
       [String(target.id), String(recommender.id)])
     : s.links;
   return {
-    target, resolved: target, exists: true, recommender, notes: [],
+    target, resolved: target, exists: true, recommender, savedAt: new Date(r.saved_at as Date), notes: [],
     deletes: {
       recommendations: 1, rec_receipts: receipts.length, photos: photos.length, links, space_items: s.space_items,
       bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
@@ -122,7 +134,7 @@ async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTar
   const [into] = await rows(c, `select keep_id from idea_merges where merged_id = $1 and undone_at is null order by id desc limit 1`, [resolved.id]);
   const mergedInto = into ? Number(into.keep_id) : undefined;
   return {
-    target, resolved, exists: true, recommender: null, updates: {},
+    target, resolved, exists: true, recommender: null, savedAt: new Date(k.saved_at as Date), updates: {},
     notes: [...(k.drafting ? [draftNote(resolved.id)] : []), ...(mergedInto !== undefined ? [mergedNote(resolved.id, mergedInto)] : [])],
     draftInFlight: k.drafting ? resolved.id : undefined, mergedInto,
     deletes: {
@@ -141,7 +153,7 @@ async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTar
 // page, fact proposals; M3-T1/T7 recreate them). When no other non-dismissed mention would be left, the whole idea is
 // forgotten, dismissed mentions included (they hold excerpts too).
 async function planMention(c: PoolClient, target: ForgetTarget, lock: string): Promise<ForgetPlan> {
-  const [m] = await rows(c, `select cluster_id from idea_mentions where id = $1`, [target.id]);
+  const [m] = await rows(c, `select cluster_id, created_at from idea_mentions where id = $1`, [target.id]);
   if (!m) return missing(target);
   const clusterId = Number(m.cluster_id);
   const [k] = await rows(c, `${IDEA_ROW}${lock}`, [clusterId]);
@@ -152,7 +164,7 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
   const retitle = Number(first!.id) === target.id;
   const s = await shared(c, "idea", clusterId);
   return {
-    target, resolved: target, exists: true, recommender: null, retitle,
+    target, resolved: target, exists: true, recommender: null, savedAt: new Date(m.created_at as Date), retitle,
     notes: [...(retitle ? [TITLE_NOTE] : []), TIMELINE_NOTE, ...(k.drafting ? [draftNote(clusterId)] : [])],
     draftInFlight: k.drafting ? clusterId : undefined,
     deletes: {
@@ -167,9 +179,12 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
 
 export async function readPlan(c: PoolClient, target: ForgetTarget, lock: boolean): Promise<ForgetPlan> {
   const forUpdate = lock ? " for update" : "";
-  if (target.type === "rec") return planRec(c, target, lock ? " for update of r" : "");
-  if (target.type === "idea") return planIdea(c, target, target, forUpdate);
-  return planMention(c, target, forUpdate);
+  const plan = target.type === "rec" ? await planRec(c, target, lock ? " for update of r" : "")
+    : target.type === "idea" ? await planIdea(c, target, target, forUpdate)
+    : await planMention(c, target, forUpdate);
+  if (!plan.exists) return plan;
+  const live = (await rows(c, `${GARDENERS_LIVE}${forUpdate}`, [GARDENER_LEASE_MS])).some((g) => g.live === true);
+  return live ? { ...plan, gardenerInFlight: true, notes: [...plan.notes, GARDENER_NOTE] } : plan;
 }
 
 // Deletes everything readPlan counted. Returns log lines (ids only).

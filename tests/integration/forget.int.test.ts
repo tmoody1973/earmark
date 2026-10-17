@@ -43,7 +43,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
       name: "it_hook",
       run: async (ctx) => {
         await ctx.c.query("select 1"); // hooks get the transaction's client
-        seen.push({ target: ctx.target, recommenderFirstName: ctx.recommenderFirstName, recommenderRemoved: ctx.recommenderRemoved });
+        seen.push({ target: ctx.target, recommenderFirstName: ctx.recommenderFirstName, recommenderRemoved: ctx.recommenderRemoved, savedAt: ctx.savedAt });
         return "it_hook 0";
       },
     };
@@ -74,6 +74,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
   const addProposal = async (kind: "taste" | "idea", evidence: number[], beeFactId: number | null) => Number((await one(
     `insert into fact_proposals (text, kind, evidence_ids, bee_fact_id) values ($1, $2, $3::jsonb, $4) returning id`,
     [`it-forget-${RUN}`, kind, JSON.stringify(evidence), beeFactId])).id);
+
+  // M5 stores (lane C hooks). `weekSql`/`createdSql` are SQL date/timestamp expressions from the test itself.
+  const addEpisode = async (weekSql: string, script: string, audio: string | null) => Number((await one(
+    `insert into episodes (week_of, script_md, audio_url) values (${weekSql}, $1, $2) returning id`, [`${script} it-forget-${RUN}`, audio])).id);
+  const addRun = async (text: string, createdSql = "now()") => Number((await one(
+    `insert into gardener_runs (gardener_id, output_md, created_at) values ((select id from gardeners order by id limit 1), $1, ${createdSql}) returning id`,
+    [`${text} it-forget-${RUN}`])).id);
+  const hookLine = (lines: string[], name: string) => lines.find((l) => l.startsWith(`hook ${name}:`)) ?? "";
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -126,7 +134,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(d.deleteFact.mock.calls).toEqual([[beeId(3)]]);
     expect(d.trashNotionPage.mock.calls).toEqual([[`pg-${RUN}`]]);
     expect(d.deleteBlob.mock.calls).toEqual([[`https://blob.test/${RUN}.jpg`]]);
-    expect(seen).toEqual([{ target: { type: "rec", id }, recommenderFirstName: NAME, recommenderRemoved: true }]);
+    expect(seen).toEqual([{ target: { type: "rec", id }, recommenderFirstName: NAME, recommenderRemoved: true, savedAt: expect.any(Date) }]);
 
     const left = await one(`select
       (select count(*)::int from recommendations where id = $1) as recs,
@@ -410,16 +418,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     const who = `${NAME}c`;
     const id = await addRec(await addRecommender(who));
     const week = (RUN % 100_000) * 2; // days after 2300-01-01: unique per run, never a real week
-    const episode = async (offset: number, script: string, audio: string) => Number((await one(
-      `insert into episodes (week_of, script_md, audio_url) values (date '2300-01-01' + $1::int, $2, $3) returning id`,
-      [week + offset, `${script} it-forget-${RUN}`, audio])).id);
-    const named = await episode(0, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
-    const other = await episode(1, "Nobody named.", `https://blob.test/${RUN}-other.mp3`);
-    const run = async (text: string) => Number((await one(
-      `insert into gardener_runs (gardener_id, output_md) values ((select id from gardeners order by id limit 1), $1) returning id`,
-      [`${text} it-forget-${RUN}`])).id);
-    const draft = await run(`## Pitch\n${who}'s tip.`);
-    const keep = await run("No one named.");
+    // all made before the rec was saved, so only the recommender-name match can take the named ones
+    const named = await addEpisode(`date '1850-01-01' + ${week % 30_000}`, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
+    const other = await addEpisode(`date '1900-01-01' + ${week % 30_000}`, "Nobody named.", `https://blob.test/${RUN}-other.mp3`);
+    const draft = await addRun(`## Pitch\n${who}'s tip.`, "now() - interval '1 day'");
+    const keep = await addRun("No one named.", "now() - interval '1 day'");
     blobDel.mockClear();
     beeDel.mockClear();
     // a rec nudged on two days: each day is its own place_nudges row and its own Bee todo
@@ -460,13 +463,80 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and entity_id = $1`, [otherReceipt]);
     await c.query(`delete from recommendations where id = $1`, [otherRec]); // its receipt cascades
     expect(await count(`place_nudges where recommendation_id = $1`, [id])).toBe(0);
-    expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
-    expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
+    // the window sweep can also take leftover future-dated rows of other runs, so these check membership, not exact lines
+    expect(hookLine(r.lines, "episodes_and_drafts")).toMatch(new RegExp(`episode ids [\\d, ]*\\b${named}\\b`));
+    expect(hookLine(r.lines, "episodes_and_drafts")).toMatch(new RegExp(`draft ids [\\d, ]*\\b${draft}\\b`));
     expect(r.lines.join("\n")).not.toContain(who);
-    expect(blobDel.mock.calls).toEqual([[`https://blob.test/${RUN}-named.mp3`]]);
+    expect(blobDel.mock.calls).toContainEqual([`https://blob.test/${RUN}-named.mp3`]);
+    expect(blobDel.mock.calls).not.toContainEqual([`https://blob.test/${RUN}-other.mp3`]);
     expect(await count(`episodes where id = any($1::bigint[])`, [[named, other]])).toBe(1);
     expect(await count(`gardener_runs where id = any($1::bigint[])`, [[draft, keep]])).toBe(1);
     expect(await count(`recommendations where id = $1`, [id])).toBe(0);
+  });
+
+  it("lane C hooks: forgetting an idea leaves no trace in any episode or gardener draft made after it was saved, paraphrased or not", async () => {
+    const { forget } = await mod();
+    const { FORGET_HOOKS } = await import("../../agent/lib/privacy/forget-hooks");
+    const cid = await addCluster();
+    await addMention(cid, A);
+    const n = RUN % 30_000;
+    // the script is model text: it can quote the title or only paraphrase it, so neither may survive
+    const quoted = await addEpisode(`date '2400-01-01' + ${n}`, "Your IT forget idea keeps growing.", `https://blob.test/${RUN}-idea-q.mp3`);
+    const paraphrased = await addEpisode(`date '2400-01-01' + ${n + 30_000}`, "That thought from Thursday is sprouting.", `https://blob.test/${RUN}-idea-p.mp3`);
+    const older = await addEpisode(`date '1800-01-01' + ${n}`, "An older week.", `https://blob.test/${RUN}-idea-old.mp3`);
+    const draftAfter = await addRun("Ripening: one thought from this week.");
+    const draftBefore = await addRun("Last week's pitch.", "now() - interval '1 day'");
+    blobDel.mockClear();
+
+    // the dry run shows the over-deletion (counts and dates only), and --yes reports the same counts
+    const dry = await forget(c, { type: "idea", id: cid }, { yes: false, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    const preview = hookLine(dry.lines, "episodes_and_drafts").match(/: will also delete (.+)$/)?.[1];
+    expect(preview).toMatch(/^\d+ episodes \(weeks \d{4}-\d\d-\d\d–\d{4}-\d\d-\d\d\) and \d+ drafts?, including [1-9]\d* awaiting approval$/);
+    expect(await count(`episodes where id = any($1::bigint[])`, [[quoted, paraphrased]])).toBe(2); // the dry run deleted nothing
+
+    const r = await forget(c, { type: "idea", id: cid }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    expect(hookLine(r.lines, "episodes_and_drafts")).toContain(`: deleted ${preview}; audio `);
+    expect(await count(`idea_clusters where id = $1`, [cid])).toBe(0);
+    expect(await count(`episodes where id = any($1::bigint[])`, [[quoted, paraphrased]])).toBe(0);
+    expect(await count(`episodes where id = $1`, [older])).toBe(1);
+    expect(await count(`gardener_runs where id = $1`, [draftAfter])).toBe(0);
+    expect(await count(`gardener_runs where id = $1`, [draftBefore])).toBe(1);
+    expect(blobDel.mock.calls).toEqual(expect.arrayContaining([[`https://blob.test/${RUN}-idea-q.mp3`], [`https://blob.test/${RUN}-idea-p.mp3`]]));
+    expect(blobDel.mock.calls).not.toContainEqual([`https://blob.test/${RUN}-idea-old.mp3`]);
+    expect(r.lines.join("\n")).not.toContain("IT forget idea");
+  });
+
+  it("refuses --yes while a gardener or episode run holds its claim, in the outside pass and again under the lock", async () => {
+    const { forget, formatPlan } = await mod();
+    const [g] = (await c.query(`select id, last_attempt_at, last_run_at from gardeners order by id limit 1`)).rows;
+    const claim = () => c.query(`update gardeners set last_attempt_at = now(), last_run_at = null where id = $1`, [g.id]);
+    const release = () => c.query(`update gardeners set last_attempt_at = $2, last_run_at = $3 where id = $1`, [g.id, g.last_attempt_at, g.last_run_at]);
+    try {
+      await claim();
+      const id = await addRec(null);
+      const dry = await forget(c, { type: "rec", id }, { yes: false, deps: fakeDeps() as ExternalDeps });
+      expect(formatPlan(dry.plan).join("\n")).toContain("a gardener run is in progress");
+      const d = fakeDeps();
+      await expect(forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps }))
+        .rejects.toMatchObject({ name: "ForgetGardenerInFlightError", message: "a gardener run is in progress, retry in a few minutes" });
+      expect(await count(`recommendations where id = $1`, [id])).toBe(1);
+
+      // a run that claims after the outside pass (here: during the outside Bee delete) is caught under the lock
+      await release();
+      const late = await addRec(null, { beeTodoId: beeId(3) });
+      const d2 = fakeDeps();
+      d2.deleteTodo.mockImplementation(async () => { await claim(); });
+      await expect(forget(c, { type: "rec", id: late }, { yes: true, deps: d2 as ExternalDeps })).rejects.toMatchObject({ name: "ForgetGardenerInFlightError" });
+      expect(d2.deleteTodo).toHaveBeenCalledTimes(1);
+      expect(await count(`recommendations where id = $1`, [late])).toBe(1);
+
+      // a finished run (last_run_at stamped with its claim time) does not block
+      await c.query(`update gardeners set last_run_at = last_attempt_at where id = $1`, [g.id]);
+      await forget(c, { type: "rec", id: late }, { yes: true, deps: fakeDeps() as ExternalDeps });
+      expect(await count(`recommendations where id = $1`, [late])).toBe(0);
+    } finally {
+      await release();
+    }
   });
 
   // Merges (M4-T6, decision 027): a forget that touches a merge ends its undo, and leaves no text behind anywhere.
