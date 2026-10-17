@@ -16,7 +16,7 @@ const MAX_IDEAS_PER_RUN = 3;
 const IDEA_CANDIDATES = 25; // looked at per run; names filtered in code, then capped at MAX_IDEAS_PER_RUN
 const MAX_WRITES_PER_RUN = 5;
 const CLAIM_STALE_MINUTES = 15;
-const RECONCILE_MAX_PAGES = 5;
+const RECONCILE_MAX_PAGES = 20; // x100 facts per list, unconfirmed and confirmed
 
 const Statements = z.object({ statements: z.array(z.string().min(5).max(80)).max(5) });
 
@@ -107,48 +107,92 @@ export async function proposeIdeaFacts(): Promise<number> {
 
 const norm = (t: string) => t.trim().toLowerCase();
 
-/** An earlier attempt may have created the fact in Bee: find it among the unconfirmed facts (exact text, case-insensitive). */
-async function findPostedFact(bee: BeeClient, text: string): Promise<number | null> {
+type Listed = { id: number; text: string; confirmed: boolean };
+type Reconcile = { kind: "found"; id: number; confirmed: boolean } | { kind: "none" } | { kind: "incomplete" };
+
+/** Every fact in Bee (unconfirmed and confirmed), read once per run and paged. `complete` is false if pages ran out. */
+function lazyBeeFacts(bee: BeeClient) {
+  let loaded: Promise<{ facts: Listed[]; complete: boolean }> | undefined;
+  const load = async () => {
+    const facts: Listed[] = [];
+    let complete = true;
+    for (const confirmed of [false, true]) {
+      let cursor: string | undefined;
+      let pages = 0;
+      for (;;) {
+        if (pages++ >= RECONCILE_MAX_PAGES) { complete = false; break; }
+        const res = await bee.listFacts({ confirmed, limit: 100, cursor });
+        facts.push(...res.facts.map((f) => ({ id: f.id, text: f.text, confirmed })));
+        if (!res.next_cursor) break;
+        cursor = res.next_cursor;
+      }
+    }
+    return { facts, complete };
+  };
+  return () => (loaded ??= load());
+}
+
+/** An earlier attempt may have created the fact in Bee, and the owner may since have confirmed or deleted it. Exact text, case-insensitive. */
+async function reconcile(listAll: ReturnType<typeof lazyBeeFacts>, text: string): Promise<Reconcile> {
+  const { facts, complete } = await listAll();
   const linked = new Set(((await db()`select bee_fact_id from fact_proposals where bee_fact_id is not null`) as { bee_fact_id: number | string }[]).map((r) => Number(r.bee_fact_id)));
-  let cursor: string | undefined;
-  for (let page = 0; page < RECONCILE_MAX_PAGES; page++) {
-    const res = await bee.listFacts({ confirmed: false, limit: 100, cursor });
-    const hit = res.facts.find((f) => norm(f.text) === norm(text) && !linked.has(f.id));
-    if (hit) return hit.id;
-    if (!res.next_cursor) return null;
-    cursor = res.next_cursor;
-  }
-  return null;
+  const hit = facts.find((f) => norm(f.text) === norm(text) && !linked.has(f.id));
+  if (hit) return { kind: "found", id: hit.id, confirmed: hit.confirmed };
+  return complete ? { kind: "none" } : { kind: "incomplete" };
 }
 
 /**
- * Writes pending proposals to Bee as unconfirmed facts. This writes to the owner's real account, so it is idempotent:
- * each proposal is claimed atomically before posting; a stale claim from an earlier attempt is reconciled against Bee
- * before anything is posted again; the Bee id and sync row are recorded in one statement right after the post.
+ * Writes pending proposals to Bee as unconfirmed facts. This writes to the owner's real account, so it FAILS CLOSED:
+ * each proposal is claimed atomically; a proposal that was claimed before (an attempt of unknown outcome) is NEVER
+ * re-posted. It is reconciled against ALL of Bee's facts (unconfirmed and confirmed): a match is adopted, no match means
+ * the owner deleted it (or the post never landed), so the proposal is marked rejected and never re-proposed.
  */
 export async function writePendingProposals(bee: BeeClient = createBeeClient()): Promise<number> {
   const pending = (await db()`
-    select id, text, write_started_at is not null as attempted from fact_proposals
-    where status = 'pending' and bee_fact_id is null order by id limit ${MAX_WRITES_PER_RUN}`) as { id: number | string; text: string; attempted: boolean }[];
+    select id, text, kind, evidence_ids from fact_proposals
+    where status = 'pending' and bee_fact_id is null order by id limit ${MAX_WRITES_PER_RUN}`) as { id: number | string; text: string; kind: string; evidence_ids: number[] }[];
+  const listAll = lazyBeeFacts(bee);
   let written = 0;
   for (const p of pending) {
     const id = Number(p.id);
     try {
+      // "previously attempted" is read from the row being claimed (FOR UPDATE), not from the earlier select.
       const claimed = (await db()`
-        update fact_proposals set write_started_at = now()
-        where id = ${id} and bee_fact_id is null
-          and (write_started_at is null or write_started_at < now() - make_interval(mins => ${CLAIM_STALE_MINUTES}))
-        returning id`) as unknown[];
+        with prev as (select id, write_started_at from fact_proposals where id = ${id} for update)
+        update fact_proposals f set write_started_at = now() from prev
+        where f.id = prev.id and f.bee_fact_id is null and f.status = 'pending'
+          and (prev.write_started_at is null or prev.write_started_at < now() - make_interval(mins => ${CLAIM_STALE_MINUTES}))
+        returning f.id, (prev.write_started_at is not null) as attempted`) as { id: number | string; attempted: boolean }[];
       if (claimed.length === 0) continue; // another run owns it, or it is already posted
-      const beeId = (p.attempted ? await findPostedFact(bee, p.text) : null) ?? (await bee.createFact(p.text)).id;
+      let beeId: number;
+      let confirmed = false;
+      if (claimed[0]!.attempted) {
+        const r = await reconcile(listAll, p.text);
+        if (r.kind === "incomplete") {
+          console.warn("[earmark] fact-proposals not posted", { proposalId: id, reason: "reconcile_incomplete" });
+          continue; // keep the claim; try again next run
+        }
+        if (r.kind === "none") {
+          await db()`update fact_proposals set status = 'rejected' where id = ${id}`;
+          console.warn("[earmark] fact-proposals not posted", { proposalId: id, reason: "attempted_no_match_rejected" });
+          continue;
+        }
+        beeId = r.id;
+        confirmed = r.confirmed;
+      } else {
+        beeId = (await bee.createFact(p.text)).id;
+      }
       await db()`
-        with u as (update fact_proposals set bee_fact_id = ${beeId} where id = ${id} returning id)
+        with u as (update fact_proposals set bee_fact_id = ${beeId}, status = case when ${confirmed}::boolean then 'confirmed' else status end where id = ${id} returning id)
         insert into bee_sync (entity_type, entity_id, bee_object, bee_id, last_written_state)
-        select 'fact_proposal', u.id, 'fact', ${beeId}, ${JSON.stringify({ confirmed: false })}::jsonb from u
+        select 'fact_proposal', u.id, 'fact', ${beeId}, ${JSON.stringify({ confirmed })}::jsonb from u
         on conflict (entity_type, entity_id, bee_object) do update set bee_id = ${beeId}, last_synced_at = now()`;
+      if (confirmed && p.kind === "idea" && p.evidence_ids[0] !== undefined) {
+        await db()`update idea_clusters set bee_fact_id = ${beeId}, updated_at = now() where id = ${p.evidence_ids[0]}`;
+      }
       written++;
     } catch (err) {
-      // Ids and error name only: a BeeApiError message can carry Bee's response body. The claim stays, so the retry reconciles first.
+      // Ids and error name only: a BeeApiError message can carry Bee's response body. The claim stays, so the next run reconciles, never re-posts.
       console.error("[earmark] fact-proposals write failed", { proposalId: id, error: err instanceof Error ? err.name : "unknown" });
     }
   }

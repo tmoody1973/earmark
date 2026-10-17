@@ -103,15 +103,20 @@ describe("proposeIdeaFacts", () => {
 });
 
 describe("writePendingProposals", () => {
-  const row = (id: number, text: string, attempted = false) => ({ id, text, attempted });
+  const row = (id: number, text: string) => ({ id, text, kind: "taste", evidence_ids: [1, 2, 3] });
+  const claim = (attempted: boolean) => [{ id: 5, attempted }];
+  const sqlText = (c: unknown[]) => (c[0] as TemplateStringsArray).join("?");
+  const page = (facts: { id: number; text: string }[], next_cursor: string | null = null) => ({ facts, next_cursor });
+
   it("claims, posts and records the Bee id and sync row in one statement", async () => {
-    sql.mockResolvedValueOnce([row(5, "Loves spiritual jazz")]).mockResolvedValueOnce([{ id: 5 }]).mockResolvedValue([]);
+    sql.mockResolvedValueOnce([row(5, "Loves spiritual jazz")]).mockResolvedValueOnce(claim(false)).mockResolvedValue([]);
     const createFact = vi.fn(async () => ({ id: 77 }));
     expect(await writePendingProposals({ createFact } as never)).toBe(1);
     expect(createFact).toHaveBeenCalledWith("Loves spiritual jazz");
     expect(q(1)).toContain("write_started_at = now()");
+    expect(q(1)).toContain("attempted"); // "previously attempted" is derived inside the claim statement
     expect(q(2)).toContain("insert into bee_sync");
-    expect(sql.mock.calls[2]!.slice(1, 3)).toEqual([77, 5]);
+    expect(sql.mock.calls[2]!.slice(1, 4)).toEqual([77, false, 5]);
   });
   it("skips a proposal whose claim was lost", async () => {
     sql.mockResolvedValueOnce([row(5, "Loves jazz")]).mockResolvedValueOnce([]);
@@ -119,23 +124,47 @@ describe("writePendingProposals", () => {
     expect(await writePendingProposals({ createFact } as never)).toBe(0);
     expect(createFact).not.toHaveBeenCalled();
   });
-  it("reconciles an earlier attempt: adopts the matching unconfirmed Bee fact instead of posting again", async () => {
-    sql.mockResolvedValueOnce([row(5, "Loves Spiritual Jazz", true)]).mockResolvedValueOnce([{ id: 5 }])
-      .mockResolvedValueOnce([]) // bee ids already linked
-      .mockResolvedValue([]);
+  it("reconciles an earlier attempt: adopts a matching UNCONFIRMED fact instead of posting again", async () => {
+    sql.mockResolvedValueOnce([row(5, "Loves Spiritual Jazz")]).mockResolvedValueOnce(claim(true)).mockResolvedValue([]);
     const createFact = vi.fn();
-    const listFacts = vi.fn(async () => ({ facts: [{ id: 99, text: "  loves spiritual jazz " }], next_cursor: null }));
+    const listFacts = vi.fn(async ({ confirmed }: { confirmed: boolean }) => page(confirmed ? [] : [{ id: 99, text: "  loves spiritual jazz " }]));
     expect(await writePendingProposals({ createFact, listFacts } as never)).toBe(1);
     expect(createFact).not.toHaveBeenCalled();
     expect(listFacts).toHaveBeenCalledWith(expect.objectContaining({ confirmed: false }));
-    expect(sql.mock.calls.at(-1)!.slice(1, 3)).toEqual([99, 5]);
+    expect(listFacts).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }));
+    expect(sql.mock.calls.at(-1)!.slice(1, 4)).toEqual([99, false, 5]);
   });
-  it("posts when the earlier attempt left no matching fact in Bee", async () => {
-    sql.mockResolvedValueOnce([row(5, "Loves jazz", true)]).mockResolvedValueOnce([{ id: 5 }]).mockResolvedValue([]);
-    const createFact = vi.fn(async () => ({ id: 7 }));
-    const listFacts = vi.fn(async () => ({ facts: [{ id: 99, text: "something else" }], next_cursor: null }));
+  it("adopts a matching CONFIRMED fact and marks the proposal confirmed", async () => {
+    sql.mockResolvedValueOnce([row(5, "Loves jazz")]).mockResolvedValueOnce(claim(true)).mockResolvedValue([]);
+    const listFacts = vi.fn(async ({ confirmed }: { confirmed: boolean }) => page(confirmed ? [{ id: 42, text: "Loves jazz" }] : []));
+    const createFact = vi.fn();
     expect(await writePendingProposals({ createFact, listFacts } as never)).toBe(1);
-    expect(createFact).toHaveBeenCalledTimes(1);
+    expect(createFact).not.toHaveBeenCalled();
+    const rec = sql.mock.calls.find((c) => sqlText(c).includes("insert into bee_sync"))!;
+    expect(sqlText(rec)).toContain("'confirmed'");
+    expect(rec.slice(1)).toContain(true);
+  });
+  it("fails closed: an attempted proposal with no matching fact is marked rejected and NOT posted", async () => {
+    const info = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sql.mockResolvedValueOnce([row(5, "secret text")]).mockResolvedValueOnce(claim(true)).mockResolvedValue([]);
+    const createFact = vi.fn();
+    const listFacts = vi.fn(async () => page([{ id: 99, text: "something else" }]));
+    expect(await writePendingProposals({ createFact, listFacts } as never)).toBe(0);
+    expect(createFact).not.toHaveBeenCalled();
+    const rej = sql.mock.calls.find((c) => sqlText(c).includes("status = 'rejected'"));
+    expect(rej).toBeTruthy();
+    expect(JSON.stringify(info.mock.calls)).not.toMatch(/secret/);
+    info.mockRestore();
+  });
+  it("does not post and keeps the claim when the Bee list is not fully read (pages exhausted)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sql.mockResolvedValueOnce([row(5, "Loves jazz")]).mockResolvedValueOnce(claim(true)).mockResolvedValue([]);
+    const createFact = vi.fn();
+    const listFacts = vi.fn(async () => page([{ id: 1, text: "x" }], "more"));
+    expect(await writePendingProposals({ createFact, listFacts } as never)).toBe(0);
+    expect(createFact).not.toHaveBeenCalled();
+    expect(sql.mock.calls.some((c) => sqlText(c).includes("status = 'rejected'"))).toBe(false);
+    warn.mockRestore();
   });
   it("selects at most 5 pending proposals per run", async () => {
     sql.mockResolvedValueOnce([]);
@@ -144,7 +173,7 @@ describe("writePendingProposals", () => {
   });
   it("logs ids and error names only, and keeps going after a failed post", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    sql.mockResolvedValueOnce([row(5, "secret fact text"), row(6, "Loves ramen")]).mockResolvedValue([{ id: 1 }]);
+    sql.mockResolvedValueOnce([row(5, "secret fact text"), row(6, "Loves ramen")]).mockResolvedValue([{ id: 1, attempted: false }]);
     const createFact = vi.fn().mockRejectedValueOnce(Object.assign(new Error("body with secret fact text"), { name: "BeeApiError" })).mockResolvedValueOnce({ id: 8 });
     expect(await writePendingProposals({ createFact } as never)).toBe(1);
     expect(JSON.stringify(err.mock.calls)).not.toMatch(/secret/);

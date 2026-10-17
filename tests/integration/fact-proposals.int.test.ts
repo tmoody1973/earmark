@@ -28,14 +28,14 @@ const sql = () => db();
 let nextBeeId = 9_000_000 + Math.floor(Math.random() * 900_000);
 
 function fakeBee(delayMs = 0) {
-  const facts: { id: number; text: string }[] = [];
+  const facts: { id: number; text: string; confirmed: boolean }[] = [];
   const createFact = vi.fn(async (text: string) => {
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    const f = { id: nextBeeId++, text };
+    const f = { id: nextBeeId++, text, confirmed: false };
     facts.push(f);
     return f;
   });
-  const listFacts = vi.fn(async () => ({ facts: [...facts], next_cursor: null }));
+  const listFacts = vi.fn(async ({ confirmed }: { confirmed: boolean }) => ({ facts: facts.filter((f) => f.confirmed === confirmed), next_cursor: null }));
   return { bee: { createFact, listFacts } as never, createFact, listFacts, facts };
 }
 
@@ -80,6 +80,52 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("fact proposals (real Neon, fake
     expect(Number(p.bee_fact_id)).toBeGreaterThan(0);
     const [s] = (await sql()`select bee_id from bee_sync where entity_type = 'fact_proposal' and entity_id = ${id}`) as { bee_id: string }[];
     expect(Number(s!.bee_id)).toBe(Number(p.bee_fact_id));
+  });
+
+  it("a crashed post whose fact the owner then CONFIRMED is adopted (marked confirmed), never re-posted", async () => {
+    const id = await insertProposal(`${MARK} Loves dub techno`);
+    const { bee, createFact, facts } = fakeBee();
+    hook.failRecordOnce = true;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await writePendingProposals(bee);
+    facts[0]!.confirmed = true;
+    await sql()`update fact_proposals set write_started_at = now() - interval '20 minutes' where id = ${id}`;
+    expect(await writePendingProposals(bee)).toBe(1);
+    expect(createFact).toHaveBeenCalledTimes(1);
+    const p = await proposal(id);
+    expect(Number(p.bee_fact_id)).toBe(facts[0]!.id);
+    expect(p.status).toBe("confirmed");
+  });
+
+  it("a crashed post whose fact the owner then DELETED posts nothing and ends rejected", async () => {
+    const id = await insertProposal(`${MARK} Loves polka`);
+    const { bee, createFact, facts } = fakeBee();
+    hook.failRecordOnce = true;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await writePendingProposals(bee);
+    facts.length = 0; // deleted in the Bee app
+    await sql()`update fact_proposals set write_started_at = now() - interval '20 minutes' where id = ${id}`;
+    expect(await writePendingProposals(bee)).toBe(0);
+    expect(createFact).toHaveBeenCalledTimes(1);
+    const p = await proposal(id);
+    expect(p.status).toBe("rejected");
+    expect(p.bee_fact_id).toBeNull();
+    // and it never comes back
+    await sql()`update fact_proposals set write_started_at = now() - interval '20 minutes' where id = ${id}`;
+    expect(await writePendingProposals(bee)).toBe(0);
+    expect(createFact).toHaveBeenCalledTimes(1);
+  });
+
+  it("a createFact that throws (e.g. a 4xx) does not hold its slot forever: the next run resolves it as rejected", async () => {
+    const id = await insertProposal(`${MARK} Loves zydeco`);
+    const { bee, createFact } = fakeBee();
+    createFact.mockRejectedValueOnce(Object.assign(new Error("bee 400 body"), { name: "BeeApiError" }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await writePendingProposals(bee)).toBe(0);
+    await sql()`update fact_proposals set write_started_at = now() - interval '20 minutes' where id = ${id}`;
+    expect(await writePendingProposals(bee)).toBe(0);
+    expect(createFact).toHaveBeenCalledTimes(1);
+    expect((await proposal(id)).status).toBe("rejected");
   });
 
   it("two concurrent runs post each proposal exactly once", async () => {
