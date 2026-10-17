@@ -1,7 +1,9 @@
 import type { RecType } from "@/agent/lib/types";
 
 // One authored line set: 24-unit grid, 1.6 stroke, round caps, currentColor. Decorative: labels carry the meaning.
-const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "search" | "close" | "undo", string> = {
+const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "search" | "close" | "undo" | "more", string> = {
+  // A card's "…" (M3-T10): three dots, small enough that the 1.6 stroke fills them.
+  more: "M6 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z M20 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   // Garden shell (M4-T4): the sprout is the wordmark's mark, the Garden tab and a bloom chip's icon.
   sprout: "M12 21v-8.4 M12 12.6C8.4 12.6 5.6 10.2 5 6.4c3.8 0 6.6 2.4 7 6.2Z M12 10.4c.4-3.6 3-6 6.8-6.2-.4 3.8-3.2 6.2-6.8 6.2Z",
   home: "M4.5 10.2 12 4l7.5 6.2V19a1 1 0 0 1-1 1H15v-5.5H9V20H5.5a1 1 0 0 1-1-1Z",

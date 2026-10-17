@@ -103,17 +103,18 @@ export async function setRecStatus(
 
 export async function setRecRating(
   recId: number, rating: Rating | null, origin: StatusOrigin, opts: Pick<SetStatusOptions, "effects" | "defer"> = {},
-): Promise<void> {
+): Promise<{ changed: boolean }> {
   assertRecId(recId);
   const rows = await db()`
     update recommendations set rating = ${rating}, updated_at = now()
     where id = ${recId} and rating is distinct from ${rating}
     returning status, recommender_id`;
-  if (!rows[0]) return;
+  if (!rows[0]) return { changed: false };
   // Rating something means you tried it; the status change recounts the recommender.
   if (rating && (rows[0].status === "new" || rows[0].status === "queued")) {
     const { changed } = await setRecStatus(recId, "tried", origin, { ...opts, from: ["new", "queued"] });
-    if (changed) return;
+    if (changed) return { changed: true };
   }
   if (rows[0].recommender_id != null) await recomputeRecommender(Number(rows[0].recommender_id));
+  return { changed: true };
 }

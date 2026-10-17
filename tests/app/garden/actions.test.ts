@@ -7,6 +7,7 @@ vi.mock("../../../agent/lib/garden/queries", () => ({
   getGardenVisit: vi.fn(async () => null),
   saveGardenVisit: vi.fn(async () => {}),
   setTipVerdict: vi.fn(async () => true),
+  setTipChoice: vi.fn(async () => true),
 }));
 vi.mock("../../../agent/lib/garden/backlinks", () => ({ setLinkStatus: vi.fn(async () => true) }));
 vi.mock("../../../agent/lib/garden/merge", () => ({ mergeClusters: vi.fn(async () => 41), undoMerge: vi.fn(async () => true) }));
@@ -14,10 +15,12 @@ vi.mock("../../../agent/lib/garden/merge", () => ({ mergeClusters: vi.fn(async (
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { getGardenVisit, saveGardenVisit, setTipVerdict } from "../../../agent/lib/garden/queries";
+import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict } from "../../../agent/lib/garden/queries";
 import { setLinkStatus } from "../../../agent/lib/garden/backlinks";
 import { mergeClusters, undoMerge } from "../../../agent/lib/garden/merge";
-import { acceptLink, keepTip, mergeIdeas, notATip, recordGardenVisit, removeLink, undoIdeaMerge } from "../../../app/garden/actions";
+import {
+  acceptLink, chooseTip, keepTip, mergeIdeas, notATip, recordGardenVisit, removeLink, undoIdeaMerge,
+} from "../../../app/garden/actions";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
 
@@ -79,6 +82,49 @@ describe.each([["keepTip", keepTip, "kept"], ["notATip", notATip, "not_a_tip"]] 
     signedInAs("user_owner");
     vi.mocked(setTipVerdict).mockResolvedValueOnce(false);
     expect(await action(7)).toEqual({ changed: false });
+  });
+});
+
+// FR-22 (M3-T10): Try this / Tried / Loved, Fine, Not for me / Dismiss from a shelf card. One public endpoint:
+// owner first, then the id and the choice, before any write.
+describe("chooseTip", () => {
+  it("refuses anyone but the owner, without touching the tip", async () => {
+    signedInAs("user_stranger");
+    await expect(chooseTip(7, "queue")).rejects.toThrow(/not found/i);
+    signedInAs(null);
+    await expect(chooseTip(7, "dismiss")).rejects.toThrow(/not found/i);
+    expect(setTipChoice).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_VALUE, "7", null, undefined])("rejects the id %s without a write", async (id) => {
+    signedInAs("user_owner");
+    await expect(chooseTip(id as never, "tried")).rejects.toThrow(/invalid tip/i);
+    expect(setTipChoice).not.toHaveBeenCalled();
+  });
+
+  it.each(["meh", "LOVED", "", null, 1, "needs_review", "queued", "composted", { choice: "loved" }])(
+    "rejects the choice %s without a write",
+    async (choice) => {
+      signedInAs("user_owner");
+      await expect(chooseTip(7, choice as never)).rejects.toThrow(/invalid choice/i);
+      expect(setTipChoice).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["queue", "tried", "dismiss", "loved", "fine", "not_for_me"] as const)(
+    "%s: saves, defers the side effects past the response, and refreshes the garden's pages",
+    async (choice) => {
+      signedInAs("user_owner");
+      expect(await chooseTip(7, choice)).toEqual({ changed: true });
+      expect(setTipChoice).toHaveBeenCalledWith(7, choice, { defer: after }); // Bee never holds up the tap
+      expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    },
+  );
+
+  it("reports a no-op when the tip had already moved on", async () => {
+    signedInAs("user_owner");
+    vi.mocked(setTipChoice).mockResolvedValueOnce(false);
+    expect(await chooseTip(7, "queue")).toEqual({ changed: false });
   });
 });
 
