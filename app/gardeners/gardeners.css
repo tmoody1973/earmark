@@ -17,6 +17,7 @@
   background: var(--ink); color: var(--surface); border: 1px solid var(--ink);
 }
 .gardeners button.quiet { background: transparent; color: var(--ink); border-color: var(--hairline); }
+.g-back { display: inline-flex; align-items: center; min-height: 44px; }
 .g-form { display: grid; gap: 1rem; }
 .g-form label { display: grid; gap: 0.25rem; font-size: 0.9375rem; }
 .g-form input:not([type="checkbox"]), .g-form select, .g-form textarea {

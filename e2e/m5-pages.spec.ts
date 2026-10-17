@@ -24,7 +24,8 @@ for (const path of ["/gardeners", "/search", "/alexa"]) {
     expect(scroll, "no horizontal scroll").toBeLessThanOrEqual(client);
     const small = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("main a, main button, main input, main select, main textarea, main summary")]
-        .map((el) => ({ el, r: el.getBoundingClientRect() }))
+        // a checkbox or radio is tapped through its label, so the label is the target that must be 44px
+        .map((el) => ({ el, r: (el.matches("input[type=checkbox], input[type=radio]") ? el.closest("label") ?? el : el).getBoundingClientRect() }))
         .filter(({ r }) => r.width > 0 && r.height > 0 && r.height < 44)
         .map(({ el, r }) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${el.className} h=${Math.round(r.height)}`),
     );

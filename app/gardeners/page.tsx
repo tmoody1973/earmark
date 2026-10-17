@@ -27,7 +27,7 @@ export default async function GardenersPage() {
     order by (r.status = 'draft') desc, r.created_at desc limit 20`) as RunRow[];
   return (
     <main className="gardeners">
-      <p><Link href="/garden">Back to the garden</Link></p>
+      <p><Link className="g-back" href="/garden">Back to the garden</Link></p>
       <h1>Gardeners</h1>
       <p className="lede">Helpers that tend the garden on a schedule. Nothing leaves Earmark; every result waits here as a draft until you approve it.</p>
 
