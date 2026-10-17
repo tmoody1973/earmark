@@ -105,6 +105,21 @@ Feed address to add in a podcast app (Follow a Show by URL): `https://<productio
 
 Approval: a new episode is saved unpublished. Once the gardeners screen lands (M5-T12) the episode appears there as a pending run; approving it sets `published_at` and it shows up in the feed. Until then nothing reaches the feed. Follow-up: FR-30 wiring is pending. `forgetPersonInEpisodes` (agent/lib/privacy/forget-m5.ts) deletes a person's episodes and audio but no forget script calls it yet. One episode per Chicago week: running it again for the same week does nothing and costs nothing.
 
+## Earmark MCP server
+
+Lets an AI client (Claude Code, Claude Desktop, later Alexa+) ask Earmark questions over MCP (Model Context Protocol) at `POST /api/mcp`. Access uses service-level OAuth (decision 031): trade the client id and secret for a one-hour pass, then send it as a bearer token.
+
+```bash
+# 1. Get a pass (HTTP Basic client auth, client_credentials grant)
+curl -s -u "$EARMARK_MCP_CLIENT_ID:$EARMARK_MCP_CLIENT_SECRET" -d grant_type=client_credentials \
+  -d resource=$EARMARK_PUBLIC_BASE_URL/api/mcp $EARMARK_PUBLIC_BASE_URL/api/oauth/token
+# or locally: pnpm exec tsx --env-file=.env.local scripts/mcp-token.ts
+# 2. Add the server to Claude Code (passes last 1 hour; mint a new one after)
+claude mcp add --transport http earmark $EARMARK_PUBLIC_BASE_URL/api/mcp --header "Authorization: Bearer <token>"
+```
+
+Tools: `what_did_they_recommend` (person, period), `ready_ideas`, `search_earmarks` (who, where, when, query), `add_to_earmarked_playlist` (item), `latest_episode`. Answers are short spoken sentences, and search skips Bee neural search to stay fast for Alexa+ (target under 500 ms). Set `EARMARK_PUBLIC_BASE_URL`, `EARMARK_MCP_CLIENT_ID`, `EARMARK_MCP_CLIENT_SECRET` and `EARMARK_MCP_JWT_SECRET` (see `.env.example`); without all four the MCP routes answer 503. Metadata lives at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`.
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).
