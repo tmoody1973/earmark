@@ -9,12 +9,13 @@ import { itunesPodcastProvider, podcastIndexProvider } from "./podcasts";
 import { tmdbProvider } from "./tmdb";
 import type { ProviderDef } from "./types";
 import { wikipediaProvider } from "./wikipedia";
+import { youtubeOEmbedProvider } from "./youtube";
 
 type Env = Record<string, string | undefined>;
 export interface NamedProvider { name: string; def: ProviderDef }
 
 // Same order as the recommendations.type check constraint.
-export const REC_TYPES: readonly RecType[] = ["album", "song", "artist", "book", "place", "podcast", "film_tv", "other"];
+export const REC_TYPES: readonly RecType[] = ["album", "song", "artist", "book", "place", "podcast", "film_tv", "video", "other"];
 
 const set = (v: string | undefined) => (v?.trim() ? v.trim() : null);
 
@@ -36,6 +37,8 @@ export function providerFor(type: RecType, env: Env = process.env): NamedProvide
       const token = set(env.TMDB_API_KEY);
       return token ? { name: "tmdb", def: tmdbProvider(token) } : null;
     }
+    case "video":
+      return { name: "youtube", def: youtubeOEmbedProvider }; // keyless; enrich.ts routes these through enrichVideo
     case "place": {
       const key = set(env.GOOGLE_PLACES_API_KEY);
       return key ? { name: "places", def: placesProvider(key) } : null;

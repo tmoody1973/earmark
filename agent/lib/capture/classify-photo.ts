@@ -14,7 +14,7 @@ export interface PhotoClass {
 
 const ITEM_CRITERIA = {
   a_specific_item:
-    "The image shows one specific album, song, artist, book, place, podcast, film or TV show that someone could look up by name: a cover, a spine, a sign, a menu with the restaurant's name, a poster, or a screen with a readable title or name.",
+    "The image shows one specific album, song, artist, book, place, podcast, film, TV show or online video that someone could look up by name: a cover, a spine, a sign, a menu with the restaurant's name, a poster, or a screen with a readable title or name.",
   no_specific_item:
     "The image shows no readable title or name of something to try: scenery, food with no restaurant name, a pet, a blurry photo, or a document unrelated to media or places.",
 };
@@ -55,7 +55,7 @@ export async function classifyPhoto(
 
 const PhotoReadSchema = z.object({
   title: z.string().describe("Main readable title or name, exactly as printed; empty string if none is readable"),
-  creator: z.string().nullable().describe("Artist, author, host or director if printed, else null"),
+  creator: z.string().nullable().describe("Artist, author, host, director or channel if printed, else null"),
   visibleText: z.string().max(300).describe("Other printed text, verbatim, at most 300 characters"),
 });
 

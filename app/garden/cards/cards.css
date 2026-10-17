@@ -38,6 +38,8 @@
   background: var(--art-ground);
   container-type: inline-size;
 }
+/* video: a 16:9 screen; object-fit: cover crops the letterbox bars of YouTube's 4:3 thumbnails */
+.rec-art--screen { aspect-ratio: 16 / 9; }
 .rec-art-fill { display: block; width: 100%; height: 100%; object-fit: cover; }
 .rec-art--stand { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.012 var(--hue)); }
 .rec-art-object,
@@ -79,7 +81,7 @@
 .type-art--artist { align-items: center; justify-content: center; text-align: center; background: oklch(0.92 0.022 var(--hue)); }
 .type-art--artist .type-art-title { font-size: 11.5cqw; -webkit-line-clamp: 3; text-wrap: balance; }
 
-/* album / song / podcast / place without a picture: the type's glyph on a tinted ground (the body has the title) */
+/* album / song / podcast / place / video without a picture: the type's glyph on a tinted ground (the body has the title) */
 .type-art--glyph { align-items: center; justify-content: center; color: var(--ink-3); }
 
 /* book / film: a jacket or poster standing on a pale ground */

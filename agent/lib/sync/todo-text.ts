@@ -7,7 +7,7 @@ export const TODO_PREFIX = "Earmark · ";
 export const MAX_OPEN_TODOS = 10;
 export const TODO_VERB: Record<RecType, string> = {
   album: "Listen", song: "Listen", artist: "Listen", podcast: "Listen",
-  book: "Read", place: "Visit", film_tv: "Watch", other: "Try",
+  book: "Read", place: "Visit", film_tv: "Watch", video: "Watch", other: "Try",
 };
 
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });

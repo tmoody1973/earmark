@@ -4,6 +4,7 @@ import { pickMatch } from "./match";
 import { enrichMusic } from "./music";
 import { providerFor } from "./registry";
 import { runProvider, type EnrichmentMatch, type EnrichQuery } from "./types";
+import { enrichVideo, youtubeVideoUrl } from "./youtube";
 
 export interface RecToEnrich {
   id: number;
@@ -13,6 +14,7 @@ export interface RecToEnrich {
   excerpt: string;
   lat: number | null;
   lng: number | null;
+  links?: unknown; // read for a video tip's YouTube URL
 }
 export interface EnrichDeps { env?: Record<string, string | undefined>; pick?: typeof pickMatch; fetchImpl?: typeof fetch }
 
@@ -30,6 +32,7 @@ export async function enrichRec(rec: RecToEnrich, deps: EnrichDeps = {}): Promis
   if (MUSIC.has(rec.type)) {
     return enrichMusic({ recId: rec.id, query, described, excerpt: rec.excerpt }, { fetchImpl, pick, apple: appleAccess(env) });
   }
+  if (rec.type === "video") return enrichVideo({ ...query, url: youtubeVideoUrl(rec.links) }, fetchImpl);
   const provider = providerFor(rec.type, env);
   if (!provider) throw new Error(`enrich: no provider configured for ${rec.type}`);
   return pick({ described, excerpt: rec.excerpt }, await runProvider(provider.def, query, fetchImpl));
