@@ -18,6 +18,7 @@
     "resort": "tsx --env-file=.env.local scripts/resort.ts",
     "links:refresh": "tsx --env-file=.env.local scripts/refresh-links.ts",
     "spaces:evaluate": "tsx --env-file=.env.local scripts/evaluate-spaces.ts",
+    "thresholds:check": "tsx --env-file=.env.local scripts/threshold-check.ts",
     "forget": "tsx --env-file=.env.local scripts/forget.ts",
     "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test",
     "eval:sample": "tsx --env-file=.env.local scripts/eval-sample.ts",

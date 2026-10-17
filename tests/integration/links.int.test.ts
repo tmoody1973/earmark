@@ -39,11 +39,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     return Number(rows[0].id);
   };
   const uuids: string[] = [];
-  const addRec = async (status: string, axis: number) => {
+  const addRec = async (status: string, axis: number, tilt = 0) => {
     const { rows } = await c.query(
       `insert into recommendations (type, raw_text, canonical_name, excerpt, said_at, source, status, confidence, embedding)
        values ('album', 'it links', 'IT links album', 'it links', $1, 'ambient', $2, 0.95, $3::vector) returning id`,
-      [AT, status, vec(axis)],
+      [AT, status, vec(axis, tilt)],
     );
     recIds.push(Number(rows[0].id));
     return Number(rows[0].id);
@@ -111,6 +111,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("backlinks on the Neon test bran
     expect(fits.map((f) => [f.rec.id, f.idea.id])).toEqual(expect.arrayContaining([[visibleRec, a], [visibleRec, b]]));
     expect(fits.map((f) => f.rec.id)).not.toContain(maybeRec);
     expect(fits.map((f) => f.idea.id)).not.toContain(gone);
+  });
+
+  it("a tip meets an idea up to REC_IDEA_MAX_DISTANCE: real tips sit 0.65–0.80 from their nearest idea (M4-T11)", async () => {
+    const { recIdeaCandidates } = await import("../../agent/lib/links/candidates");
+    const tiltFor = (d: number) => Math.sqrt(1 / (1 - d) ** 2 - 1); // cosine distance of vec(axis, tilt) from vec(axis)
+    const idea = await addCluster({ title: "fit idea", axis: 41 });
+    const near = await addRec("new", 41, tiltFor(0.72)); // past the old 0.7 floor, the prod median nearest idea is 0.715
+    const far = await addRec("new", 41, tiltFor(0.78));
+    const fits = (await recIdeaCandidates(500)).filter((f) => f.idea.id === idea).map((f) => f.rec.id);
+    expect(fits).toContain(near);
+    expect(fits).not.toContain(far);
   });
 
   it("refresh writes upserts that refresh a suggestion but never Tarik's decision", async () => {
