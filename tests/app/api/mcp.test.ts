@@ -8,6 +8,7 @@ const tools = vi.hoisted(() => ({
   latestEpisode: vi.fn(async () => ({ text: "x" })),
 }));
 vi.mock("../../../agent/lib/mcp/tools", () => tools);
+import { SignJWT } from "jose";
 import { issueServiceToken } from "../../../agent/lib/mcp/oauth";
 import { GET, POST } from "../../../app/api/mcp/route";
 import { POST as TOKEN } from "../../../app/api/oauth/token/route";
@@ -40,8 +41,13 @@ describe("/api/mcp", () => {
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate")).toContain("https://earmark.test/.well-known/oauth-protected-resource");
   });
-  it("rejects a garbage token and an expired-style bad signature", async () => {
+  it("rejects a garbage token and an expired token signed with the real key", async () => {
     expect((await POST(rpc(list, "abc.def.ghi"))).status).toBe(401);
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const expired = await new SignJWT({ scope: "mcp:service" }).setProtectedHeader({ alg: "HS256" }).setSubject("earmark-alexa")
+      .setAudience(URL_).setIssuer("https://earmark.test").setIssuedAt(past - 3600).setExpirationTime(past)
+      .sign(new TextEncoder().encode("j".repeat(40)));
+    expect((await POST(rpc(list, expired))).status).toBe(401);
   });
   it("accepts a valid token, lists the five tools, and calls one", async () => {
     const { access_token } = await issueServiceToken({ authorization: basic, resource: URL_ });

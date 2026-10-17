@@ -30,7 +30,7 @@ importers:
         specifier: 0.80.0
         version: 0.80.0(ai@7.0.142(zod@4.5.4))
       jose:
-        specifier: ^6.2.12
+        specifier: 6.2.12
         version: 6.2.12
       mcp-handler:
         specifier: 2.3.0

@@ -68,11 +68,34 @@ export async function addToEarmarkedPlaylist({ item }: { item: string }) {
   }
 }
 
+const MAX_OPENING = 300;
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** "2026-10-12" -> "October 12" (week_of arrives as text, so no timezone shift). */
+function spokenDate(value: string | Date): string {
+  const iso = value instanceof Date ? value.toISOString() : String(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}` : iso;
+}
+
+/** Script body without its title line or Markdown marks, cut at a sentence (else a word) boundary. */
+export function spokenOpening(script: string): string {
+  const body = script.split("\n").slice(1).join("\n")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/[*_`>~]+/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ").trim();
+  if (body.length <= MAX_OPENING) return body;
+  const head = body.slice(0, MAX_OPENING);
+  const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "));
+  if (sentence >= 80) return head.slice(0, sentence + 1);
+  return `${head.slice(0, head.lastIndexOf(" ")).trimEnd()}\u2026`;
+}
+
 // No audio address here: decision 035 keeps it out of everything except the secret-token feed.
 export async function latestEpisode() {
+  // week_of is a Postgres date: cast to text or the driver hands back a JS Date.
   const [ep] = (await db()`
-    select week_of, left(script_md, 300) as opening from episodes
-    where published_at is not null order by week_of desc limit 1`) as { week_of: string; opening: string }[];
+    select week_of::text as week_of, left(script_md, 2000) as script from episodes
+    where published_at is not null order by week_of desc limit 1`) as { week_of: string | Date; script: string }[];
   if (!ep) return { text: "There's no published episode yet." };
-  return { text: `This week's Earmark episode (week of ${ep.week_of}) starts: ${ep.opening.trim()}` };
+  return { text: `This week's Earmark episode (the week of ${spokenDate(ep.week_of)}) starts: ${spokenOpening(ep.script)}` };
 }
