@@ -1,10 +1,18 @@
 {
   "buildPath": "code",
   "detector": {
-    "ignoreRules": [
-      "cream-palette"
-    ],
+    "ignoreRules": [],
     "ignoreFiles": [],
-    "ignoreValues": []
+    "ignoreValues": [
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "http://localhost:*/**"
+        ],
+        "createdAt": "2026-10-17T12:34:25.671Z",
+        "reason": "Approved garden ground --ground #f5f1ea (docs/design/shape-garden.md)"
+      }
+    ]
   }
 }
