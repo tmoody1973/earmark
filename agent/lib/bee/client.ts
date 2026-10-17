@@ -165,6 +165,9 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
       call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
     listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
       call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
+    // pnpm forget (M3-T11). A 404 surfaces as BeeApiError.status, which forget counts as already gone.
+    deleteTodo: async (id: number): Promise<void> => { await call(`/v1/todos/${id}`, z.unknown(), { method: "DELETE" }); },
+    deleteFact: async (id: number): Promise<void> => { await call(`/v1/facts/${id}`, z.unknown(), { method: "DELETE" }); },
   };
 }
 

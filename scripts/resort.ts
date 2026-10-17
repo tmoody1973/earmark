@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { parseArgs, parseEnv } from "node:util";
 import { pathToFileURL } from "node:url";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
+import { inTransaction } from "../agent/lib/db";
 import {
   planClusters, planResort, type ClusterMove, type ClusterRow, type ResortMove, type ResortRow,
 } from "../agent/lib/pipeline/resort";
@@ -56,23 +57,6 @@ async function writeClusters(c: PoolClient, cs: readonly ClusterMove[]) {
     `update idea_clusters t set mention_count = u.n, stage = u.s, updated_at = now()
      from unnest($1::bigint[], $2::int[], $3::text[]) u(id, n, s) where t.id = u.id`,
     [cs.map((x) => x.id), cs.map((x) => x.toCount), cs.map((x) => x.toStage)]);
-}
-
-async function inTransaction<T>(c: PoolClient, readOnly: boolean, work: () => Promise<{ value: T; commit: boolean }>): Promise<T> {
-  await c.query(readOnly ? "begin transaction read only" : "begin");
-  try {
-    const { value, commit } = await work();
-    await c.query(commit ? "commit" : "rollback");
-    return value;
-  } catch (err) {
-    // A failed rollback (dropped connection) must not hide why the transaction failed; Postgres aborts it anyway.
-    try {
-      await c.query("rollback");
-    } catch (rollbackErr) {
-      console.error(`[resort] rollback failed error=${rollbackErr instanceof Error ? rollbackErr.name : "unknown"}`);
-    }
-    throw err;
-  }
 }
 
 // Dry run (apply false) runs in a READ ONLY transaction, so it cannot write even by mistake.
@@ -148,8 +132,8 @@ export function summarize(moves: readonly ResortMove[], clusters: readonly Clust
 }
 
 // The only database this script will touch: DATABASE_URL exactly as written in .env.local (a shell override, or
-// TEST_DATABASE_URL swapped in, is refused).
-function databaseUrl(): string {
+// TEST_DATABASE_URL swapped in, is refused). Shared with scripts/forget.ts.
+export function databaseUrl(): string {
   const fromFile = parseEnv(readFileSync(".env.local", "utf8")).DATABASE_URL;
   if (!fromFile || process.env.DATABASE_URL !== fromFile) {
     throw new Error("refusing: DATABASE_URL must be set and equal to the one in .env.local");

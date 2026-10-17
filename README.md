@@ -55,7 +55,13 @@ Auth: the Bee route needs the webhook secret in an `x-earmark-key` header (or `A
 
 ## Privacy and consent
 
-Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).
+Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, below).
+
+### Forget an item
+
+`pnpm forget rec 42` shows what deleting recommendation 42 would remove: ids and table counts only, nothing is touched. `pnpm forget rec 42 --yes` deletes it everywhere: the database rows first, in one transaction (the recommendation, its receipts, photo records, links, Space entries, sync and re-sort bookkeeping, and the recommender's first name when no other recommendation names them), then its Bee todo(s) and any Bee fact, its Notion page (moved to Trash) and photo thumbnails in Vercel Blob. Use `idea <id>` for an idea and all its mentions, and `mention <id>` for one mention (its timeline line goes with it; the last mention of an idea forgets the whole idea).
+
+If Bee, Notion or Blob fails after the database commit, the command says which ids were not removed (and exits with an error) so you can delete them by hand; "not found" counts as already gone. A Notion page needs `NOTION_TOKEN` and a thumbnail needs `BLOB_READ_WRITE_TOKEN` in `.env.local`; without them that step is skipped and reported. Apple Music offers no way to remove a song from a library playlist, so a song can remain in "Earmarked"; no excerpt or recommender name is stored there.
 
 ## License
 
