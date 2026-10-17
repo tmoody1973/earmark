@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 import type { ExternalDeps, ForgetHook, ForgetHookContext } from "../../agent/lib/privacy/forget";
 
+// Lane C's episodes hook deletes audio with @vercel/blob's del: faked here, so no Blob call is made.
+const blobDel = vi.hoisted(() => vi.fn<(url: string) => Promise<void>>(async () => {}));
+vi.mock("@vercel/blob", async (orig) => ({ ...(await orig<typeof import("@vercel/blob")>()), del: blobDel }));
+
 // Real Neon test on the `test` branch: needs TEST_DATABASE_URL (never production). Skipped when absent.
 // External services are fakes: no Bee, Notion or Blob call is ever made from here.
 const RUN = Date.now() % 1_000_000_000;
@@ -76,6 +80,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await c.query(`delete from recommenders where first_name like $1`, [`${NAME}%`]);
     await c.query(`delete from resort_backup where run_id = $1`, [`it-forget-${RUN}`]);
     await c.query(`delete from fact_proposals where text = $1`, [`it-forget-${RUN}`]);
+    await c.query(`delete from gardener_runs where output_md like $1`, [`%it-forget-${RUN}%`]);
+    await c.query(`delete from episodes where script_md like $1`, [`%it-forget-${RUN}%`]);
     c.release();
     await pool.end();
   });
@@ -384,5 +390,33 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(dry.plan).toMatchObject({ resolved: { type: "idea", id: cid }, deletes: { idea_clusters: 1, idea_mentions: 2 } });
     await forget(c, { type: "mention", id: live }, { yes: true, deps: fakeDeps() as ExternalDeps });
     expect(await count(`idea_mentions where cluster_id = $1`, [cid])).toBe(0);
+  });
+
+  it("lane C hooks: forgetting a rec removes the episode and gardener draft naming its recommender, audio last", async () => {
+    const { forget } = await mod();
+    const { FORGET_HOOKS } = await import("../../agent/lib/privacy/forget-hooks");
+    const who = `${NAME}c`;
+    const id = await addRec(await addRecommender(who));
+    const week = (RUN % 100_000) * 2; // days after 2300-01-01: unique per run, never a real week
+    const episode = async (offset: number, script: string, audio: string) => Number((await one(
+      `insert into episodes (week_of, script_md, audio_url) values (date '2300-01-01' + $1::int, $2, $3) returning id`,
+      [week + offset, `${script} it-forget-${RUN}`, audio])).id);
+    const named = await episode(0, `${who} suggested a book.`, `https://blob.test/${RUN}-named.mp3`);
+    const other = await episode(1, "Nobody named.", `https://blob.test/${RUN}-other.mp3`);
+    const run = async (text: string) => Number((await one(
+      `insert into gardener_runs (gardener_id, output_md) values ((select id from gardeners order by id limit 1), $1) returning id`,
+      [`${text} it-forget-${RUN}`])).id);
+    const draft = await run(`## Pitch\n${who}'s tip.`);
+    const keep = await run("No one named.");
+    blobDel.mockClear();
+
+    const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: FORGET_HOOKS });
+    expect(r.lines).toContain(`hook gardener_runs: gardener_runs 1 (ids ${draft})`);
+    expect(r.lines).toContain(`hook episodes: episodes 1 (ids ${named}), audio 1`);
+    expect(r.lines.join("\n")).not.toContain(who);
+    expect(blobDel.mock.calls).toEqual([[`https://blob.test/${RUN}-named.mp3`]]);
+    expect(await count(`episodes where id = any($1::bigint[])`, [[named, other]])).toBe(1);
+    expect(await count(`gardener_runs where id = any($1::bigint[])`, [[draft, keep]])).toBe(1);
+    expect(await count(`recommendations where id = $1`, [id])).toBe(0);
   });
 });
