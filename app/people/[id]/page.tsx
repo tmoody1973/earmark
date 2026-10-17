@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { isOwner } from "@/agent/lib/owner";
@@ -12,18 +13,29 @@ import "@/app/garden/shell.css";
 import "@/app/garden/people.css";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Person · Earmark" };
+
+type Props = { params: Promise<{ id: string }> };
+
+// Owner only: a stranger gets the same answer as a missing person (proxy.ts refuses them first; this is the
+// backstop). cache(): the tab title and the page share one read per request.
+const loadPerson = cache(async (id: string) => {
+  const { userId } = await auth();
+  if (!isOwner(userId)) return null;
+  const n = Number(id);
+  if (!Number.isSafeInteger(n) || n <= 0) return null;
+  return getRecommenderPage(n);
+});
+
+// The tab says who: their first name, and nothing to anyone else.
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const page = await loadPerson((await params).id);
+  return { title: `${page?.person.firstName ?? "Person"} · Earmark` };
+}
 
 // One recommender's tips as shelf cards, under a quiet summary of what became of them. First name only: no photo,
 // no surname, no contact details. The owner and the unknown recommender have no page (getRecommenderPage → null).
-export default async function PersonPage({ params }: { params: Promise<{ id: string }> }) {
-  // Owner only: a stranger gets the same 404 as a missing person (proxy.ts refuses them first; this is the backstop).
-  const { userId } = await auth();
-  if (!isOwner(userId)) notFound();
-  const { id } = await params;
-  const n = Number(id);
-  if (!Number.isSafeInteger(n) || n <= 0) notFound();
-  const page = await getRecommenderPage(n);
+export default async function PersonPage({ params }: Props) {
+  const page = await loadPerson((await params).id);
   if (!page) notFound();
   const { person, recs } = page;
 

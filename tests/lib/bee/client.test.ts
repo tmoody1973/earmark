@@ -98,3 +98,19 @@ describe("facts", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ text: "Loves jazz" });
   });
 });
+
+// pnpm forget (M3-T11, adapted from PostHog draft PR #8): DELETE /v1/todos/:id and /v1/facts/:id (bee-api.md).
+describe("Bee deletes", () => {
+  it("deleteTodo and deleteFact send DELETE, accept an empty body, and surface a 404 status", async () => {
+    const f = fakeFetch(200, "");
+    const bee = createBeeClient(opts(f));
+    await bee.deleteTodo(10);
+    await bee.deleteFact(5);
+    expect(f.mock.calls.map(([url, init]) => [String(url), init?.method])).toEqual([
+      ["https://bee.test/v1/todos/10", "DELETE"], ["https://bee.test/v1/facts/5", "DELETE"],
+    ]);
+    const err = await createBeeClient(opts(fakeFetch(404, "not found"))).deleteTodo(10).catch((e) => e);
+    expect(err).toBeInstanceOf(BeeApiError);
+    expect(err.status).toBe(404);
+  });
+});

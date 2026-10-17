@@ -173,6 +173,9 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
     getFact: (id: number) => call(`/v1/facts/${id}`, SingleFactSchema),
     // Bee creates every new fact unconfirmed; the owner confirms or deletes it in the Bee app.
     createFact: (text: string) => call("/v1/facts", CreatedFactSchema, { method: "POST", body: JSON.stringify({ text }) }),
+    // pnpm forget (M3-T11). A 404 surfaces as BeeApiError.status, which forget counts as already gone.
+    deleteTodo: async (id: number): Promise<void> => { await call(`/v1/todos/${id}`, z.unknown(), { method: "DELETE" }); },
+    deleteFact: async (id: number): Promise<void> => { await call(`/v1/facts/${id}`, z.unknown(), { method: "DELETE" }); },
   };
 }
 
