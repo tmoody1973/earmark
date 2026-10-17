@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sql = vi.fn();
 vi.mock("../../../agent/lib/db", () => ({ db: () => sql }));
@@ -107,6 +107,17 @@ describe("writePendingProposals", () => {
   const claim = (attempted: boolean) => [{ id: 5, attempted }];
   const sqlText = (c: unknown[]) => (c[0] as TemplateStringsArray).join("?");
   const page = (facts: { id: number; text: string }[], next_cursor: string | null = null) => ({ facts, next_cursor });
+  beforeEach(() => { vi.stubEnv("BEE_TODO_WRITES", "on"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it.each([undefined, "", "off", "ON", "true"])("writes nothing to Bee and leaves rows pending unless the switch is exactly on (%s)", async (value) => {
+    const createFact = vi.fn();
+    const listFacts = vi.fn();
+    expect(await writePendingProposals({ createFact, listFacts } as never, { BEE_TODO_WRITES: value })).toBe(0);
+    expect(createFact).not.toHaveBeenCalled();
+    expect(listFacts).not.toHaveBeenCalled();
+    expect(sql).not.toHaveBeenCalled(); // no select, no claim: rows stay pending and unclaimed
+  });
 
   it("claims, posts and records the Bee id and sync row in one statement", async () => {
     sql.mockResolvedValueOnce([row(5, "Loves spiritual jazz")]).mockResolvedValueOnce(claim(false)).mockResolvedValue([]);
