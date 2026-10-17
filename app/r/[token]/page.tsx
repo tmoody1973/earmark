@@ -14,6 +14,7 @@ export default async function ReceiptCard({ params }: { params: Promise<{ token:
   const image = cardArtworkUrl(receipt.imageUrl, 320);
   return (
     <main className="receipt-card">
+      <h1 className="visually-hidden">A thank-you note</h1>
       <p className="receipt-message">{receipt.message}</p>
       <figure>
         {image && <img src={image} alt="" referrerPolicy="no-referrer" width={160} height={160} />}
