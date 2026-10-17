@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { forgetPersonInEpisodes, forgetPersonInGardenerRuns } from "../../agent/lib/privacy/forget-m5";
+import { forgetPersonInEpisodes, forgetPersonInFactProposals, forgetPersonInGardenerRuns } from "../../agent/lib/privacy/forget-m5";
 
 const rows = [
   { id: "1", script_md: "Title\n\nAnn suggested a ramen spot.", audio_url: "https://blob.test/1.mp3" },
@@ -44,6 +44,25 @@ describe("forgetPersonInGardenerRuns", () => {
   it("ignores a blank name", async () => {
     const sql = vi.fn();
     expect(await forgetPersonInGardenerRuns(" ", { sql: sql as never })).toEqual({ runsDeleted: 0 });
+    expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+describe("forgetPersonInFactProposals", () => {
+  const props = [
+    { id: "1", text: "Developing an idea: Ann's podcast (mentioned 3 times since Sep)", bee_fact_id: "77" },
+    { id: "2", text: "Loves spiritual jazz", bee_fact_id: "78" },
+    { id: "3", text: "Enjoys what ann recommends", bee_fact_id: null },
+  ];
+  it("deletes proposals naming the person and returns their Bee fact ids for the caller to delete in Bee", async () => {
+    const sql = vi.fn().mockResolvedValueOnce(props).mockResolvedValue([]);
+    const out = await forgetPersonInFactProposals("Ann", { sql: sql as never });
+    expect(out).toEqual({ proposalsDeleted: 2, beeFactIds: [77] });
+    expect(sql).toHaveBeenCalledTimes(1 + 2 * 2); // select, then per proposal: sync row + proposal row
+  });
+  it("ignores a blank name", async () => {
+    const sql = vi.fn();
+    expect(await forgetPersonInFactProposals(" ", { sql: sql as never })).toEqual({ proposalsDeleted: 0, beeFactIds: [] });
     expect(sql).not.toHaveBeenCalled();
   });
 });

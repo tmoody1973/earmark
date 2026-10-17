@@ -46,3 +46,22 @@ export async function forgetPersonInGardenerRuns(
   for (const r of hits) await deps.sql`delete from gardener_runs where id = ${Number(r.id)}`;
   return { runsDeleted: hits.length };
 }
+
+// Bee fact proposals (M5-T7) name people inside idea facts. Deletes the proposals (and their bee_sync rows) that name the
+// person and RETURNS their Bee fact ids; this module never calls Bee. The forget script must delete those facts in Bee
+// (the owner's real account) from the returned ids.
+export async function forgetPersonInFactProposals(
+  firstName: string,
+  deps: Pick<ForgetEpisodeDeps, "sql"> = { sql: db() },
+): Promise<{ proposalsDeleted: number; beeFactIds: number[] }> {
+  const name = firstName.trim();
+  if (!name) return { proposalsDeleted: 0, beeFactIds: [] };
+  const re = namesRe(name);
+  const rows = (await deps.sql`select id, text, bee_fact_id from fact_proposals`) as { id: number | string; text: string; bee_fact_id: number | string | null }[];
+  const hits = rows.filter((r) => re.test(r.text));
+  for (const r of hits) {
+    await deps.sql`delete from bee_sync where entity_type = 'fact_proposal' and entity_id = ${Number(r.id)}`;
+    await deps.sql`delete from fact_proposals where id = ${Number(r.id)}`;
+  }
+  return { proposalsDeleted: hits.length, beeFactIds: hits.flatMap((r) => (r.bee_fact_id == null ? [] : [Number(r.bee_fact_id)])) };
+}
