@@ -12,6 +12,7 @@ import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { getGardenVisit, saveGardenVisit, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
 import { nextVisit } from "@/agent/lib/garden/visit";
+import { compostItem, keepItem, undoCompost, type CompostResult, type ItemRef, type UndoRef } from "@/agent/lib/garden/serendipity";
 
 async function requireOwner(): Promise<void> {
   const { userId } = await auth();
@@ -180,5 +181,45 @@ export async function removeSpaceItem(key: spaces.SpaceItemKey): Promise<{ chang
   await requireOwner();
   const changed = await spaces.setSpaceItemStatus(spaceItemKey(key), "removed");
   revalidatePath("/spaces", "layout");
+  return { changed };
+}
+
+// ---- Serendipity (M4-T8, FR-34, decision 029) ----
+
+const ItemRefSchema = z.strictObject({ type: z.enum(["rec", "idea"]), id: Id });
+const UndoRefSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("rec"), id: Id, previous: z.enum(["new", "queued"]) }),
+  z.strictObject({ type: z.literal("idea"), id: Id }),
+]);
+
+function itemRef(raw: unknown): ItemRef {
+  const parsed = ItemRefSchema.safeParse(raw);
+  if (!parsed.success) throw new Error("invalid item");
+  return parsed.data;
+}
+
+/** Keep it: it stays where it is, and Serendipity moves on to the next forgotten thing. */
+export async function keepSerendipity(ref: ItemRef): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await keepItem(itemRef(ref));
+  revalidatePath("/");
+  return { changed };
+}
+
+/** Let it compost: a tip is composted (its Bee todo is cleared after the response), an idea dismissed. Undoable. */
+export async function compostSerendipity(ref: ItemRef): Promise<CompostResult> {
+  await requireOwner();
+  const result = await compostItem(itemRef(ref), { defer: after });
+  revalidatePath("/", "layout"); // the shelf and the garden lose it too
+  return result;
+}
+
+/** Undo a compost from Serendipity. A no-op once the item has moved on (see undoCompost). */
+export async function undoCompostSerendipity(ref: UndoRef): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const parsed = UndoRefSchema.safeParse(ref);
+  if (!parsed.success) throw new Error("invalid item");
+  const changed = await undoCompost(parsed.data, { defer: after });
+  revalidatePath("/", "layout");
   return { changed };
 }
