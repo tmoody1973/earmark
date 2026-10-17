@@ -9,6 +9,7 @@ import { db } from "../db";
 import { getEnv, ownerFirstName, requireEnv } from "../env";
 import { credit } from "../garden/queries";
 import { newShareToken } from "../privacy/tokens";
+import { chicagoLocalToUtc as timeChicagoLocalToUtc } from "../time";
 import { createEarmarkTodo } from "../sync/bee-todos";
 import { setRecStatus } from "./status";
 
@@ -103,14 +104,7 @@ export function chicagoLocalToUtc(local: string): Date {
   const guess = new Date(`${local}:00Z`);
   // V8 rolls Feb 30 into March, so compare the round trip as well as NaN
   if (Number.isNaN(guess.getTime()) || guess.toISOString().slice(0, 16) !== local) throw new ReceiptError("That date and time don't exist");
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago", hourCycle: "h23",
-      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-    }).formatToParts(guess).map((p) => [p.type, p.value]),
-  );
-  const chicagoAsUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-  return new Date(guess.getTime() + (guess.getTime() - chicagoAsUtc)); // independent of the server's own zone
+  return timeChicagoLocalToUtc(local); // two-pass, DST-correct, independent of the server zone
 }
 
 /** Idempotent: the reminder was checked off in Bee, so the note counts as sent and the tip as thanked. Never sets approved_at: an unreviewed draft must not become public. */

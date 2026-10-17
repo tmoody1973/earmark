@@ -127,6 +127,10 @@ describe("chicagoLocalToUtc", () => {
     expect(chicagoLocalToUtc("2026-10-20T18:00").toISOString()).toBe("2026-10-20T23:00:00.000Z"); // CDT
     expect(chicagoLocalToUtc("2026-12-01T18:00").toISOString()).toBe("2026-12-02T00:00:00.000Z"); // CST
   });
+  it("is right on DST days", () => {
+    expect(chicagoLocalToUtc("2026-03-08T03:30").toISOString()).toBe("2026-03-08T08:30:00.000Z"); // just after spring-forward
+    expect(chicagoLocalToUtc("2026-11-01T02:30").toISOString()).toBe("2026-11-01T08:30:00.000Z"); // after fall-back
+  });
   it("rejects anything that is not a date and time", () => {
     expect(() => chicagoLocalToUtc("")).toThrow(/date and time/);
     expect(() => chicagoLocalToUtc("tomorrow")).toThrow(/date and time/);
