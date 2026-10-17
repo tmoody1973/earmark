@@ -1,11 +1,12 @@
 import type { RecType } from "@/agent/lib/types";
 
 // One authored line set: 24-unit grid, 1.6 stroke, round caps, currentColor. Decorative: labels carry the meaning.
-const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "search", string> = {
+const PATHS: Record<RecType | "heart" | "check" | "back" | "chevron" | "copy" | "external" | "sprout" | "home" | "shelf" | "people" | "search", string> = {
   // Garden shell (M4-T4): the sprout is the wordmark's mark, the Garden tab and a bloom chip's icon.
   sprout: "M12 21v-8.4 M12 12.6C8.4 12.6 5.6 10.2 5 6.4c3.8 0 6.6 2.4 7 6.2Z M12 10.4c.4-3.6 3-6 6.8-6.2-.4 3.8-3.2 6.2-6.8 6.2Z",
   home: "M4.5 10.2 12 4l7.5 6.2V19a1 1 0 0 1-1 1H15v-5.5H9V20H5.5a1 1 0 0 1-1-1Z",
   shelf: "M4.5 4h3.5v16H4.5Z M10 4h3.5v16H10Z M15.6 5.4l3-.8 3 14.6-3 .8Z",
+  people: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z M2.5 20a6.5 6.5 0 0 1 13 0 M15.5 4.3a3.5 3.5 0 0 1 0 6.4 M18 14.2a6.5 6.5 0 0 1 3.5 5.8",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4",
   album: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   song: "M9 18V6l11-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
