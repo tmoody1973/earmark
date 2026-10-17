@@ -39,12 +39,13 @@ export class ProviderHttpError extends Error {
 // One request, no retries (a failed rec is retried by the lane's sweep, not here). 404 = nothing found, not an error.
 export async function getJson(url: string, init: RequestInit = {}, fetchImpl: typeof fetch = fetch): Promise<unknown | null> {
   const res = await fetchImpl(url, { ...init, signal: init.signal ?? AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
-  if (res.status === 404) return null;
+  if (res.status === 404 || res.status === 400) return null; // 400 = a query the service can't parse: retrying won't help
   if (!res.ok) throw new ProviderHttpError(new URL(url).host, res.status);
   return res.json();
 }
 
 export async function runProvider(def: ProviderDef, q: EnrichQuery, fetchImpl: typeof fetch = fetch): Promise<Candidate[]> {
+  if (!q.name.trim()) return []; // nothing to look up: no call
   const { url, init } = await def.build(q);
   const json = await getJson(url, init, fetchImpl);
   return json === null ? [] : def.parse(json, q).slice(0, MAX_CANDIDATES);

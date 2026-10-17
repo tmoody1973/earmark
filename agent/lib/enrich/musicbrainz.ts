@@ -14,8 +14,8 @@ const ENTITY = {
 type MusicType = keyof typeof ENTITY;
 const isMusic = (t: string): t is MusicType => t in ENTITY;
 
-// ponytail: per-process spacing; parallel serverless instances can still exceed 1 req/s from one egress IP.
-// Upgrade path if 503s show up in logs: a shared slot in Postgres (one row, next_at timestamptz).
+// Per-process spacing only. BINDING for callers (decision 012): call MusicBrainz only from the cron sweep, one rec at a
+// time, under a Postgres advisory lock, stopping the sweep on the first 503; never from the webhook.
 let nextAt = 0;
 async function mbSlot(): Promise<void> {
   const now = Date.now();
@@ -28,8 +28,11 @@ export function resetMusicBrainzThrottle(): void {
   nextAt = 0;
 }
 
-// Lucene query syntax: escape every special character so a title like "Help!" or "AC/DC" stays a plain term.
-const escapeLucene = (s: string) => s.replace(/[+\-!(){}[\]^"~*?:\\/]|&&|\|\|/g, (m) => m.split("").map((ch) => `\\${ch}`).join(""));
+// Lucene query syntax: escape every special character so a title like "Help!" or "AC/DC" stays a plain term, and
+// lowercase the operator words (only uppercase AND/OR/NOT are operators) so "AND ALSO THE TREES" stays a title.
+const escapeLucene = (s: string) =>
+  s.replace(/[+\-!(){}[\]^"~*?:\\/]|&&|\|\|/g, (m) => m.split("").map((ch) => `\\${ch}`).join(""))
+    .replace(/\b(AND|OR|NOT)\b/g, (w) => w.toLowerCase());
 
 // Fuzzy (~, edit distance ≤2) only on plain words of 4+ letters: "Salt~" finds the misheard "SAULT"; short words would match anything.
 const fuzzy = (s: string) => s.split(/\s+/).filter(Boolean).map((w) => (/^[\p{L}\p{N}]{4,}$/u.test(w) ? `${w}~` : escapeLucene(w))).join(" ");
@@ -41,7 +44,7 @@ export function mbQuery(q: EnrichQuery): string {
   const { field } = ENTITY[q.type];
   if (q.type === "artist") return `artist:"${escapeLucene(q.name)}"^2 artist:(${fuzzy(q.name)})`;
   const title = `${field}:"${escapeLucene(q.name)}"^2 ${field}:(${escapeLucene(q.name)})`;
-  return q.creator ? `${title} artist:(${fuzzy(q.creator)})` : title;
+  return q.creator?.trim() ? `${title} artist:(${fuzzy(q.creator)})` : title;
 }
 
 type Credit = { name?: string; joinphrase?: string };
@@ -50,6 +53,16 @@ const yearOf = (d: string | undefined) => (d && /^\d{4}/.test(d) ? d.slice(0, 4)
 const joinDetail = (parts: (string | undefined | null)[]) => parts.filter(Boolean).join(", ") || null;
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- untyped external JSON, read defensively */
+// The song's own release: earliest-dated, no secondary types (not a compilation, DJ mix, live…), not "Various Artists".
+// A song's first listed release is often a compilation with someone else's cover; art and "from <album>" come from this.
+const VARIOUS_ARTISTS = "89ad4ac3-39f7-470e-963a-56509c546377"; // MusicBrainz special-purpose artist
+const isVarious = (r: any) => (r["artist-credit"] ?? []).some((c: any) => c?.artist?.id === VARIOUS_ARTISTS || c?.name === "Various Artists");
+function originalRelease(releases: any[] | undefined): any | undefined {
+  return (releases ?? [])
+    .filter((r) => r?.["release-group"]?.id && !r["release-group"]["secondary-types"]?.length && !isVarious(r))
+    .sort((a, b) => String(a.date || "9999").localeCompare(String(b.date || "9999")))[0];
+}
+
 function toCandidate(type: MusicType, d: any): Candidate {
   const link = { musicbrainz: `https://musicbrainz.org/${ENTITY[type].path}/${d.id}` };
   if (type === "artist") {
@@ -61,9 +74,8 @@ function toCandidate(type: MusicType, d: any): Candidate {
   if (type === "album") {
     return { ...base, detail: joinDetail([d["primary-type"], ...(d["secondary-types"] ?? [])]), releaseGroupId: d.id };
   }
-  const release = d.releases?.[0];
-  // Art from an original release only: a song's first release is often a compilation or DJ mix with someone else's cover.
-  const original = d.releases?.find((r: any) => r?.["release-group"]?.id && !r["release-group"]["secondary-types"]?.length);
+  const original = originalRelease(d.releases);
+  const release = original ?? d.releases?.[0];
   return { ...base, detail: joinDetail([d.disambiguation, release?.title && `from ${release.title}`]),
     releaseGroupId: original?.["release-group"]?.id };
 }
