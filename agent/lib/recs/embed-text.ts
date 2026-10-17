@@ -1,7 +1,7 @@
 // The one recipe for a tip's text (decision 026): recommendations.embedding is made from it, and Jev reads it when it
 // judges whether a tip fits an idea. Type, name, creator and the context summary only: never the excerpt or raw text.
-// Owner: this module. Whoever saves a tip embeds this text, and nulls the embedding when the name or context changes
-// (lane A, M3-T5); the backlink refresh fills any that are missing.
+// Owner: lane A (M3-T5). The rec lane sweep embeds this text and nulls the embedding when the name, creator or why
+// changes (lane.ts saveMatch / writeWhys); the backlink refresh also fills any that are missing (decision 015).
 
 export interface RecEmbedInput { type: string; name: string; creator: string | null; contextSummary: string | null }
 
