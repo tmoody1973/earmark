@@ -9,31 +9,42 @@ import { nameAppearsIn } from "../pipeline/attribution";
 export const PIN_CAP = 5;
 
 type Env = Record<string, string | undefined>;
-export type PinResult = { changed: boolean; refused?: string };
+// refused: why nothing changed. note: what the owner should know about a change that went through.
+export type PinResult = { changed: boolean; refused?: string; note?: string };
+
+// One pin change at a time (pg_advisory_xact_lock key), so the cap's count can't race: two tabs at 4 never make 6.
+const PIN_LOCK = 3_500_035;
+export const FACT_KEPT_NOTE = "Unpinned. Its Bee fact stays until you delete it in the Bee app.";
 
 /**
  * Pin or unpin an idea. Idempotent: pinning a pinned idea (or unpinning an unpinned one) changes nothing. A dismissed
  * idea can't be pinned. At PIN_CAP live pins a new pin is refused with the reason, and nothing changes.
- * ponytail: the cap is a count in the same statement, not a lock; two pins tapped at the same instant at 4 could make 6.
  */
 export async function setPinned(id: number, pinned: boolean, env: Env = process.env): Promise<PinResult> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error("invalid idea id");
   if (gardenReadOnly(env)) return { changed: false }; // a real-data e2e run browses read-only (e2e-guard.ts)
   const sql = db();
+  const evidence = JSON.stringify([id]);
   if (!pinned) {
     const rows = await sql`update idea_clusters set pinned = false where id = ${id} and pinned returning id`;
     if (rows.length === 0) return { changed: false };
     // The pin's fact goes too while it is only a local row: never once the weekly writer has claimed it (a post may be
-    // in flight) or posted it (it is in Bee; the owner deletes it there).
+    // in flight) or posted it (it is in Bee; the owner deletes it there), and then the owner is told so.
     await sql`delete from fact_proposals
       where kind = 'idea' and status = 'pending' and bee_fact_id is null and write_started_at is null
-        and evidence_ids @> ${JSON.stringify([id])}::jsonb`;
-    return { changed: true };
+        and evidence_ids @> ${evidence}::jsonb`;
+    const sent = await sql`select 1 from fact_proposals
+      where kind = 'idea' and status <> 'rejected' and (bee_fact_id is not null or write_started_at is not null)
+        and evidence_ids @> ${evidence}::jsonb limit 1`;
+    return sent.length > 0 ? { changed: true, note: FACT_KEPT_NOTE } : { changed: true };
   }
-  const rows = (await sql`update idea_clusters set pinned = true
-    where id = ${id} and not pinned and stage <> 'dismissed'
-      and (select count(*) from idea_clusters where pinned and stage <> 'dismissed') < ${PIN_CAP}
-    returning title, mention_count, first_mentioned_at, bee_fact_id`) as PinnedRow[];
+  const [, rows] = (await sql.transaction([
+    sql`select pg_advisory_xact_lock(${PIN_LOCK})`,
+    sql`update idea_clusters set pinned = true
+      where id = ${id} and not pinned and stage <> 'dismissed'
+        and (select count(*) from idea_clusters where pinned and stage <> 'dismissed') < ${PIN_CAP}
+      returning title, mention_count, first_mentioned_at, bee_fact_id`,
+  ])) as [unknown, PinnedRow[]];
   if (rows.length === 0) {
     const [c] = (await sql`select pinned, stage from idea_clusters where id = ${id}`) as { pinned: boolean; stage: string }[];
     const atCap = c !== undefined && !c.pinned && c.stage !== "dismissed";
@@ -63,5 +74,6 @@ async function proposePinnedFact(id: number, c: PinnedRow, env: Env): Promise<vo
   const evidence = JSON.stringify([id]);
   await db()`insert into fact_proposals (text, kind, evidence_ids)
     select ${ideaFactText(c.title, Number(c.mention_count), c.first_mentioned_at)}, 'idea', ${evidence}::jsonb
-    where not exists (select 1 from fact_proposals where kind = 'idea' and evidence_ids @> ${evidence}::jsonb)`;
+    where not exists (select 1 from fact_proposals where kind = 'idea' and evidence_ids @> ${evidence}::jsonb)
+      and exists (select 1 from idea_clusters where id = ${id} and pinned)`; // an unpin in between leaves no fact
 }

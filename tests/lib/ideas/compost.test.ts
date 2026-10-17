@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({
   nearestClusters: vi.fn(),
   pinnedClustersNear: vi.fn(),
+  MAX_CLUSTER_OPTIONS: 7,
   hasMentionFromSameOccasion: vi.fn(),
   getClusterTimeline: vi.fn(),
 }));

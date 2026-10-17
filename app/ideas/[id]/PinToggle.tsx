@@ -21,7 +21,7 @@ export function PinToggle({ ideaId, pinned }: { ideaId: number; pinned: boolean 
       try {
         const r = await pinIdea(ideaId, next);
         if (r.refused) setSaid(r.refused);
-        else setSaid(next ? "On Top of Mind. Earmark listens for it more closely." : "Off Top of Mind.");
+        else setSaid(r.note ?? (next ? "On Top of Mind. Earmark listens for it more closely." : "Off Top of Mind."));
       } catch (err) {
         console.error("pin failed", (err as Error).name);
         setSaid("That didn’t save. Try again.");

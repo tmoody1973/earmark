@@ -70,6 +70,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Top of Mind (real Neon)", () =>
     expect(await setPinned(gone, true, {})).toEqual({ changed: false });
   });
 
+  it("two pins at the same instant with 4 pinned make 5, never 6 (the advisory lock)", async () => {
+    for (let n = 0; n < PIN_CAP - 1; n++) await setPinned(await idea(40 + n), true, {});
+    const [a, b] = [await idea(50), await idea(51)];
+    const results = await Promise.all([setPinned(a, true, {}), setPinned(b, true, {})]);
+    expect(results.filter((r) => r.changed)).toHaveLength(1);
+    const [{ n }] = (await sql()`select count(*)::int as n from idea_clusters where pinned and stage <> 'dismissed'`) as { n: number }[];
+    expect(n).toBe(PIN_CAP);
+  });
+
+  it("unpinning an idea whose fact was already sent keeps the fact and says so", async () => {
+    const id = await idea(60);
+    await setPinned(id, true, ON);
+    await sql()`update fact_proposals set bee_fact_id = 777001 where evidence_ids @> ${JSON.stringify([id])}::jsonb`;
+    expect(await setPinned(id, false, ON)).toEqual({ changed: true, note: "Unpinned. Its Bee fact stays until you delete it in the Bee app." });
+    expect(await proposals(id)).toHaveLength(1);
+  });
+
   it("finds nearby pinned ideas only (within the distance, not dismissed) and flags a pinned idea when a mention joins it", async () => {
     const near = await idea(30, { centroid: vec(0) });
     const unpinned = await idea(31, { centroid: vec(0) });
