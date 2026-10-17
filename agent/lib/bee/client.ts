@@ -106,9 +106,13 @@ export const KeywordSearchSchema = z.object({
   timezone: z.string().optional(),
 });
 const FactSchema = z.object({ id: z.number(), text: z.string(), tags: z.array(z.string()).default([]), created_at: Timestamp, confirmed: z.boolean() });
+// GET/POST of one fact: the object may be top level or wrapped in `fact` (unverified live), so both are accepted.
+const FactWrittenSchema = z.object({ id: z.number(), text: z.string(), confirmed: z.boolean() });
+const SingleFactSchema = z.union([z.object({ fact: FactWrittenSchema }).transform((b) => b.fact), FactWrittenSchema]);
 export type NeuralSearchResult = z.infer<typeof NeuralSearchSchema>;
 export type KeywordSearchResult = z.infer<typeof KeywordSearchSchema>;
 export type BeeFact = z.infer<typeof FactSchema>;
+export type BeeFactWritten = z.infer<typeof FactWrittenSchema>;
 export type KeywordSearchOptions = {
   filter?: "conversations" | "daily" | "facts" | "all";
   sortBy?: "relevance" | "mostRecent";
@@ -165,6 +169,9 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
       call("/v1/search/conversations", KeywordSearchSchema, { method: "POST", body: JSON.stringify({ query: q, ...opts }), signal }),
     listFacts: ({ confirmed, limit = 50, cursor }: { confirmed: boolean; limit?: number; cursor?: string }) =>
       call(`/v1/facts${query({ confirmed, limit, cursor })}`, z.object({ facts: z.array(FactSchema), next_cursor: Cursor })),
+    getFact: (id: number) => call(`/v1/facts/${id}`, SingleFactSchema),
+    // Bee creates every new fact unconfirmed; the owner confirms or deletes it in the Bee app.
+    createFact: (text: string) => call("/v1/facts", SingleFactSchema, { method: "POST", body: JSON.stringify({ text }) }),
   };
 }
 
