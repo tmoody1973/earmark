@@ -1,0 +1,24 @@
+{
+  "images": [
+    {
+      "approved": true,
+      "back": false,
+      "comment": "Apple Music",
+      "edit": 78487645,
+      "front": true,
+      "id": 28949992190,
+      "image": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190.png",
+      "thumbnails": {
+        "250": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190-250.jpg",
+        "500": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190-500.jpg",
+        "1200": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190-1200.jpg",
+        "large": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190-500.jpg",
+        "small": "https://coverartarchive.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8/28949992190-250.jpg"
+      },
+      "types": [
+        "Front"
+      ]
+    }
+  ],
+  "release": "https://musicbrainz.org/release/9f279a47-778f-44fe-a9ff-4ca61dae26c8"
+}

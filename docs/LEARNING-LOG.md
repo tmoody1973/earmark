@@ -46,3 +46,8 @@ Dated entries. Each answers: what did we expect, what happened, what do we now b
 - **Expected:** tests that build an error with the name "APICallError" would prove Earmark retries during an AI outage.
 - **What happened:** the AI library really names its errors "AI_APICallError". The check looked for the unprefixed name, so it would have missed every real outage, and the tests still passed because they used the same wrong name. A reviewer found it by reading the installed library.
 - **What we now believe:** test with the library's real error classes and use its own type checks (`APICallError.isInstance`), never a lookalike name.
+
+## 2026-10-16 · A misheard artist hid the right album
+- **Expected:** searching MusicBrainz for the title AND the artist would find the album, and Jev would only need to rule out remixes and tributes.
+- **What happened:** Bee heard "Salt" for the band SAULT. Requiring the artist returned three wrong albums; Jev correctly answered "none fits", so the tip stayed unmatched. Making the artist an optional, approximately-spelled hint brought back the right album, and Jev accepted it.
+- **What we now believe:** search wide and let the judge be strict. The lookup should tolerate Bee's mishearings; the same-item check is where precision lives.
