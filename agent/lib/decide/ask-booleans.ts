@@ -2,6 +2,9 @@ import { experimental_decide, type Experimental_DecisionQuestion } from "ai";
 import { getEnv } from "../env";
 
 /** One literal yes/no question: the exact condition, then what counts as yes and as no (with the boundary case). */
+/** A hung call must not hold the hourly run: each call gives up after this long (retries included). */
+export const DECIDE_TIMEOUT_MS = 20_000;
+
 export type BooleanQuestion = { instructions: string; whenTrue: string; whenFalse: string };
 
 /** Several independent yes/no questions against one small state, in one Jev call. Returns P(true) per key. */
@@ -20,7 +23,9 @@ export async function askBooleans<K extends string>(
       { type: "boolean", instructions: questions[k].instructions, criteria: { true: questions[k].whenTrue, false: questions[k].whenFalse } },
     ]),
   );
-  const result = await decide({ model: opts.model ?? getEnv().TRIAGE_MODEL, state, questions: qs });
+  const result = await decide({
+    model: opts.model ?? getEnv().TRIAGE_MODEL, state, questions: qs, abortSignal: AbortSignal.timeout(DECIDE_TIMEOUT_MS),
+  });
   const answers = result.answers as Record<string, { probability?: number } | undefined>;
   return Object.fromEntries(
     keys.map((k) => {

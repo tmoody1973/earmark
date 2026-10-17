@@ -10,7 +10,7 @@ vi.mock("../../../agent/lib/links/candidates", () => ({
 }));
 
 import { ensureRecEmbeddings, ideaPairCandidates, recIdeaCandidates } from "../../../agent/lib/links/candidates";
-import { MAX_CALLS_PER_ITEM, MAX_CALLS_PER_RUN, refreshLinks } from "../../../agent/lib/links/refresh";
+import { CALLS_RESERVED_FOR_FITS, MAX_CALLS_PER_ITEM, MAX_CALLS_PER_RUN, refreshLinks } from "../../../agent/lib/links/refresh";
 
 const idea = (id: number) => ({ id, title: `Idea ${id}`, summary: null, notes: [] });
 const pair = (a: number, b: number) => ({ a: idea(a), b: idea(b) });
@@ -24,6 +24,7 @@ const inserts = () => h.mock.calls.filter((c) => c.text.includes("insert into li
 describe("refreshLinks", () => {
   beforeEach(() => {
     h.mock = makeMockDb();
+    h.mock.queue.push([{ name: "links_refresh" }]); // the run lock is free
     vi.mocked(ideaPairCandidates).mockResolvedValue([]);
     vi.mocked(recIdeaCandidates).mockResolvedValue([]);
     vi.mocked(ensureRecEmbeddings).mockResolvedValue(0);
@@ -48,16 +49,45 @@ describe("refreshLinks", () => {
     expect(ins[1].values).toEqual(["9", "1", 0.3]);
   });
 
-  it(`stops at the per-run cap (${MAX_CALLS_PER_RUN} model calls) and asks for no more candidates than it can judge`, async () => {
+  it(`stops at the per-run cap (${MAX_CALLS_PER_RUN} model calls), keeping ${CALLS_RESERVED_FOR_FITS} of them for tips`, async () => {
     const many = Array.from({ length: MAX_CALLS_PER_RUN + 10 }, (_, i) => pair(100 + 2 * i, 101 + 2 * i));
+    const fits = Array.from({ length: MAX_CALLS_PER_RUN }, (_, i) => fit(500 + i, 1000 + i));
     vi.mocked(ideaPairCandidates).mockResolvedValue(many);
-    const ask = vi.fn(async () => ({ related: 0.5, same_idea: 0.1 }));
+    vi.mocked(recIdeaCandidates).mockImplementation(async (limit: number) => fits.slice(0, limit));
+    const ask = vi.fn(async (state: Record<string, string>) => ("rec" in state ? { fits: 0.5 } : { related: 0.5, same_idea: 0.1 }));
     const out = await refreshLinks({ ask: ask as never });
     expect(ask).toHaveBeenCalledTimes(MAX_CALLS_PER_RUN);
-    expect(out.calls).toBe(MAX_CALLS_PER_RUN);
-    expect(vi.mocked(ideaPairCandidates).mock.calls[0][0]).toBe(MAX_CALLS_PER_RUN);
-    expect(recIdeaCandidates).not.toHaveBeenCalled(); // budget spent
-    expect(ensureRecEmbeddings).not.toHaveBeenCalled(); // embedding a batch is a model call too
+    expect(out).toMatchObject({ calls: MAX_CALLS_PER_RUN, ideaPairs: MAX_CALLS_PER_RUN - CALLS_RESERVED_FOR_FITS, recPairs: CALLS_RESERVED_FOR_FITS });
+    // never asks for more candidates than it can judge
+    expect(vi.mocked(ideaPairCandidates).mock.calls[0][0]).toBe(MAX_CALLS_PER_RUN - CALLS_RESERVED_FOR_FITS);
+    expect(vi.mocked(recIdeaCandidates).mock.calls[0][0]).toBe(CALLS_RESERVED_FOR_FITS);
+    expect(ensureRecEmbeddings).not.toHaveBeenCalled(); // budget spent: embedding a batch is a model call too
+  });
+
+  it("tips get whatever the ideas left over, never less than their reserve", async () => {
+    vi.mocked(ideaPairCandidates).mockResolvedValue([pair(1, 2)]);
+    vi.mocked(recIdeaCandidates).mockResolvedValue([]);
+    await refreshLinks({ ask: vi.fn(async () => ({ related: 0.5, same_idea: 0.1 })) as never });
+    expect(vi.mocked(recIdeaCandidates).mock.calls[0][0]).toBe(MAX_CALLS_PER_RUN - 1);
+  });
+
+  it("does nothing while another run holds the lock (runs never overlap), and releases its own lock", async () => {
+    h.mock.queue.length = 0; // the claim finds a live lock: no row returned
+    const ask = vi.fn();
+    const out = await refreshLinks({ ask: ask as never });
+    expect(out).toMatchObject({ busy: true, calls: 0 });
+    expect(ideaPairCandidates).not.toHaveBeenCalled();
+    expect(h.mock.calls[0].text).toMatch(/insert into sync_cursors[\s\S]*on conflict \(name\) do update[\s\S]*updated_at < now\(\) - interval/);
+    expect(h.mock.calls.some((c) => c.text.includes("delete from sync_cursors"))).toBe(false); // not ours to release
+
+    h.mock.queue.push([{ name: "links_refresh" }]);
+    await refreshLinks({ ask: ask as never });
+    const release = h.mock.calls.filter((c) => c.text.includes("delete from sync_cursors"));
+    expect(release).toHaveLength(1);
+    const claims = h.mock.calls.filter((c) => c.text.includes("insert into sync_cursors"));
+    const token = claims[1].values.find((v) => typeof v === "string" && /^[0-9a-f-]{36}$/.test(v));
+    expect(token).toBeTruthy();
+    expect(release[0].values).toContain(token); // only the token this run claimed
   });
 
   it(`asks about any one item at most ${MAX_CALLS_PER_ITEM} times per run`, async () => {
@@ -98,6 +128,7 @@ describe("refreshLinks", () => {
     const out = await refreshLinks({ ask: vi.fn() as never });
     expect(out).toMatchObject({ calls: 1, embedded: 12 });
     vi.mocked(ensureRecEmbeddings).mockResolvedValue(0);
+    h.mock.queue.push([{ name: "links_refresh" }]);
     expect((await refreshLinks({ ask: vi.fn() as never })).calls).toBe(0);
   });
 

@@ -127,7 +127,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         )
       )}
       {/* Backlinks (M4-T6, FR-38): nothing shows until Earmark has found a connection. A dismissed idea offers none. */}
-      {!dismissed && <Backlinks ideaId={n} links={links} />}
+      {!dismissed && <Backlinks ideaId={n} idea={{ mentionCount: plant.mentionCount, bloomed: plant.bloomed }} links={links} />}
     </main>
   );
 }

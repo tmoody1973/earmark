@@ -99,7 +99,7 @@ test("Connected: keep and remove links, merge a duplicate idea, and undo the mer
   // Merge asks first; Cancel changes nothing
   const same = page.getByTestId("link-same");
   await same.getByRole("button", { name: "Merge here" }).click();
-  await expect(same.getByText("Move its 1 mention here? You can undo it.")).toBeVisible();
+  await expect(same.getByText("Move its mentions here? You can undo it. Merging may make this idea bloom and start a one-pager.")).toBeVisible();
   await page.addStyleTag({ content: HIDE_DEV_BADGE });
   await panel.screenshot({ path: `${DIR}/m4-links-confirm-${width}.png` });
   await same.getByRole("button", { name: "Cancel" }).click();

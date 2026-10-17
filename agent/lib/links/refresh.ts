@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { db } from "../db";
 import { askBooleans } from "../decide/ask-booleans";
 import { ensureRecEmbeddings, ideaPairCandidates, recIdeaCandidates } from "./candidates";
@@ -10,6 +11,8 @@ import { judgeIdeaPair, judgeRecFit } from "./judge";
 // 40 calls ≈ 26k tokens ≈ $0.0011; hourly, at most ≈ $0.03 a day. Most runs judge nothing and cost nothing.
 export const MAX_CALLS_PER_RUN = 40;
 export const MAX_CALLS_PER_ITEM = 5;
+// Tips are judged after ideas, so a busy garden could starve them: ideas get at most what this reserve leaves.
+export const CALLS_RESERVED_FOR_FITS = 15;
 export const EMBED_BATCH = 50;
 const MAX_FAILURES_IN_A_ROW = 3; // the gateway is down: stop instead of walking the whole list
 
@@ -34,7 +37,27 @@ export async function writeRecFit(recId: number, ideaId: number, fits: number): 
       where links.status = 'suggested'`;
 }
 
-export interface RefreshResult { calls: number; ideaPairs: number; recPairs: number; embedded: number; failed: number; skipped: number }
+export interface RefreshResult {
+  calls: number; ideaPairs: number; recPairs: number; embedded: number; failed: number; skipped: number;
+  /** another run held the lock: this one did nothing */
+  busy: boolean;
+}
+
+// Hourly runs must not overlap (a slow run + the next would judge the same pairs twice and double the spend). A claimed
+// row in sync_cursors, taken only when free or stale: the lease outlives the longest run (40 calls × 20 s timeout ≈
+// 13 min, under eve's 800 s function limit), so a crashed run's lock frees itself.
+const LOCK = "links_refresh_lock";
+async function claimRun(token: string): Promise<boolean> {
+  const rows = await db()`
+    insert into sync_cursors (name, cursor) values (${LOCK}, ${token})
+    on conflict (name) do update set cursor = excluded.cursor, updated_at = now()
+      where sync_cursors.updated_at < now() - interval '15 minutes'
+    returning name`;
+  return rows.length > 0;
+}
+async function releaseRun(token: string): Promise<void> {
+  await db()`delete from sync_cursors where name = ${LOCK} and cursor = ${token}`;
+}
 
 const errName = (err: unknown) => (err instanceof Error ? err.name : "unknown");
 
@@ -44,8 +67,22 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : "unknown");
  */
 export async function refreshLinks(opts: { maxCalls?: number; ask?: typeof askBooleans } = {}): Promise<RefreshResult> {
   const maxCalls = opts.maxCalls ?? MAX_CALLS_PER_RUN;
-  const ask = opts.ask ?? askBooleans;
-  const out: RefreshResult = { calls: 0, ideaPairs: 0, recPairs: 0, embedded: 0, failed: 0, skipped: 0 };
+  const token = randomUUID();
+  if (!(await claimRun(token))) {
+    console.log("[links] run skipped: another run holds the lock");
+    return { calls: 0, ideaPairs: 0, recPairs: 0, embedded: 0, failed: 0, skipped: 0, busy: true };
+  }
+  try {
+    return await run(maxCalls, opts.ask ?? askBooleans);
+  } finally {
+    await releaseRun(token);
+  }
+}
+
+async function run(maxCalls: number, ask: typeof askBooleans): Promise<RefreshResult> {
+  const out: RefreshResult = { calls: 0, ideaPairs: 0, recPairs: 0, embedded: 0, failed: 0, skipped: 0, busy: false };
+  // the reserve scales down for a small manual cap (--max-calls 1 still judges one idea pair)
+  const ideaBudget = maxCalls - Math.min(CALLS_RESERVED_FOR_FITS, Math.floor((maxCalls * CALLS_RESERVED_FOR_FITS) / MAX_CALLS_PER_RUN));
   const perItem = new Map<string, number>();
   let failuresInARow = 0;
   const halted = () => out.calls >= maxCalls || failuresInARow >= MAX_FAILURES_IN_A_ROW;
@@ -73,8 +110,8 @@ export async function refreshLinks(opts: { maxCalls?: number; ask?: typeof askBo
     }
   };
 
-  for (const p of await ideaPairCandidates(maxCalls)) {
-    if (halted()) break;
+  for (const p of await ideaPairCandidates(ideaBudget)) {
+    if (halted() || out.calls >= ideaBudget) break;
     if (!spend([`idea:${p.a.id}`, `idea:${p.b.id}`])) continue;
     if (await judged("idea pair", `a=${p.a.id} b=${p.b.id}`, async () => writeIdeaPair(p.a.id, p.b.id, await judgeIdeaPair(p.a, p.b, ask)))) {
       out.ideaPairs++;

@@ -24,6 +24,13 @@ describe("askBooleans", () => {
     expect(call.questions.q_a).toEqual({ type: "boolean", instructions: "A?", criteria: { true: "yes case", false: "no case" } });
   });
 
+  it("bounds every call with a timeout, so a hung call cannot hold the hourly run", async () => {
+    const decideImpl = vi.fn(async () => ({ answers: { q_a: { type: "boolean", probability: 0.5 } } }));
+    await askBooleans({ x: "y" }, { q_a: { instructions: "?", whenTrue: "t", whenFalse: "f" } }, { decideImpl: decideImpl as never });
+    const call = (decideImpl.mock.calls[0] as unknown[])[0] as { abortSignal?: AbortSignal };
+    expect(call.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it("rejects integer-like keys (JS would reorder them)", async () => {
     await expect(askBooleans({ x: "y" }, { "12": { instructions: "?", whenTrue: "t", whenFalse: "f" } })).rejects.toThrow(/non-numeric/);
   });
