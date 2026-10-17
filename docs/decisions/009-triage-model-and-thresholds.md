@@ -1,6 +1,6 @@
 # 009 — Triage stays on Jev, with work-talk rules and tighter confidence lines
 
-**Decision:** Triage keeps running on Jev 1.13 (`typesafe-ai/jev-1.13.0`). Its instructions now say plainly that naming a tool, company or product while talking about work is not a recommendation. Proposing something to make or air is still an idea, and telling a colleague to try something is still a recommendation. An item is auto-accepted only when Jev is more than 90% sure (was 85%). It is dropped when Jev is under 60% sure (was 50%). Anything in between goes to review, where it shows in the garden as unconfirmed.
+**Decision:** Triage keeps running on Jev 1.13 (`typesafe-ai/jev-1.13.0`). Its instructions now say plainly that naming a tool, company or product while talking about work is not a recommendation. Proposing something to make or air is still an idea, and telling a colleague to try something is still a recommendation. An item is auto-accepted only when Jev is more than 90% sure (was 85%). It is dropped when Jev is under 60% sure (was 50%). Anything in between goes to review; a review-band tip waits in the Maybe? row for Keep / Not a tip (decision 025), and a review-band idea shows in the garden as unconfirmed.
 
 **Why this came up:** Every stretch of conversation Bee records passes through this gate. Too loose, and the garden fills with things nobody recommended. Too strict, and real tips disappear.
 
@@ -35,7 +35,7 @@ Decisions does not beat Jev on both recommendation and idea precision, which was
 
 The lines:
 - **Drop below 0.6.** This is the best-supported number in the eval. Jev's recommendation or idea calls under 60% sure were right 1 time in 14 in round 2, 1 in 21 in round 1, and 0 in 36 before the change. Three runs agree.
-- **Auto-accept above 0.9.** Above 0.9, nearly all of Jev's answers are right, but almost all of them are "neither". For real recommendations and ideas, only 2 answers landed above 0.9 in round 2, and 1 of those 2 was right. That is far too few to measure. The tuning helper (`pnpm eval:tune`) found no line that meets both targets, so it fell back to 0.95. We kept 0.9 because nothing in this data separates 0.9 from 0.95. A wrong auto-accept looks confirmed in the garden; a wrong review item is clearly marked as unconfirmed (decision 004).
+- **Auto-accept above 0.9.** Above 0.9, nearly all of Jev's answers are right, but almost all of them are "neither". For real recommendations and ideas, only 2 answers landed above 0.9 in round 2, and 1 of those 2 was right. That is far too few to measure. The tuning helper (`pnpm eval:tune`) found no line that meets both targets, so it fell back to 0.95. We kept 0.9 because nothing in this data separates 0.9 from 0.95. A wrong auto-accept looks confirmed in the garden; a wrong review item waits in the Maybe? row for Keep / Not a tip (decision 025), or, for an idea, is clearly marked as unconfirmed (decision 004).
 
 **What we gave up:**
 - **Ideas almost never auto-accept.** In this eval no real idea run scored above 0.9; they mostly scored 0.6 to 0.9. Review-band ideas still count toward a bloom (decision 004), so the garden still grows, but more of it says "unconfirmed".

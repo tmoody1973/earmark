@@ -25,8 +25,6 @@
   transition: border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 .rec-card--linked:hover { border-color: #cdc2b1; transform: translateY(-2px); }
-/* Unconfirmed tips look quieter: a light dashed outline on the ground, not a filled card. */
-.rec-card--unconfirmed { background: transparent; border-style: dashed; border-color: #ddd3c4; }
 /* "Other" tips are compact notes: no artwork box, a lightly tinted card. */
 .rec-card--note { background: #f9f4ec; }
 .rec-card--note .rec-body { padding-top: 0.25rem; }
@@ -224,7 +222,65 @@
   .shelf-grid > li { margin-bottom: 1.25rem; }
   .rec-card { padding: 1rem; }
 }
+/* ---- the Maybe? row (MaybeRow.tsx, decision 025): compact, dashed, quieter than the shelf. Never orange. ---- */
+.maybe .zone-head { margin-bottom: 0.125rem; }
+.maybe .zone-head h2 { font-size: 1.1875rem; }
+.maybe-lede { margin: 0 0 1rem; font-size: 0.9375rem; color: var(--ink-2); }
+.maybe-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 0.75rem;
+}
+.maybe-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0.875rem 0.875rem 0.75rem;
+  border: 1px dashed #d6cbb9;
+  border-radius: var(--radius-card);
+}
+.maybe-title {
+  margin: 0.3rem 0 0;
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.maybe-why { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.maybe-card .rec-from { margin-top: 0.5rem; }
+.maybe-actions { display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.75rem; }
+.maybe-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out), background-color 150ms var(--ease-out);
+}
+.maybe-btn:hover { color: var(--ink); border-color: #cdc2b1; }
+.maybe-btn--keep { color: var(--ink); font-weight: 600; background: var(--surface); border-color: #cdc2b1; }
+.maybe-btn--keep:hover { border-color: var(--ink-3); }
+.maybe-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.maybe-more { margin: 0.75rem 0 0; font-size: 0.9375rem; color: var(--ink-2); }
+
 @media (prefers-reduced-motion: reduce) {
+  .maybe-btn { transition: none; }
   .rec-card { transition: none; }
   .rec-card--linked:hover { transform: none; }
 }
