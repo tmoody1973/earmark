@@ -7,9 +7,11 @@ import { experimental_decide } from "ai";
 import { getEnv } from "../../agent/lib/env";
 import { triageWindow } from "../../agent/lib/pipeline/triage";
 import { parseJsonl, type LabeledSnippet } from "../../agent/lib/evals/labels";
+import { costPlan, shouldAbortWrite } from "../../agent/lib/evals/guard";
 import { buildModelReport, renderReportMarkdown, type RunResult, type SnippetRun, type SubsetTag, type TriageReport } from "../../agent/lib/evals/report";
 
 const MIN_LABELS = 30;
+const AVG_INPUT_TOKENS = 2500; // rough: one window plus the criteria prompt
 const ORDERS = ["fixed", "shuffled", "shuffled"] as const;
 const LABELED = "evals/triage/data/labeled.jsonl";
 const UNLABELED = "evals/triage/data/unlabeled.jsonl";
@@ -54,10 +56,20 @@ function tagsOf(s: LabeledSnippet): SubsetTag[] {
 }
 
 const env = getEnv();
+const MODELS = [env.TRIAGE_MODEL, env.BENCHMARK_MODEL];
+
+// Cost guard: print the plan first; nothing touches the Gateway without --yes.
+const plan = costPlan({ n: snippets.length, models: MODELS, orders: ORDERS.length, avgInputTokens: AVG_INPUT_TOKENS });
+console.log(plan.summary);
+if (!process.argv.includes("--yes")) {
+  console.log("Dry run. Re-run with --yes to proceed: pnpm eval:triage --yes");
+  process.exit(0);
+}
 
 async function runModel(model: string) {
   let inputTokens = 0;
   let errors = 0;
+  const errorNames = new Map<string, number>();
   const counting = (async (opts: Parameters<typeof experimental_decide>[0]) => {
     const r = await experimental_decide(opts);
     inputTokens += r.usage.inputTokens ?? 0;
@@ -77,18 +89,29 @@ async function runModel(model: string) {
         return { id: s.id, label: { kind: s.kind, rec_type: s.rec_type, joking: s.joking }, results, tags: tagsOf(s) };
       } catch (err) {
         errors++;
-        console.error(`${model} ${s.id}: ${err instanceof Error ? err.name : "error"}`); // ids + err.name only: never window text
+        const name = err instanceof Error ? err.name : "error";
+        errorNames.set(name, (errorNames.get(name) ?? 0) + 1);
+        console.error(`${model} ${s.id}: ${name}`); // ids + err.name only: never window text
         return null;
       }
     }));
     runs.push(...done.filter((r): r is SnippetRun => r !== null));
   }
   if (errors) console.warn(`${model}: ${errors} snippet(s) errored and were excluded`);
-  return buildModelReport(model, runs, inputTokens);
+  return { report: buildModelReport(model, runs, inputTokens), errors, errorNames };
 }
 
 const report: TriageReport = { date: new Date().toISOString().slice(0, 10), labeledCount: snippets.length, triageModel: env.TRIAGE_MODEL, models: {} };
-for (const m of [env.TRIAGE_MODEL, env.BENCHMARK_MODEL]) report.models[m] = await runModel(m);
+for (const m of MODELS) {
+  const { report: mr, errors, errorNames } = await runModel(m);
+  const reason = shouldAbortWrite(mr.n, errors);
+  if (reason) {
+    // never overwrite a good report with a bad run
+    console.error(`ABORT, no report written: ${m}: ${reason}. Errors: ${JSON.stringify(Object.fromEntries(errorNames))}`);
+    process.exit(1);
+  }
+  report.models[m] = mr;
+}
 
 await mkdir("evals/triage/reports", { recursive: true });
 const json = JSON.stringify(report, null, 2);
