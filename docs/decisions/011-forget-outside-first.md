@@ -20,9 +20,12 @@ How it behaves:
 - The recommender's first name is deleted with their last recommendation (with any links to them); otherwise their counts are recalculated.
 - Forgetting a mention also removes its line from the idea's timeline and recalculates the idea's count, dates, stage and "centre" (the average meaning used to match new mentions). Forgetting an idea's last mention forgets the whole idea.
 - The rows that record "this Bee conversation was already processed" are kept: they hold only ids, and deleting them would let the nightly pass save the same tip again from the same conversation.
-- Other milestones' stores (weekly episodes, gardener drafts) plug in through a list of extra steps (`agent/lib/privacy/forget-hooks.ts`) that run after the database commit.
+- Other milestones' stores (weekly episodes, gardener drafts) plug in through a list of extra steps (`agent/lib/privacy/forget-hooks.ts`) that run inside the same database transaction, so a failing step undoes everything and a re-run retries.
+- Fact proposals (sentences Earmark drafts for Bee from several tips or an idea) go when any tip or idea they were built from is forgotten, with their Bee facts.
+- Forgetting one mention also removes everything written from all of an idea's mentions: the summary, the one-pager draft (a drafted idea goes back to growing and gets redrafted), the idea's Bee fact, Notion page and fact proposals. Titles are not stored per mention, so if the title came from the forgotten mention the dry run warns and the title becomes "Untitled idea". If no other non-dismissed mention would be left, the whole idea goes, dismissed mentions included.
+- If a mention's timeline line cannot be found, the transaction fails instead of leaving the line behind.
 
-**What we gave up:** Earmark's own copy can outlive the request while an outside service is down. Also, an idea's title, summary and one-pager draft are written by a model from all its mentions; forgetting one mention does not rewrite them, so words from that mention can survive there until the idea is redrafted or forgotten as a whole.
+**What we gave up:** Earmark's own copy can outlive the request while an outside service is down. Forgetting one mention throws away the idea's summary, draft, Bee fact and Notion page even though most of their content came from other mentions; they are rebuilt later, at the cost of extra model calls. An idea titled from the forgotten mention is left as "Untitled idea" until Tarik renames it.
 
 **How we'll know if this was right:** Count forget runs that stop before the database. If they happen and a second run always finishes, option 1 is working. If an outside service stays down long enough that Tarik needs Earmark's copy gone right away, add a "database only" escape hatch.
 

@@ -27,8 +27,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     deleteBlob: vi.fn<(url: string) => Promise<void>>(async () => {}),
   });
   const recordingHook = () => {
-    const seen: ForgetHookContext[] = [];
-    const hook: ForgetHook = { name: "it_hook", run: async (ctx) => { seen.push(ctx); return "it_hook 0"; } };
+    const seen: Omit<ForgetHookContext, "c">[] = [];
+    const hook: ForgetHook = {
+      name: "it_hook",
+      run: async (ctx) => {
+        await ctx.c.query("select 1"); // hooks get the transaction's client
+        seen.push({ target: ctx.target, recommenderFirstName: ctx.recommenderFirstName, recommenderRemoved: ctx.recommenderRemoved });
+        return "it_hook 0";
+      },
+    };
     return { hook, seen };
   };
 
@@ -50,9 +57,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     clusterIds.push(id);
     return id;
   };
-  const addMention = async (clusterId: number, at: string) => Number((await one(
-    `insert into idea_mentions (cluster_id, excerpt, spoken_at, confidence, source) values ($1, 'it forget', $2, 0.9, 'voice') returning id`,
-    [clusterId, at])).id);
+  const addMention = async (clusterId: number, at: string, status = "accepted") => Number((await one(
+    `insert into idea_mentions (cluster_id, excerpt, spoken_at, confidence, source, review_status) values ($1, 'it forget', $2, 0.9, 'voice', $3) returning id`,
+    [clusterId, at, status])).id);
+  const addProposal = async (kind: "taste" | "idea", evidence: number[], beeFactId: number | null) => Number((await one(
+    `insert into fact_proposals (text, kind, evidence_ids, bee_fact_id) values ($1, $2, $3::jsonb, $4) returning id`,
+    [`it-forget-${RUN}`, kind, JSON.stringify(evidence), beeFactId])).id);
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -65,6 +75,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await c.query(`delete from spaces where id = any($1::bigint[])`, [spaceIds]);
     await c.query(`delete from recommenders where first_name like $1`, [`${NAME}%`]);
     await c.query(`delete from resort_backup where run_id = $1`, [`it-forget-${RUN}`]);
+    await c.query(`delete from fact_proposals where text = $1`, [`it-forget-${RUN}`]);
     c.release();
     await pool.end();
   });
@@ -204,5 +215,131 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     expect(again.incomplete).toBe(0);
     expect(again.lines).toEqual([`already gone bee_todo ${beeId(6)}`, `already gone notion_page pg2-${RUN}`, `deleted postgres rec ${id}`]);
     expect(await count(`recommendations where id = $1`, [id])).toBe(0);
+  });
+
+  // ── review fixes ─────────────────────────────────────────────────────────────────────────────────────────────────
+  const C = "2026-10-05T15:00:00.000Z";
+  const addDraftedCluster = async () => {
+    const timeline = JSON.stringify([{ date: A, line: "Oct 1: first" }, { date: B, line: "Oct 3: second" }, { date: C, line: "Oct 5: third" }]);
+    const id = Number((await one(
+      `insert into idea_clusters (title, summary, stage, mention_count, first_mentioned_at, last_mentioned_at, timeline,
+                                  draft_md, draft_format, draft_attempts, bee_fact_id, notion_page_id)
+       values ('IT forget drafted', 'it summary', 'drafted', 3, $1, $2, $3::jsonb, '# it draft', 'newsletter_pitch', 2, $4, $5) returning id`,
+      [A, C, timeline, beeId(7), `pg3-${RUN}`])).id);
+    clusterIds.push(id);
+    return id;
+  };
+
+  it("forgetting one mention of several removes derived text: summary, draft, the idea's Bee fact, Notion page, fact proposals", async () => {
+    const { forget, formatPlan } = await mod();
+    const cid = await addDraftedCluster();
+    await addMention(cid, A);
+    await addMention(cid, B);
+    const m3 = await addMention(cid, C);
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('idea', $1, 'fact', $2)`, [cid, beeId(7)]);
+    const pid = await addProposal("idea", [cid], beeId(8));
+
+    const d = fakeDeps();
+    const dry = await forget(c, { type: "mention", id: m3 }, { yes: false, deps: d as ExternalDeps });
+    expect(dry.plan).toMatchObject({
+      resolved: { type: "mention", id: m3 }, deletes: { idea_mentions: 1, bee_sync: 1, fact_proposals: 1 },
+      refs: { beeFactIds: [beeId(7), beeId(8)], notionPageIds: [`pg3-${RUN}`] },
+    });
+    expect(formatPlan(dry.plan).join("\n")).not.toContain("title came from this mention");
+
+    const r = await forget(c, { type: "mention", id: m3 }, { yes: true, deps: d as ExternalDeps });
+    expect(r.incomplete).toBe(0);
+    expect(d.deleteFact.mock.calls).toEqual([[beeId(7)], [beeId(8)]]);
+    expect(d.trashNotionPage.mock.calls).toEqual([[`pg3-${RUN}`]]);
+    expect(await one(`select title, summary, draft_md, draft_format, draft_claimed_at, draft_attempts, stage, mention_count,
+                             bee_fact_id, notion_page_id, jsonb_array_length(timeline) as lines from idea_clusters where id = $1`, [cid]))
+      .toEqual({
+        title: "IT forget drafted", summary: null, draft_md: null, draft_format: null, draft_claimed_at: null, draft_attempts: 0,
+        stage: "sprouting", mention_count: 2, bee_fact_id: null, notion_page_id: null, lines: 2,
+      });
+    expect(await count(`fact_proposals where id = $1`, [pid])).toBe(0);
+    expect(await count(`bee_sync where entity_type = 'idea' and entity_id = $1`, [cid])).toBe(0);
+  });
+
+  it("forgetting the mention the title came from warns in the dry run and retitles to a placeholder", async () => {
+    const { forget, formatPlan } = await mod();
+    const cid = await addCluster();
+    const first = await addMention(cid, A);
+    await addMention(cid, B);
+    const dry = await forget(c, { type: "mention", id: first }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(formatPlan(dry.plan).join("\n")).toContain("title came from this mention: forget the whole idea, or it will be retitled");
+    const r = await forget(c, { type: "mention", id: first }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect(r.lines).toContain(`retitled idea ${cid} to "Untitled idea" (titles are not stored per mention)`);
+    expect((await one(`select title from idea_clusters where id = $1`, [cid])).title).toBe("Untitled idea");
+  });
+
+  it("a mention with no matching timeline line fails the transaction instead of leaving the line behind", async () => {
+    const { forget } = await mod();
+    const cid = await addCluster();
+    await addMention(cid, A);
+    const odd = await addMention(cid, C); // the cluster's timeline has no line dated C
+    await expect(forget(c, { type: "mention", id: odd }, { yes: true, deps: fakeDeps() as ExternalDeps }))
+      .rejects.toMatchObject({ name: "ForgetTimelineError" });
+    expect(await count(`idea_mentions where id = $1`, [odd])).toBe(1);
+  });
+
+  it("hooks run inside the transaction: a failing hook rolls everything back and a re-run retries", async () => {
+    const { forget } = await mod();
+    const id = await addRec(null);
+    const bad: ForgetHook = { name: "it_bad", run: async () => { throw Object.assign(new Error("x"), { name: "HookBoom" }); } };
+    await expect(forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: [bad] }))
+      .rejects.toMatchObject({ name: "ForgetHookError" });
+    expect(await count(`recommendations where id = $1`, [id])).toBe(1);
+    const { hook } = recordingHook();
+    const r = await forget(c, { type: "rec", id }, { yes: true, deps: fakeDeps() as ExternalDeps, hooks: [hook] });
+    expect(r.lines).toContain("hook it_hook: it_hook 0");
+    expect(await count(`recommendations where id = $1`, [id])).toBe(0);
+  });
+
+  it("a rec's taste fact proposals go, with their Bee facts", async () => {
+    const { forget } = await mod();
+    const id = await addRec(null);
+    const pid = await addProposal("taste", [id, 999_999_999], beeId(9));
+    const keep = await addProposal("taste", [999_999_999], null);
+    const d = fakeDeps();
+    const r = await forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps });
+    expect(r.plan.deletes).toMatchObject({ fact_proposals: 1 });
+    expect(d.deleteFact.mock.calls).toEqual([[beeId(9)]]);
+    expect(await count(`fact_proposals where id = $1`, [pid])).toBe(0);
+    expect(await count(`fact_proposals where id = $1`, [keep])).toBe(1);
+  });
+
+  it("an idea's fact proposals go with the idea", async () => {
+    const { forget } = await mod();
+    const cid = await addCluster();
+    await addMention(cid, A);
+    const pid = await addProposal("idea", [cid], beeId(10));
+    const d = fakeDeps();
+    await forget(c, { type: "idea", id: cid }, { yes: true, deps: d as ExternalDeps });
+    expect(d.deleteFact.mock.calls).toEqual([[beeId(10)]]);
+    expect(await count(`fact_proposals where id = $1`, [pid])).toBe(0);
+  });
+
+  it("refuses when the mention became its idea's last between the outside pass and the transaction", async () => {
+    const { forget } = await mod();
+    const cid = await addCluster(beeId(11));
+    const m1 = await addMention(cid, A);
+    const m2 = await addMention(cid, B);
+    const d = fakeDeps();
+    d.deleteFact.mockImplementationOnce(async () => { await c.query(`update idea_mentions set review_status = 'dismissed' where id = $1`, [m1]); });
+    await expect(forget(c, { type: "mention", id: m2 }, { yes: true, deps: d as ExternalDeps }))
+      .rejects.toMatchObject({ name: "ForgetRefsChangedError" });
+    expect(await count(`idea_mentions where id = $1`, [m2])).toBe(1);
+  });
+
+  it("when only dismissed mentions would remain, the whole idea is forgotten, dismissed mentions included", async () => {
+    const { forget } = await mod();
+    const cid = await addCluster();
+    await addMention(cid, A, "dismissed");
+    const live = await addMention(cid, B);
+    const dry = await forget(c, { type: "mention", id: live }, { yes: false, deps: fakeDeps() as ExternalDeps });
+    expect(dry.plan).toMatchObject({ resolved: { type: "idea", id: cid }, deletes: { idea_clusters: 1, idea_mentions: 2 } });
+    await forget(c, { type: "mention", id: live }, { yes: true, deps: fakeDeps() as ExternalDeps });
+    expect(await count(`idea_mentions where cluster_id = $1`, [cid])).toBe(0);
   });
 });

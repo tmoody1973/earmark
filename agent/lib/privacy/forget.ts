@@ -1,29 +1,22 @@
 // FR-30 (M3-T11): forget one rec, idea or mention everywhere. Adapted from PostHog draft PR #8; decision 011.
-// Order: the outside copies first (Bee todos/facts, Notion page, Blob thumbnails; a 404 means already gone), then every
-// Postgres row in ONE locked transaction, then other lanes' hooks. Any other outside failure (or an unconfigured service
-// that has refs) aborts BEFORE Postgres, so the refs are still there and re-running the command retries safely.
+// Order: the outside copies first (Bee todos/facts, Notion page, Blob thumbnails; a 404 means already gone), then ONE
+// locked Postgres transaction that deletes the rows (forget-rows.ts) and runs other lanes' hooks with its client.
+// Any other outside failure (or an unconfigured service that has refs) aborts BEFORE Postgres; a failing hook rolls the
+// transaction back. Either way the refs are still there and re-running the command retries safely.
 // Logs and plans carry ids and counts only, never text.
 import { del } from "@vercel/blob";
 import type { PoolClient } from "@neondatabase/serverless";
 import { createBeeClient, type BeeClient } from "../bee/client";
 import { inTransaction } from "../db";
+import { deleteRows, readPlan, type ForgetPlan, type ForgetRefs, type ForgetTarget } from "./forget-rows";
 
-export type ForgetTarget = { type: "rec" | "idea" | "mention"; id: number };
-export interface ForgetRefs { beeTodoIds: number[]; beeFactIds: number[]; notionPageIds: string[]; blobUrls: string[] }
+export { readPlan, deleteRows, ForgetTimelineError, type ForgetPlan, type ForgetRefs, type ForgetTarget } from "./forget-rows";
+
 export type ForgetStep =
   | { kind: "bee_todo" | "bee_fact"; beeId: number }
   | { kind: "notion_page"; pageId: string }
   | { kind: "blob"; url: string; n?: number }
   | { kind: "db"; target: ForgetTarget };
-export interface ForgetPlan {
-  target: ForgetTarget;
-  resolved: ForgetTarget; // the idea, when the mention asked for is its idea's last
-  exists: boolean;
-  deletes: Record<string, number>; // rows removed per table (cascades included)
-  updates: Record<string, number>; // rows recomputed per table
-  refs: ForgetRefs;
-  recommender: { id: number; firstName: string; removed: boolean } | null; // firstName is for hooks only, never printed
-}
 // null = that service is not configured: a step that needs it is skipped, said so, and aborts before Postgres.
 export interface ExternalDeps {
   deleteTodo(id: number): Promise<void>;
@@ -32,9 +25,9 @@ export interface ExternalDeps {
   deleteBlob: ((url: string) => Promise<void>) | null;
 }
 export interface ForgetDeps extends ExternalDeps { deleteRows(target: ForgetTarget): Promise<void> }
-// Other lanes' forgetters (lane C: M5 episodes, gardener runs), listed in forget-hooks.ts. Run after the commit;
-// `run` returns one log line of ids/counts (never text); a throw is reported and counted.
-export interface ForgetHookContext { target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean }
+// Other lanes' forgetters (lane C: M5 episodes, gardener runs), listed in forget-hooks.ts. They run inside the forget
+// transaction: use `c` for every query so a failure rolls everything back. `run` returns one line of ids/counts.
+export interface ForgetHookContext { c: PoolClient; target: ForgetTarget; recommenderFirstName: string | null; recommenderRemoved: boolean }
 export interface ForgetHook { name: string; run(ctx: ForgetHookContext): Promise<string> }
 export interface ForgetResult { plan: ForgetPlan; lines: string[]; incomplete: number; aborted: boolean } // aborted = Postgres untouched
 
@@ -46,161 +39,13 @@ export class ForgetAbortedError extends Error {
     super(cause instanceof Error ? cause.message : "outside delete not done", { cause });
   }
 }
-// The locked re-read found outside refs the outside pass did not cover (one was added meanwhile): rolled back.
+// The locked re-read differs from the outside pass (a new outside ref, or the mention became its idea's last): rolled back.
 export class ForgetRefsChangedError extends Error {
   override name = "ForgetRefsChangedError";
 }
-
-const NONE: ForgetRefs = { beeTodoIds: [], beeFactIds: [], notionPageIds: [], blobUrls: [] };
-const nums = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(Number))];
-const strs = (vs: unknown[]) => [...new Set(vs.filter((v) => v != null).map(String))];
-
-async function rows(c: PoolClient, text: string, values: unknown[]): Promise<Record<string, unknown>[]> {
-  return (await c.query(text, values)).rows;
-}
-async function count(c: PoolClient, from: string, values: unknown[]): Promise<number> {
-  return Number((await rows(c, `select count(*)::int as n from ${from}`, values))[0]!.n);
-}
-
-// links/space_items/bee_sync have no foreign keys, so they are matched by (type, id) and deleted explicitly.
-const LINKS = `links where (from_type = $1 and from_id = $2) or (to_type = $1 and to_id = $2)`;
-const RECOMMENDER_LINKS = `links where (from_type = 'recommender' and from_id = $1) or (to_type = 'recommender' and to_id = $1)`;
-async function shared(c: PoolClient, type: "rec" | "idea", id: number) {
-  const sync = await rows(c, `select bee_object, bee_id from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
-  return {
-    links: await count(c, LINKS, [type, String(id)]),
-    space_items: await count(c, `space_items where item_type = $1 and item_id = $2`, [type, id]),
-    bee_sync: sync.length,
-    todos: sync.filter((r) => r.bee_object === "todo").map((r) => r.bee_id),
-    facts: sync.filter((r) => r.bee_object === "fact").map((r) => r.bee_id),
-  };
-}
-
-async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promise<ForgetPlan> {
-  const [r] = await rows(c, `
-    select r.bee_todo_id, r.notion_page_id, r.recommender_id, p.first_name,
-           (select count(*)::int from recommendations o where o.recommender_id = r.recommender_id and o.id <> r.id) as others
-    from recommendations r left join recommenders p on p.id = r.recommender_id where r.id = $1${lock}`, [target.id]);
-  if (!r) return { target, resolved: target, exists: false, deletes: {}, updates: {}, refs: NONE, recommender: null };
-  const receipts = await rows(c, `select bee_todo_id from rec_receipts where recommendation_id = $1`, [target.id]);
-  const photos = await rows(c, `select thumbnail_url from photos where recommendation_id = $1`, [target.id]);
-  const s = await shared(c, "rec", target.id);
-  const recommender = r.recommender_id == null ? null
-    : { id: Number(r.recommender_id), firstName: String(r.first_name), removed: Number(r.others) === 0 };
-  // The recommender's first name was kept for their recs only: it goes with their last one (and its links).
-  const links = recommender?.removed
-    ? await count(c, `links where (from_type = 'rec' and from_id = $1) or (to_type = 'rec' and to_id = $1)
-                        or (from_type = 'recommender' and from_id = $2) or (to_type = 'recommender' and to_id = $2)`,
-      [String(target.id), String(recommender.id)])
-    : s.links;
-  return {
-    target, resolved: target, exists: true, recommender,
-    deletes: {
-      recommendations: 1, rec_receipts: receipts.length, photos: photos.length, links, space_items: s.space_items,
-      bee_sync: s.bee_sync, resort_backup: await count(c, `resort_backup where table_name = 'recommendations' and row_id = $1`, [target.id]),
-      recommenders: recommender?.removed ? 1 : 0,
-    },
-    updates: recommender && !recommender.removed ? { recommenders: 1 } : {},
-    refs: {
-      beeTodoIds: nums([r.bee_todo_id, ...s.todos, ...receipts.map((x) => x.bee_todo_id)]),
-      beeFactIds: nums(s.facts),
-      notionPageIds: strs([r.notion_page_id]),
-      blobUrls: strs(photos.map((x) => x.thumbnail_url)),
-    },
-  };
-}
-
-async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTarget, lock: string): Promise<ForgetPlan> {
-  const [k] = await rows(c, `select bee_fact_id, notion_page_id from idea_clusters where id = $1${lock}`, [resolved.id]);
-  if (!k) return { target, resolved, exists: false, deletes: {}, updates: {}, refs: NONE, recommender: null };
-  const s = await shared(c, "idea", resolved.id);
-  return {
-    target, resolved, exists: true, recommender: null, updates: {},
-    deletes: {
-      idea_clusters: 1,
-      idea_mentions: await count(c, `idea_mentions where cluster_id = $1`, [resolved.id]),
-      garden_events: await count(c, `garden_events where cluster_id = $1`, [resolved.id]),
-      links: s.links, space_items: s.space_items, bee_sync: s.bee_sync,
-      resort_backup: await count(c, `resort_backup where (table_name = 'idea_clusters' and row_id = $1)
-        or (table_name = 'idea_mentions' and row_id in (select id from idea_mentions where cluster_id = $1))`, [resolved.id]),
-    },
-    refs: { ...NONE, beeTodoIds: nums(s.todos), beeFactIds: nums([k.bee_fact_id, ...s.facts]), notionPageIds: strs([k.notion_page_id]) },
-  };
-}
-
-// A mention leaves its idea; the last mention of an idea forgets the whole idea (title, Bee fact, Notion page).
-async function planMention(c: PoolClient, target: ForgetTarget, lock: string): Promise<ForgetPlan> {
-  const [m] = await rows(c, `select cluster_id from idea_mentions where id = $1`, [target.id]);
-  if (!m) return { target, resolved: target, exists: false, deletes: {}, updates: {}, refs: NONE, recommender: null };
-  const clusterId = Number(m.cluster_id);
-  await rows(c, `select id from idea_clusters where id = $1${lock}`, [clusterId]); // locks the idea before counting
-  if (await count(c, `idea_mentions where cluster_id = $1`, [clusterId]) <= 1) {
-    return planIdea(c, target, { type: "idea", id: clusterId }, lock);
-  }
-  return {
-    target, resolved: target, exists: true, recommender: null, refs: NONE,
-    deletes: { idea_mentions: 1, resort_backup: await count(c, `resort_backup where table_name = 'idea_mentions' and row_id = $1`, [target.id]) },
-    updates: { idea_clusters: 1 },
-  };
-}
-
-export async function readPlan(c: PoolClient, target: ForgetTarget, lock: boolean): Promise<ForgetPlan> {
-  const forUpdate = lock ? " for update" : "";
-  if (target.type === "rec") return planRec(c, target, forUpdate.replace("update", "update of r"));
-  if (target.type === "idea") return planIdea(c, target, target, forUpdate);
-  return planMention(c, target, forUpdate);
-}
-
-export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<void> {
-  const { type, id } = plan.resolved;
-  if (type === "mention") return deleteMention(c, id);
-  await c.query(`delete from ${LINKS}`, [type, String(id)]);
-  await c.query(`delete from space_items where item_type = $1 and item_id = $2`, [type, id]);
-  await c.query(`delete from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
-  if (type === "idea") {
-    await c.query(`delete from resort_backup where (table_name = 'idea_clusters' and row_id = $1)
-      or (table_name = 'idea_mentions' and row_id in (select id from idea_mentions where cluster_id = $1))`, [id]);
-    await c.query(`delete from idea_clusters where id = $1`, [id]); // mentions and garden events cascade
-    return;
-  }
-  await c.query(`delete from resort_backup where table_name = 'recommendations' and row_id = $1`, [id]);
-  await c.query(`delete from recommendations where id = $1`, [id]); // receipts and photos cascade
-  const p = plan.recommender;
-  if (p?.removed) {
-    await c.query(`delete from ${RECOMMENDER_LINKS}`, [String(p.id)]);
-    await c.query(`delete from recommenders where id = $1`, [p.id]);
-  } else if (p) {
-    // ponytail: inline recount until M3-T2's recomputeRecommender exists; recs_given = every rec, as the insert path counts.
-    await c.query(`update recommenders p set
-        recs_given = (select count(*) from recommendations r where r.recommender_id = p.id),
-        recs_tried = (select count(*) from recommendations r where r.recommender_id = p.id and r.status in ('tried', 'thanked')),
-        recs_loved = (select count(*) from recommendations r where r.recommender_id = p.id and r.rating = 'loved')
-      where p.id = $1`, [p.id]);
-  }
-}
-
-// Drops the mention, its backup row and its timeline line (paired by spoken_at, as timelineEntryJson writes it), then
-// recomputes the idea as the save path keeps it: count and centroid over non-dismissed mentions (decision 004).
-async function deleteMention(c: PoolClient, id: number): Promise<void> {
-  await c.query(`delete from resort_backup where table_name = 'idea_mentions' and row_id = $1`, [id]);
-  const [m] = await rows(c, `delete from idea_mentions where id = $1 returning cluster_id, spoken_at`, [id]);
-  if (!m) return;
-  const clusterId = Number(m.cluster_id);
-  const spokenAt = new Date(m.spoken_at as string | Date).getTime();
-  const [k] = await rows(c, `select timeline from idea_clusters where id = $1`, [clusterId]);
-  const timeline = (k?.timeline ?? []) as { date: string }[];
-  const at = timeline.findIndex((e) => Date.parse(e.date) === spokenAt);
-  const kept = at === -1 ? timeline : [...timeline.slice(0, at), ...timeline.slice(at + 1)];
-  await c.query(`
-    update idea_clusters c set
-      mention_count = s.n, stage = idea_stage_for(c.stage, s.n), centroid = s.centroid,
-      first_mentioned_at = s.first, last_mentioned_at = s.last, timeline = $2::jsonb, updated_at = now()
-    from (
-      select count(*) filter (where review_status <> 'dismissed')::int as n, min(spoken_at) as first, max(spoken_at) as last,
-             avg(embedding) filter (where review_status <> 'dismissed' and embedding is not null) as centroid
-      from idea_mentions where cluster_id = $1
-    ) s
-    where c.id = $1`, [clusterId, JSON.stringify(kept)]);
+// A hook threw: the transaction rolled back. The message names the hook and the cause's err.name only.
+export class ForgetHookError extends Error {
+  override name = "ForgetHookError";
 }
 
 export function planForget(target: ForgetTarget, refs: ForgetRefs & { exists: boolean }): ForgetStep[] {
@@ -260,7 +105,12 @@ const covered = (now: ForgetRefs, done: ForgetRefs) =>
   (Object.keys(now) as (keyof ForgetRefs)[]).every((k) => (now[k] as unknown[]).every((v) => (done[k] as unknown[]).includes(v)));
 
 
+
 // Notion's 2026-03-11 API (docs/research/integrations.md §2): `in_trash` replaced `archived`.
+// Already trashed = done. The trash-page reference (https://developers.notion.com/reference/trash-page, read via ctx7
+// 2026-10-16) documents only a 200 with the page's `in_trash` state; it does not say what re-trashing a trashed page
+// returns. So both count as done: that 200, and a 400 `validation_error` whose message says the page is archived/in
+// trash (Notion's wording for editing an archived block; not in that reference), so a re-run can never get stuck.
 // ponytail: one call, no retry/rate limit; M3-T1's Notion client replaces it.
 export async function trashNotionPage(pageId: string, opts: { token: string; fetchImpl?: typeof fetch }): Promise<void> {
   const res = await (opts.fetchImpl ?? fetch)(`https://api.notion.com/v1/pages/${encodeURIComponent(pageId)}`, {
@@ -269,7 +119,12 @@ export async function trashNotionPage(pageId: string, opts: { token: string; fet
     body: JSON.stringify({ in_trash: true }),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw Object.assign(new Error(`Notion ${res.status}`), { name: "NotionApiError", status: res.status });
+  if (res.ok) return;
+  if (res.status === 400) {
+    const body = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
+    if (body?.code === "validation_error" && /archived|in trash|trashed/i.test(body.message ?? "")) return;
+  }
+  throw Object.assign(new Error(`Notion ${res.status}`), { name: "NotionApiError", status: res.status });
 }
 
 export function defaultExternalDeps(env: Record<string, string | undefined> = process.env): ExternalDeps {
@@ -300,39 +155,45 @@ export function formatPlan(plan: ForgetPlan, done = false): string[] {
     ...(beeFactIds.length ? [`  outside: bee_fact ${beeFactIds.join(", ")}`] : []),
     ...(notionPageIds.length ? [`  outside: notion_page ${notionPageIds.join(", ")}`] : []),
     ...(blobUrls.length ? [`  outside: blob ${blobUrls.length}`] : []),
+    ...plan.notes.map((n) => `  note: ${n}`),
   ];
 }
 
-async function runHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): Promise<{ lines: string[]; incomplete: number }> {
+const sameTarget = (a: ForgetTarget, b: ForgetTarget) => a.type === b.type && a.id === b.id;
+
+async function runHooks(hooks: readonly ForgetHook[], ctx: ForgetHookContext): Promise<string[]> {
   const lines: string[] = [];
-  let incomplete = 0;
   for (const h of hooks) {
     try {
       lines.push(`hook ${h.name}: ${await h.run(ctx)}`);
     } catch (err) {
-      lines.push(`FAILED hook ${h.name} error=${errName(err)}`);
-      incomplete += 1;
+      throw new ForgetHookError(`hook ${h.name} failed error=${errName(err)}`, { cause: err });
     }
   }
-  return { lines, incomplete };
+  return lines;
 }
 
-
 // Dry run (yes false) reads inside a READ ONLY transaction and touches nothing. With yes: read refs → outside deletes →
-// one locked transaction that re-reads the plan (refused if an outside ref appeared meanwhile) and deletes → hooks.
+// one locked transaction: re-read the plan (refused if it changed), delete the rows, run the hooks with its client.
 export async function forget(
   c: PoolClient, target: ForgetTarget, opts: { yes: boolean; deps?: ExternalDeps; hooks?: readonly ForgetHook[] },
 ): Promise<ForgetResult> {
   const plan = await inTransaction(c, true, async () => ({ value: await readPlan(c, target, false), commit: false }));
   if (!opts.yes || !plan.exists) return { plan, lines: [], incomplete: 0, aborted: false };
   let committed = plan;
+  let txLines: string[] = [];
   const deleteInTransaction = async () => {
-    committed = await inTransaction(c, false, async () => {
+    [committed, txLines] = await inTransaction(c, false, async () => {
       const p = await readPlan(c, target, true);
-      if (!p.exists) return { value: p, commit: false };
-      if (!covered(p.refs, plan.refs)) throw new ForgetRefsChangedError("an outside copy appeared since the outside deletes; re-run");
-      await deleteRows(c, p);
-      return { value: p, commit: true };
+      if (!p.exists) return { value: [p, []] as [ForgetPlan, string[]], commit: false };
+      if (!sameTarget(p.resolved, plan.resolved) || !covered(p.refs, plan.refs)) {
+        throw new ForgetRefsChangedError("the item changed since the outside deletes (new outside copy, or the mention became its idea's last); re-run");
+      }
+      const rowLines = await deleteRows(c, p);
+      const hookLines = await runHooks(opts.hooks ?? [], {
+        c, target: p.resolved, recommenderFirstName: p.recommender?.firstName ?? null, recommenderRemoved: p.recommender?.removed ?? false,
+      });
+      return { value: [p, [...rowLines, ...hookLines]] as [ForgetPlan, string[]], commit: true };
     });
   };
   let lines: string[];
@@ -342,9 +203,5 @@ export async function forget(
     if (err instanceof ForgetAbortedError) return { plan, lines: err.lines, incomplete: 1, aborted: true };
     throw err;
   }
-  const hooks = await runHooks(opts.hooks ?? [], {
-    target: committed.resolved, recommenderFirstName: committed.recommender?.firstName ?? null,
-    recommenderRemoved: committed.recommender?.removed ?? false,
-  });
-  return { plan: committed, lines: [...lines, ...hooks.lines], incomplete: hooks.incomplete, aborted: false };
+  return { plan: committed, lines: [...lines, ...txLines], incomplete: 0, aborted: false };
 }

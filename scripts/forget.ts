@@ -1,6 +1,6 @@
 // Forget one item everywhere (M3-T11, FR-30, decision 011).
 //   pnpm forget <rec|idea|mention> <id>          dry run: read-only, prints ids and table counts
-//   pnpm forget <rec|idea|mention> <id> --yes    Bee / Notion / Blob, then one Postgres transaction, then hooks
+//   pnpm forget <rec|idea|mention> <id> --yes    Bee / Notion / Blob, then one Postgres transaction (rows + hooks)
 // Only ever the DATABASE_URL in .env.local. Prints ids, counts and err.name only, never text.
 import { pathToFileURL } from "node:url";
 import { Pool } from "@neondatabase/serverless";
@@ -10,6 +10,7 @@ import { databaseUrl } from "./resort";
 
 const USAGE = "usage: pnpm forget <rec|idea|mention> <id> [--yes]  (a dry run unless --yes)";
 const TYPES = new Set(["rec", "idea", "mention"]);
+const SAFE_ERRORS = new Set(["ForgetRefsChangedError", "ForgetTimelineError", "ForgetHookError"]);
 
 export function parseForgetArgs(argv: readonly string[]): { target: ForgetTarget; yes: boolean } {
   const [type = "", rawId = "", ...flags] = argv;
@@ -34,9 +35,6 @@ async function main(): Promise<void> {
     if (r.aborted) {
       console.error("[forget] stopped before the database: nothing in Postgres was deleted. Fix the line above and run the same command again.");
       process.exitCode = 1;
-    } else if (r.incomplete > 0) {
-      console.error(`[forget] ${r.incomplete} hook(s) failed after the database commit; see the lines above`);
-      process.exitCode = 1;
     }
   } finally {
     c.release();
@@ -46,7 +44,9 @@ async function main(): Promise<void> {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((err) => {
-    const shown = err instanceof Error && /^usage|^refusing/.test(err.message) ? ` ${err.message}` : "";
+    // Only messages this code wrote (ids, never text) are shown; anything else prints its name alone.
+    const ours = err instanceof Error && (/^usage|^refusing/.test(err.message) || SAFE_ERRORS.has(err.name));
+    const shown = ours ? ` ${err.message}` : "";
     console.error(`[forget] failed error=${err instanceof Error ? err.name : "unknown"}${shown}`);
     process.exit(1);
   });
