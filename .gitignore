@@ -12,6 +12,7 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 .eve/
+.output/
 .impeccable/cache/
 
 # playwright

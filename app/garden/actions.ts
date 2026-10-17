@@ -34,7 +34,7 @@ export async function recordGardenVisit(): Promise<{ started: boolean }> {
 async function verdict(id: unknown, v: TipVerdict): Promise<{ changed: boolean }> {
   await requireOwner();
   if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw new Error("invalid tip id");
-  const changed = await setTipVerdict(id, v);
+  const changed = await setTipVerdict(id, v, { defer: after }); // status effects (Bee) run after the response
   revalidatePath("/", "layout"); // Home, Shelf and People all read these tips
   return { changed };
 }

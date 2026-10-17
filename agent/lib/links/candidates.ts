@@ -40,8 +40,12 @@ export async function ensureRecEmbeddings(limit: number): Promise<number> {
   if (embeddings.length !== rows.length || embeddings.some((e) => e.length !== EMBED_DIMENSIONS)) {
     throw new Error(`ensureRecEmbeddings: expected ${rows.length} × ${EMBED_DIMENSIONS}-dim embeddings`);
   }
+  // Two writers (the rec lane sweep and this hourly run): only while the text embedded is still the tip's text, so a
+  // why or name written mid-call is never paired with the old vector.
   await sql.transaction(rows.map((r, i) =>
-    sql`update recommendations set embedding = ${toVectorLiteral(embeddings[i]!)}::vector where id = ${r.id} and embedding is null`));
+    sql`update recommendations set embedding = ${toVectorLiteral(embeddings[i]!)}::vector
+      where id = ${r.id} and embedding is null and canonical_name = ${r.canonical_name}
+        and creator is not distinct from ${r.creator} and context_summary is not distinct from ${r.context_summary}`));
   return rows.length;
 }
 
