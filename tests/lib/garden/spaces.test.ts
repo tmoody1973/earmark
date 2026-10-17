@@ -88,6 +88,7 @@ describe("getSpace", () => {
       expect(q.text).toMatch(/order by si\.status = 'accepted' desc/);
     }
     expect(ideas.text).toMatch(/c\.stage <> 'dismissed' and c\.mention_count > 0/);
+    expect(tips.text).toContain("r.about, r.about_url"); // the private Space card shows the Wikipedia note (M3-T4b)
     expect(tips.values).toContainEqual(HIDDEN_TIP_STATUSES);
     expect(tips.text).not.toMatch(/raw_text|excerpt/);
   });

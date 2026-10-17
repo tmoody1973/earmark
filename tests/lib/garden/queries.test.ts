@@ -10,7 +10,8 @@ const status = vi.hoisted(() => ({
 vi.mock("../../../agent/lib/recs/status", async (orig) => ({ ...(await orig<object>()), ...status }));
 
 import {
-  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getShelf, setTipChoice, setTipVerdict, toPlant,
+  HIDDEN_TIP_STATUSES, getBloomsSince, getGardenView, getIdeaDetail, getMaybeTips, getRecommenderPage, getShelf, setTipChoice,
+  setTipVerdict, toPlant,
   toRecCard,
 } from "../../../agent/lib/garden/queries";
 
@@ -101,6 +102,17 @@ describe("garden queries", () => {
     expect(shelf).toHaveLength(1);
     expect(h.mock.calls).toHaveLength(1);
     expect(h.mock.calls[0].text).not.toContain("idea_clusters");
+  });
+
+  it("the shelf and a person's page select the Wikipedia note; the Maybe? row doesn't need it (M3-T4b)", async () => {
+    const note = { about: "Floating Points is an English musician.", about_url: "https://en.wikipedia.org/wiki/Floating_Points" };
+    h.mock.queue.push([{ ...recRow, ...note }]);
+    expect((await getShelf())[0]!.about).toEqual({ text: note.about, url: note.about_url });
+    h.mock = makeMockDb();
+    h.mock.queue.push([{ ...recRow, ...note }]);
+    const page = await getRecommenderPage(3);
+    expect(h.mock.calls[0]!.text).toContain("r.about, r.about_url");
+    expect(page!.recs[0]!.about).toEqual({ text: note.about, url: note.about_url });
   });
 
   it("a Bee todo's link (?rec=<id>) always shows its tip: one extra query adds it when past the newest 60", async () => {

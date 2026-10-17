@@ -334,7 +334,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   });
 
   // M3-T4b: the Wikipedia note.
-  const note = async (id: number) => (await c.query(`select about, about_url, about_at is not null as looked
+  const note = async (id: number) => (await c.query(`select about, about_url, about_at is not null as looked, about_tries as tries
     from recommendations where id = $1`, [id])).rows[0];
   const matched = async (o: Parameters<typeof addRec>[0] & { creator?: string } = {}) => {
     const id = await addRec(o);
@@ -344,9 +344,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   };
   const SAULT = { text: "Sault are a British music group.", url: "https://en.wikipedia.org/wiki/Sault_(band)" };
 
-  it("writes a Wikipedia note once for matched tips; pending, cleared and failed tips get none", async () => {
+  it("writes a Wikipedia note once for matched tips; pending and cleared tips get none; errors retry up to 3 times", async () => {
     const { sweepRecLane } = await lane();
-    const album = await matched({ type: "album", name: "Untitled (Rise)", creator: "SAULT" });
+    const album = await matched({ type: "album", name: "Untitled (Rise)", creator: "SAULT",
+      links: { musicbrainz: "https://musicbrainz.org/release-group/0b2d4ec0-0000-4000-8000-000000000001" } });
     const unsure = await matched({ type: "artist", name: "Low" });
     const failing = await matched({ type: "place", name: "Kopp's" });
     const pending = await addRec({ type: "book", name: "Pending book" });
@@ -361,16 +362,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
 
     expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about })).toMatchObject({ abouts: 1 });
     expect(about.mock.calls.map(([r]) => r.canonical_name).sort()).toEqual(["Kopp's", "Low", "Untitled (Rise)"]);
-    expect(about.mock.calls.find(([r]) => r.canonical_name === "Untitled (Rise)")![0]).toMatchObject({ type: "album", creator: "SAULT" });
-    expect(await note(album)).toEqual({ about: SAULT.text, about_url: SAULT.url, looked: true });
-    expect(await note(unsure)).toEqual({ about: null, about_url: null, looked: true }); // unsure: nothing, ever
-    expect(await note(failing)).toEqual({ about: null, about_url: null, looked: true }); // one try
+    expect(about.mock.calls.find(([r]) => r.canonical_name === "Untitled (Rise)")![0]).toEqual({ type: "album",
+      canonical_name: "Untitled (Rise)", creator: "SAULT", year_or_address: null,
+      links: { musicbrainz: "https://musicbrainz.org/release-group/0b2d4ec0-0000-4000-8000-000000000001" } });
+    expect(await note(album)).toEqual({ about: SAULT.text, about_url: SAULT.url, looked: true, tries: 0 });
+    expect(await note(unsure)).toEqual({ about: null, about_url: null, looked: true, tries: 0 }); // unsure: nothing, ever
+    expect(await note(failing)).toEqual({ about: null, about_url: null, looked: false, tries: 1 }); // an error: try again
     expect(err.mock.calls.flat().join(" ")).toMatch(/rec-lane about failed rec=\d+ error=TimeoutError/);
-    for (const id of [pending, dismissed]) expect(await note(id)).toEqual({ about: null, about_url: null, looked: false });
+    for (const id of [pending, dismissed]) expect(await note(id)).toEqual({ about: null, about_url: null, looked: false, tries: 0 });
 
+    for (let run = 2; run <= 3; run++) {
+      about.mockClear();
+      await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about });
+      expect(about.mock.calls.map(([r]) => r.canonical_name)).toEqual(["Kopp's"]); // only the failed one is asked again
+    }
+    expect(await note(failing)).toEqual({ about: null, about_url: null, looked: true, tries: 3 }); // 3 tries: done
     about.mockClear();
     await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about });
-    expect(about).not.toHaveBeenCalled(); // each tip is looked up once
+    expect(about).not.toHaveBeenCalled();
     err.mockRestore();
   });
 
@@ -387,8 +396,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const rest = [await matched({ type: "artist", name: "busy 1" }), await matched({ type: "artist", name: "busy 2" })];
     await sweepRecLane({ env: {}, onlyIds: rest, about: busy });
     expect(busy).toHaveBeenCalledTimes(1); // Wikipedia asked us to slow down: no more lookups this run
-    expect((await note(rest[1]!)).looked).toBe(true); // newest first: one try, then done
-    expect((await note(rest[0]!)).looked).toBe(false); // left for the next run
+    for (const id of rest) expect(await note(id)).toMatchObject({ looked: false, tries: 0 }); // and nothing counted
     err.mockRestore();
 
     // Forget's own row step (forget-rows.ts) deletes the recommendations row, and the note lives on that row.
