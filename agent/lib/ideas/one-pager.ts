@@ -241,7 +241,7 @@ async function gatedContext(clusterId: number, title: string, excerpts: string[]
   }
 }
 
-async function draftClaimed(clusterId: number, d: OnePagerDeps): Promise<DraftResult | null> {
+async function draftClaimed(clusterId: number, claim: string, d: OnePagerDeps): Promise<DraftResult | null> {
   const c = await getClusterForDraft(clusterId);
   if (!c) return null;
   // Both are stored in processing order: sort by date here.
@@ -259,9 +259,9 @@ async function draftClaimed(clusterId: number, d: OnePagerDeps): Promise<DraftRe
     excerpts: mentions.map((m, i) => `${formatTimelineDate(m.spokenAt)}: "${excerpts[i]}"`),
   });
   const draft = `${mentionDatesLine(mentions.map((m) => m.spokenAt))}\n\n${enforceQuoteLimit(body, 25, excerpts)}`;
-  const [saved] = await db().transaction((txn) => [saveDraft(txn, clusterId, draft, format)]);
+  const [saved] = await db().transaction((txn) => [saveDraft(txn, clusterId, draft, format, claim)]);
   if (!saved?.length) {
-    console.log(`[draft] cluster=${clusterId} no longer ready; draft discarded`);
+    console.log(`[draft] cluster=${clusterId} no longer ready or its claim was cleared; draft discarded`);
     return null;
   }
   console.log(`[draft] cluster=${clusterId} drafted format=${format} p=${probability.toFixed(2)} words=${wordCount(draft)}`);
@@ -278,9 +278,9 @@ export async function draftBlooms(
   if (claims.length === 0) return [];
   const d: OnePagerDeps = { gateContext, chooseDraftFormat, writeOnePager, ...opts.deps, bee: opts.deps?.bee ?? createBeeClient() };
   const out: DraftResult[] = [];
-  for (const { id, attempts } of claims) {
+  for (const { id, attempts, claim } of claims) {
     try {
-      const r = await draftClaimed(id, d);
+      const r = await draftClaimed(id, claim, d);
       if (r) out.push(r);
     } catch (err) {
       console.error(`[draft] cluster=${id} failed error=${errName(err)}; stays bloomed without a draft`);
