@@ -175,7 +175,7 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
     await c.query(`delete from ${RECOMMENDER_LINKS}`, [String(p.id)]);
     await c.query(`delete from recommenders where id = $1`, [p.id]);
   } else if (p) {
-    // ponytail: inline recount until M3-T2's recomputeRecommender exists; recs_given = every rec, as the insert path counts.
+    // Same recipe as recomputeRecommender (recs/status.ts), inline because it must run on this transaction's client.
     await c.query(`update recommenders p set
         recs_given = (select count(*) from recommendations r where r.recommender_id = p.id),
         recs_tried = (select count(*) from recommendations r where r.recommender_id = p.id and r.status in ('tried', 'thanked')),
