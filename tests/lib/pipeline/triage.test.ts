@@ -92,6 +92,18 @@ describe("triageWindow", () => {
     expect(KIND_CRITERIA.idea_by_user).toContain("must say what would be made or done");
   });
 
+  it("says 'talking about work' in both neither and rec_to_user, and keeps office recs and proposals out of neither", () => {
+    expect(KIND_CRITERIA.neither).toContain("talking about work");
+    expect(KIND_CRITERIA.rec_to_user).toContain("talking about work");
+    expect(KIND_CRITERIA.neither).toContain("a proposal naming what to make or air is idea_by_user, not neither");
+    expect(KIND_CRITERIA.rec_to_user).toContain("you have to try the new ramen place");
+  });
+
+  it("gives rec_by_user only audience-addressed examples (none that a one-to-one rec could match)", () => {
+    expect(KIND_CRITERIA.rec_by_user).not.toContain("if you shoot video");
+    expect(KIND_CRITERIA.rec_by_user).toContain("everyone watching");
+  });
+
   it("uses NaN probabilities when the provider omits them", async () => {
     const model = new MockDecisionModel({
       doDecide: async () => ({
