@@ -9,6 +9,9 @@ alter table recommendations
     check (enrichment_status in ('pending', 'matched', 'no_match', 'failed')),
   add column if not exists enrich_attempts smallint not null default 0,
   add column if not exists enrich_next_at timestamptz not null default now(),
+  -- when the tip (re)entered the queue: the 7-day give-up on 503/429 counts from here, not from created_at, so an old
+  -- backlog tip queued today gets its full week. Set again whenever a tip becomes pending (runRecLane, second look).
+  add column if not exists pending_since timestamptz not null default now(),
   add column if not exists enriched_at timestamptz,
   add column if not exists review_reason text
     check (review_reason in ('confidence_band', 'no_recommender', 'no_match')),
