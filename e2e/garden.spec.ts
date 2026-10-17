@@ -57,7 +57,7 @@ test("the shelf renders a type-aware card for every tip", async ({ page }, info)
   const cards = page.getByTestId("rec-card");
   await expect(cards.first()).toBeVisible();
   for (const card of await cards.all()) {
-    await expect(card).toHaveAttribute("data-variant", /^(cover|artist|spine|map|tile|poster|note)$/);
+    await expect(card).toHaveAttribute("data-variant", /^(cover|artist|spine|map|tile|poster|screen|note)$/);
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);

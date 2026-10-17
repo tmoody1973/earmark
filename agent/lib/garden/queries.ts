@@ -2,7 +2,7 @@ import { db } from "../db";
 import { gardenReadOnly } from "../e2e-guard";
 import { ownerFirstName } from "../env";
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
-import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
+import { cardArtworkUrl, cardLink, cardVariant, clampWhy, youtubeSearchUrl, type CardVariant } from "./cards";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
 import { NEW_ROW_MAX, newSince, parseVisit, type BloomSince, type NewChip, type VisitState } from "./visit";
@@ -82,7 +82,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     rating: r.rating as Rating | null,
     lat: r.lat,
     lng: r.lng,
-    link: cardLink(r.links),
+    link: cardLink(r.links) ?? (r.type === "video" ? youtubeSearchUrl(r.canonical_name, r.creator) : null),
   };
 }
 

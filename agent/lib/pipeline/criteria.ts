@@ -17,7 +17,7 @@ export const KIND_CRITERIA = {
     "Not an idea: errands, chores, scheduling, opinions about something that already exists, or recommending an existing thing.",
   rec_to_user:
     "One person tells another person ('you') to try, hear, read, watch or visit a specific, named thing that already exists: " +
-    "an album, song, artist, book, place, podcast, film or show — or enthusiastically praises such a named thing to them as worth " +
+    "an album, song, artist, book, place, podcast, film, show or video — or enthusiastically praises such a named thing to them as worth " +
     "trying ('Kopp's has the best custard in town'). Typical wording: 'you have to try…', 'you'd love…', 'check out…'. " +
     "Also choose this when someone says a named thing was recommended to them ('Dana told me to check out…'). " +
     "The thing must be named in `window`. A general category without a name ('you should read more') does not count. " +
@@ -37,9 +37,13 @@ export const REC_TYPE_CRITERIA = {
   book: "A book, or an author named as the thing to read.",
   place: "A physical place: restaurant, bar, café, shop, venue, museum, park, neighbourhood or city.",
   podcast: "A podcast or a specific podcast episode.",
-  film_tv: "A film, TV series, documentary or a specific episode.",
+  film_tv: "A film, TV series, documentary or a specific episode. A YouTube video or channel is video, not this.",
+  video:
+    "A video or a channel to watch online, such as a YouTube video, a video essay or a YouTube channel. " +
+    "A film or TV show is film_tv, not this. A song's music video counts only when the video itself is the tip " +
+    "('you have to watch the video for X'); a tip to hear the song is song.",
   other:
-    "Any other specific named thing: a game, app, product, article, newsletter, event, radio show, YouTube channel, comedian or visual artist.",
+    "Any other specific named thing: a game, app, product, article, newsletter, event, radio show, comedian or visual artist.",
   none: "No specific named thing is recommended in `window`.",
 } as const;
 

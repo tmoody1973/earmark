@@ -1,5 +1,5 @@
 export type ItemKind = "idea_by_user" | "rec_to_user" | "rec_by_user" | "neither";
-export type RecType = "album" | "song" | "artist" | "book" | "place" | "podcast" | "film_tv" | "other";
+export type RecType = "album" | "song" | "artist" | "book" | "place" | "podcast" | "film_tv" | "video" | "other";
 export type Route = "accept" | "review" | "drop";
 export type Source = "ambient" | "voice" | "photo" | "song" | "email";
 export type AttributionSource = "voice_trigger" | "second_person" | "summary" | "slack" | "email" | "none";
@@ -31,7 +31,7 @@ export interface TriageResult {
 
 export interface RecExtraction {
   canonicalName: string;
-  creator: string | null;            // artist / author / host / director
+  creator: string | null;            // artist / author / host / director / channel
   recommenderName: string | null;    // as written in the source text, or null
   excerpt: string;                   // ≤ 25 words, verbatim from the window
 }

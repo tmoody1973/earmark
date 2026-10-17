@@ -3,7 +3,7 @@ import { z } from "zod";
 // Base shape: what the proposing model fills in. LabelSchema adds the cross-field rule a human label must satisfy.
 export const ProposalSchema = z.object({
   kind: z.enum(["idea_by_user", "rec_to_user", "rec_by_user", "neither"]),
-  rec_type: z.enum(["album", "song", "artist", "book", "place", "podcast", "film_tv", "other", "none"]),
+  rec_type: z.enum(["album", "song", "artist", "book", "place", "podcast", "film_tv", "video", "other", "none"]),
   joking: z.boolean(),
   notes: z.string(),
 });
