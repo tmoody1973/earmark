@@ -3,6 +3,7 @@
 // lease so sweeps never overlap, bounded per run, stopping on the first 503/429.
 // Everything else calls runRecLane(id), which never calls a provider.
 import { randomUUID } from "node:crypto";
+import { createBeeClient } from "../bee/client";
 import { db } from "../db";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
 import { pickMatch } from "../enrich/match";
@@ -10,8 +11,10 @@ import { coverArtUrl } from "../enrich/musicbrainz";
 import { enabledTypes, REC_TYPES } from "../enrich/registry";
 import { logEnrichError, ProviderHttpError, type EnrichmentMatch } from "../enrich/types";
 import { HIDDEN_TIP_STATUSES } from "../garden/queries";
+import { ensureRecEmbeddings } from "../links/candidates";
 import { CLAIM_LEASE } from "../store/conversations";
 import type { RecStatus, RecType } from "../types";
+import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
 
 export const MAX_RECS_PER_RUN = 10;
 export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip; tips with no candidates cost none
@@ -23,6 +26,11 @@ export const SECOND_LOOK_MINUTES = 60;
 export const MAX_ART_RETRIES_PER_RUN = 3;
 export const MAX_ART_TRIES = 3;
 export const REC_LANE_LEASE = "rec_lane_lease"; // sync_cursors row: cursor = the holder's token
+// M3-T5. The why has its own cap, apart from Jev's: <=1 model call per tip, ever (summarized_at), so at most 60 an hour
+// while a backlog lasts and none once it's gone. Embeddings: one embedMany call per run (recEmbedText, 30 s timeout).
+export const MAX_SUMMARIES_PER_RUN = 10;
+export const MAX_SUMMARY_FAILURES_IN_A_ROW = 3; // the gateway is down: stop asking until the next run
+export const MAX_EMBEDS_PER_RUN = 20;
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
@@ -50,13 +58,17 @@ export function reviewReasonFor(rec: {
 export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
-      jevCalls: number; artFixed: number; stoppedOn: string | null; waitingForKeys: RecType[] };
+      jevCalls: number; artFixed: number; summarized: number; summaryFailed: number; embedded: number;
+      stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
 export interface SweepDeps {
   enrich: typeof enrichRec;
   pick: typeof pickMatch;
   coverArt: (releaseGroupId: string) => Promise<string | null>;
+  summarize: (input: SummaryInput) => Promise<string | null>;
+  beeSummary: (conversationId: number) => Promise<string | null>;
+  embedRecs: (limit: number) => Promise<number>;
   env: Record<string, string | undefined>;
   budgetMs: number;
   onlyIds: readonly number[] | null; // tests: scope the sweep to their own rows
@@ -71,6 +83,9 @@ export async function runRecLane(recId: number): Promise<{ queued: boolean }> {
 
 export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<SweepResult> {
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
+    summarize: (input) => writeContextSummary(input),
+    beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
+    embedRecs: (limit) => ensureRecEmbeddings(limit),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -105,7 +120,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number })[];
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0,
-    stoppedOn: null, waitingForKeys };
+    summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
   const countedPick: typeof pickMatch = (input, candidates, opts) => {
     if (candidates.length > 0) r.jevCalls++;
     return d.pick(input, candidates, opts);
@@ -135,9 +150,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
           where id = ${id} and enrichment_status = 'pending'`;
         r.noMatch++;
       }
-      // Seams, in this order, inside this lease and these caps:
-      // - M3-T5: context summary + embedding. Embed with recEmbedText (agent/lib/recs/embed-text.ts, lane B's PR
-      //   m4-links); do not add a second embed recipe here.
+      // Seams, in this order, inside this lease and these caps (the why and the embedding run after this loop):
       // - TODO(M3-T1): push the tip to Notion (pushRecToNotion). Notion isn't built; this step is a no-op until then.
     } catch (err) {
       logEnrichError("rec-lane", { rec: id }, err);
@@ -153,15 +166,63 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     await applyReviewReason(id);
   }
   if (!overBudget()) await retryArt(d, r);
+  if (!overBudget()) await writeWhys(d, r, overBudget);
+  if (!overBudget()) {
+    try {
+      r.embedded = await d.embedRecs(MAX_EMBEDS_PER_RUN); // what the whys above just changed, plus any backlog
+    } catch (err) {
+      logEnrichError("rec-lane embed", {}, err);
+    }
+  }
   return r;
+}
+
+// The why (M3-T5): each visible tip or maybe is asked once (summarized_at), newest visible first, maybes last. The
+// excerpt is the source; Bee's conversation summary is context, and Bee being down only drops that context. A changed
+// why drops the embedding, so the embed step above writes it again from the new text (recEmbedText includes the why).
+// ponytail: a tip whose call always fails is asked again each run (1 call/run); add an attempts column if logs show one.
+async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
+  const rows = await db()`
+    select r.id, r.canonical_name, r.excerpt, r.bee_conversation_id, p.first_name
+    from recommendations r left join recommenders p on p.id = r.recommender_id
+    where r.summarized_at is null and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+      and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
+    order by r.status = 'needs_review', r.id desc
+    limit ${MAX_SUMMARIES_PER_RUN}`;
+  let failuresInARow = 0;
+  for (const row of rows) {
+    if (overBudget() || failuresInARow >= MAX_SUMMARY_FAILURES_IN_A_ROW) break;
+    const id = Number(row.id);
+    const conversationId = row.bee_conversation_id === null ? null : Number(row.bee_conversation_id);
+    const beeSummary = conversationId === null ? null : await d.beeSummary(conversationId).catch((err: unknown) => {
+      logEnrichError("rec-lane bee summary", { rec: id }, err);
+      return null;
+    });
+    try {
+      const why = await d.summarize({ name: row.canonical_name, excerpt: row.excerpt, beeSummary, recommender: row.first_name });
+      await db()`update recommendations set
+          embedding = case when context_summary is distinct from ${why} then null else embedding end,
+          context_summary = ${why}, summarized_at = now(), updated_at = now()
+        where id = ${id} and summarized_at is null`;
+      r.summarized++;
+      failuresInARow = 0;
+    } catch (err) {
+      logEnrichError("rec-lane summary", { rec: id }, err);
+      r.summaryFailed++;
+      failuresInARow++;
+    }
+  }
 }
 
 // Only while still pending and not cleared (Tarik may dismiss a tip mid-sweep). The provider's name and creator
 // replace what Bee heard (mishearing correction, decision 012); a capture's own photo and links win over the provider's.
+// recEmbedText reads name and creator, so a change drops the embedding and the sweep's embed step writes it again.
 // A match whose art lookup errored and that has no picture yet is marked for the art-only retry tail.
 async function saveMatch(id: number, m: EnrichmentMatch): Promise<void> {
   await db()`
     update recommendations set
+      embedding = case when canonical_name is distinct from ${m.canonicalName}
+        or creator is distinct from coalesce(${m.creator}, creator) then null else embedding end,
       canonical_name = ${m.canonicalName}, creator = coalesce(${m.creator}, creator),
       year_or_address = coalesce(${m.yearOrAddress}, year_or_address), image_url = coalesce(image_url, ${m.imageUrl}),
       links = ${JSON.stringify(m.links)}::jsonb || links, apple_music_id = coalesce(apple_music_id, ${m.appleMusicId ?? null}),
