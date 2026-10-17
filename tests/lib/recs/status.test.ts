@@ -182,6 +182,14 @@ describe("setRecRating", () => {
     expect(h.mock.calls).toHaveLength(1);
   });
 
+  it("never rates a tip the shelf hides (a maybe, a dismissed or composted tip): guarded in the same statement", async () => {
+    h.mock.queue.push([]);
+    expect(await setRecRating(7, "loved", "garden", { effects: [] })).toEqual({ changed: false });
+    expect(flat(h.mock.calls[0].text)).toContain("and status <> all(?::text[])");
+    expect(h.mock.calls[0].values).toContainEqual(["dismissed", "composted", "needs_review"]);
+    expect(h.mock.calls).toHaveLength(1);
+  });
+
   it("says whether the rating changed, so the garden can tell a no-op from a save", async () => {
     h.mock.queue.push([{ status: "tried", recommender_id: null }]);
     expect(await setRecRating(7, "fine", "garden", { effects: [] })).toEqual({ changed: true });

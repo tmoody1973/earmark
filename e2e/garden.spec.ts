@@ -431,7 +431,7 @@ test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, 
   await signInAs(page, OWNER_EMAIL);
   await page.goto("/shelf");
   const card = (name: string) => page.getByTestId("rec-card").filter({ has: page.getByRole("heading", { name, exact: true }) });
-  const more = (name: string) => card(name).getByRole("button", { name: "Options" });
+  const more = (name: string) => card(name).getByRole("button", { name: `Options for ${name}`, exact: true });
   const choice = (name: string, label: string) => card(name).getByRole("button", { name: label, exact: true });
 
   // closed: one quiet 44 px target per card, nothing else
@@ -472,7 +472,7 @@ test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, 
   await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Tried");
   await expect.poll(() => db("Spirit of Eden")).toMatchObject({ status: "tried" });
   await eden.click();
-  await expect(card("Spirit of Eden").getByRole("list").getByRole("button")).toHaveText(["Loved it", "It was fine", "Not for me", "Dismiss"]);
+  await expect(card("Spirit of Eden").getByRole("list").getByRole("button")).toHaveText(["Loved it", "It was fine", "Not for me"]); // no Dismiss once tried (decision 024)
   await choice("Spirit of Eden", "Loved it").click();
   await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Loved it");
   await expect(said("Loved it: Spirit of Eden")).toHaveCount(1);
@@ -491,6 +491,14 @@ test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, 
   await page.unroute(shelfUrl);
   expect(await db("The Dispossessed")).toMatchObject({ status: "new", rating: null });
 
+  // marked tried elsewhere (Bee, Notion) while this page is open: Try this is refused by its from-guard and says so
+  await sql`update recommendations set status = 'tried' where raw_text = 'sample-tip-actions' and canonical_name = 'The Dispossessed'`;
+  await more("The Dispossessed").click();
+  await choice("The Dispossessed", "Try this").click();
+  await expect(said("Nothing changed — it was updated elsewhere")).toHaveCount(1);
+  await expect(card("The Dispossessed").locator(".rec-tag")).toHaveText("Tried"); // the refreshed card shows the truth
+  expect(await db("The Dispossessed")).toMatchObject({ status: "tried" });
+
   // Dismiss → gone at once, announced, focus moves to another card's "…", and it stays gone
   await more("The Sunday crossword").click();
   await choice("The Sunday crossword", "Dismiss").click();
@@ -502,9 +510,9 @@ test("a tip's …: Try this, Tried it, Loved it and Dismiss show at once, save, 
   await expect(card("The Sunday crossword")).toHaveCount(0);
   await expect(card("Spirit of Eden").locator(".rec-tag")).toHaveText("Loved it");
 
-  // People counts what the cards say (decision 024): 2 tips (the dismissed one is gone), 1 tried, loved 1
+  // People counts what the cards say (decision 024): 2 tips (the dismissed one is gone), both tried, loved 1
   await page.goto(`/people/${marisol}`);
-  await expect(page.locator(".person-head p")).toHaveText("2 tips · 1 tried · loved 1");
+  await expect(page.locator(".person-head p")).toHaveText("2 tips · 2 tried · loved 1");
   await expect(more("The Dispossessed")).toBeVisible(); // the person page offers the same menu
 
   // 320 px: the open list stays on screen and nothing scrolls sideways

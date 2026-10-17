@@ -11,19 +11,19 @@ describe("tipChoices (what a card's menu offers)", () => {
   it("a queued tip: tried, or dismiss", () => {
     expect(tipChoices({ status: "queued", rating: null })).toEqual(["tried", "dismiss"]);
   });
-  it.each(["tried", "thanked"] as const)("a %s tip is rated (thanked counts as tried, decision 024)", (status) => {
-    expect(tipChoices({ status, rating: null })).toEqual(["loved", "fine", "not_for_me", "dismiss"]);
+  it.each(["tried", "thanked"] as const)("a %s tip is only rated: never dismissed from a card, so its giver keeps the count (decision 024)", (status) => {
+    expect(tipChoices({ status, rating: null })).toEqual(["loved", "fine", "not_for_me"]);
   });
-  it("a rated tip can be re-rated", () => {
-    expect(tipChoices({ status: "tried", rating: "fine" })).toEqual(["loved", "fine", "not_for_me", "dismiss"]);
+  it("a rated tip can be re-rated, and still not dismissed", () => {
+    expect(tipChoices({ status: "tried", rating: "fine" })).toEqual(["loved", "fine", "not_for_me"]);
   });
 });
 
 describe("TIP_MOVES (the status core's from-guards)", () => {
-  it("queues only a new tip; tried from new or queued; dismisses anything on the shelf", () => {
+  it("queues only a new tip; tried from new or queued; dismisses only an untried tip", () => {
     expect(TIP_MOVES.queue).toEqual({ next: "queued", from: ["new"] });
     expect(TIP_MOVES.tried).toEqual({ next: "tried", from: ["new", "queued"] });
-    expect(TIP_MOVES.dismiss).toEqual({ next: "dismissed", from: ["new", "queued", "tried", "thanked"] });
+    expect(TIP_MOVES.dismiss).toEqual({ next: "dismissed", from: ["new", "queued"] });
   });
   it("never starts from a status the shelf hides (maybes have their own row; cleared tips stay cleared)", () => {
     for (const m of Object.values(TIP_MOVES)) for (const s of m.from) expect(HIDDEN_TIP_STATUSES).not.toContain(s);
@@ -64,7 +64,7 @@ describe("tipMessage (the live region)", () => {
     expect(tipMessage("dismiss", "Promises", { changed: true })).toBe("Dismissed: Promises");
   });
   it("says when nothing changed, and when the save failed (the card is put back)", () => {
-    expect(tipMessage("tried", "Promises", { changed: false })).toBe("Already done: Promises");
+    expect(tipMessage("tried", "Promises", { changed: false })).toBe("Nothing changed — it was updated elsewhere");
     expect(tipMessage("dismiss", "Promises", null)).toBe("Couldn't save that. Promises is back as it was; try again.");
   });
 });

@@ -8,6 +8,12 @@ export type { StatusChange, StatusEffect, StatusOrigin } from "./status-effects"
 
 // The order of the status check in migration 001.
 export const REC_STATUSES: readonly RecStatus[] = ["needs_review", "new", "queued", "tried", "thanked", "dismissed", "composted"];
+/**
+ * The one visibility rule for tips (decision 025): the shelf, the taste ledger and a person's page all hide these.
+ * needs_review tips (Earmark wasn't sure) live only in the Maybe? row until Tarik keeps or clears them.
+ * Defined here, not in garden/queries.ts (which re-exports it), so the status core can guard on it without a cycle.
+ */
+export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
 const CLEARED: readonly RecStatus[] = ["dismissed", "composted"];
 const PLACED_BY_EARMARK: readonly RecStatus[] = ["needs_review", "new"];
 
@@ -105,9 +111,11 @@ export async function setRecRating(
   recId: number, rating: Rating | null, origin: StatusOrigin, opts: Pick<SetStatusOptions, "effects" | "defer"> = {},
 ): Promise<{ changed: boolean }> {
   assertRecId(recId);
+  // A rating lands only on a tip the shelf shows: never on a maybe or a cleared tip, whoever sends it.
   const rows = await db()`
     update recommendations set rating = ${rating}, updated_at = now()
     where id = ${recId} and rating is distinct from ${rating}
+      and status <> all(${HIDDEN_TIP_STATUSES}::text[])
     returning status, recommender_id`;
   if (!rows[0]) return { changed: false };
   // Rating something means you tried it; the status change recounts the recommender.

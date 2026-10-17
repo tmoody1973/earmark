@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ComponentProps, ReactNode } from "react";
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import type { RecType } from "@/agent/lib/types";
 import { Artwork } from "./Artwork";
@@ -19,22 +20,22 @@ export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card
  * tips are compact note cards with no artwork box. Art sits above the text, never under it. The whole card
  * opens the item's link when it has one.
  * `actions`: the owner's "…" (Try this, Tried, a rating, Dismiss; FR-22). Off by default, so a page someone else
- * reads (a Space) never offers them.
+ * reads (a Space) never offers them, and gets a plain article with no client state.
  */
 export function RecCard({ card, actions = false }: { card: RecCardData; actions?: boolean }) {
   const note = card.variant === "note";
   const subline = cardSubline(card);
   const titleId = `rec-${card.id}-title`;
   const classes = ["rec-card", note && "rec-card--note", card.link && "rec-card--linked"];
-  return (
-    <TipCard
-      tip={{ id: card.id, name: card.name, status: card.status, rating: card.rating }}
-      id={`rec-${card.id}`}
-      className={classes.filter(Boolean).join(" ")}
-      data-testid="rec-card"
-      data-variant={card.variant}
-      aria-labelledby={titleId}
-    >
+  const article: ComponentProps<"article"> & { "data-testid": string; "data-variant": string } = {
+    id: `rec-${card.id}`,
+    className: classes.filter(Boolean).join(" "),
+    "data-testid": "rec-card",
+    "data-variant": card.variant,
+    "aria-labelledby": titleId,
+  };
+  const body: ReactNode = (
+    <>
       {!note && <Artwork card={card} />}
       <div className="rec-body">
         <p className="rec-type">
@@ -46,7 +47,7 @@ export function RecCard({ card, actions = false }: { card: RecCardData; actions?
         </h3>
         {subline && <p className="rec-sub">{subline}</p>}
         {card.why && <p className="rec-why">“{card.why}”</p>}
-        <TipTag />
+        <TipTag status={card.status} rating={card.rating} />
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
           {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
@@ -54,9 +55,15 @@ export function RecCard({ card, actions = false }: { card: RecCardData; actions?
           {card.rating === "loved" && card.recommender && (
             <Link className="rec-thank" href={`/receipts/${card.id}`}>Thank {card.recommender.firstName}</Link>
           )}
-          {actions && <TipMenu titleId={titleId} />}
+          {actions && <TipMenu />}
         </div>
       </div>
+    </>
+  );
+  if (!actions) return <article {...article}>{body}</article>;
+  return (
+    <TipCard tip={{ id: card.id, name: card.name, status: card.status, rating: card.rating }} {...article}>
+      {body}
     </TipCard>
   );
 }
