@@ -71,10 +71,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 async function Results({ cue }: { cue: MemoryCue }) {
   const { recs, ideas, neuralFailed } = await searchEarmarks(cue, { useNeural: true });
   return (
-    <div aria-live="polite">
+    <div>
       {neuralFailed && <p className="search-note">Bee&rsquo;s search did not answer, so these are only words Earmark saved.</p>}
       {recs.length === 0 && ideas.length === 0 ? (
-        <p className="search-note">Nothing matched. Try fewer clues.</p>
+        <p role="status" className="search-note">Nothing matched. Try fewer clues.</p>
       ) : (
         <p className="visually-hidden" role="status">{`Found ${plural(recs.length, "tip")} and ${plural(ideas.length, "idea")}.`}</p>
       )}
