@@ -23,7 +23,7 @@ export default async function GardenPage() {
       <main className="garden" id="ideas">
         <header className="garden-head">
           <h1>Ideas</h1>
-          <Link href="/gardeners">Gardeners</Link>
+          <span className="garden-head-links"><Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link></span>
         </header>
         <section className="zone" aria-labelledby="all-ideas-h">
           <h2 id="all-ideas-h" className="visually-hidden">Every idea</h2>

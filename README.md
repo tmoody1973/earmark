@@ -120,6 +120,10 @@ claude mcp add --transport http earmark $EARMARK_PUBLIC_BASE_URL/api/mcp --heade
 
 Tools: `what_did_they_recommend` (person, period), `ready_ideas`, `search_earmarks` (who, where, when, query), `add_to_earmarked_playlist` (item), `latest_episode`. Answers are short spoken sentences, and search skips Bee neural search to stay fast for Alexa+ (target under 500 ms). Set `EARMARK_PUBLIC_BASE_URL`, `EARMARK_MCP_CLIENT_ID`, `EARMARK_MCP_CLIENT_SECRET` and `EARMARK_MCP_JWT_SECRET` (see `.env.example`); without all four the MCP routes answer 503. Metadata lives at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`.
 
+## Alexa+ simulator
+
+Hackathon entrants do not get Alexa+ developer access, so `/alexa` (owner-only, linked from the Ideas page) simulates the Alexa+ experience (decision 036). Press the mic (Chrome or Safari) or type a question; `POST /api/alexa-sim` mints a service token server-side, connects to Earmark's own `/api/mcp` as a real MCP client (`@ai-sdk/mcp`, Streamable HTTP), lets a fast model call the tools, and returns a one-to-three sentence answer, the tools it used, and Polly "Ruth" audio (browser voice if Polly is not configured). Nothing is stored; logs carry tool names and counts only. The MCP server negotiates protocol version **2025-11-25** (supported: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05). Source: `agent/lib/alexa/sim.ts`, `app/alexa/`, `app/api/alexa-sim/route.ts`.
+
 ## Privacy and consent
 
 Earmark stores your ideas and, per recommendation, a short excerpt (25 words or fewer) and the recommender's first name only. Earmark keeps only 25-word excerpts; live utterances are held briefly for in-conversation detection (an idea can bloom while you are still talking) and deleted after 6 hours, or sooner once the finished conversation has been processed. It never stores photos of people. People recorded in the demo agreed to be recorded; tell guests and co-hosts when Bee is on. Everything can be deleted everywhere with one command (`pnpm forget`, added in M3).

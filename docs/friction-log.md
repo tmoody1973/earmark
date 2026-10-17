@@ -146,3 +146,10 @@ One entry per real slowdown. Fields: task · steps · expected vs actual · seve
 - **Severity:** low (one extra API call per email; the sender-authentication gap is recorded in decision 030).
 - **Workaround:** fetch the body after verifying the signature and claiming the email id; reject on a stated SPF/DKIM/DMARC failure in the headers.
 - **Suggestion:** include SPF/DKIM/DMARC verdicts as fields on the received email.
+
+## F-21 · Alexa+: no add-on developer access for hackathon entrants
+- **Task:** M5-T10 (MOO-920), found 2026-10-16.
+- **Expected vs actual:** expected to register an Alexa+ agent skill or MCP server and test it on a device or in the web console. Actual: the Alexa+ add-on tooling (`alexa-ai` CLI) is private and hackathon entrants are not given access, so the plan's CLI and console steps cannot run. The rules allow a simulated Alexa+ experience instead.
+- **Severity:** medium (the real device path is untested; the MCP server itself is verified directly).
+- **Workaround:** a web simulator (`/alexa`) whose assistant is a real MCP client of Earmark's `/api/mcp` (decision 036).
+- **Suggestion:** give entrants a sandbox or test console for the MCP-server path, or a documented way to point a test account at a self-hosted server.
