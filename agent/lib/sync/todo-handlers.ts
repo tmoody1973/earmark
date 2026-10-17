@@ -34,7 +34,8 @@ export function recTodoAction(last: WrittenState, todo: Todo | null): RecTodoAct
 
 // Every write is guarded on the current state: setRecStatus compare-and-sets the status (and Bee may never revive a
 // dismissed or composted tip); saveLeft/saveTodo only touch the link while it still points where we expect.
-async function handleRecTodoChange(recId: number, todo: Todo | null): Promise<void> {
+// Also the reconciler's backstop (bee-todos.ts step 0, passed in by the bee-changes schedule), under the same lease.
+export async function handleRecTodoChange(recId: number, todo: Todo | null): Promise<void> {
   const [s] = await db()`
     select bee_id, last_written_state from bee_sync where entity_type = 'rec' and entity_id = ${recId} and bee_object = 'todo'`;
   if (!s) return;

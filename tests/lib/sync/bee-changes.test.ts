@@ -8,6 +8,7 @@ vi.mock("../../../agent/lib/store/sync-cursors", () => cursors);
 
 import { BEE_CHANGES_CURSOR, normalizeChanges, runBeeChangesSync } from "../../../agent/lib/sync/bee-changes";
 import type { BeeChanges } from "../../../agent/lib/bee/client";
+import { BeeTodoLeaseBusy } from "../../../agent/lib/sync/handlers";
 import { CompostUnavailableError } from "../../../agent/lib/ideas/compost";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
 
@@ -137,17 +138,69 @@ describe("runBeeChangesSync", () => {
       expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [] });
     });
 
-    it("counts up on each failure and gives up after 5 attempts with one log line", async () => {
-      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 10, attempts: 3 }], facts: [{ id: 7, attempts: 4 }] });
+    const lines = () => errSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+
+    it("a todo gives up after 5 attempts with one log line (the reconciler backstop covers it)", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 10, attempts: 4 }, { id: 11, attempts: 3 }], facts: [] });
       const d = deps(changes());
       d.handleTodoChange.mockRejectedValue(new Error("bee 500"));
-      d.handleFactChange.mockRejectedValue(new Error("bee 500"));
       const r = await runBeeChangesSync(d as never);
       expect(r).toMatchObject({ failed: 2, pending: 1, cursorSaved: true });
-      expect(saved()).toEqual({ conversations: [], journals: [], todos: [{ id: 10, attempts: 4 }], facts: [] });
-      const lines = errSpy.mock.calls.map((c: unknown[]) => String(c[0]));
-      expect(lines.filter((l: string) => l.includes("fact gave up id=7 attempts=5"))).toHaveLength(1);
-      expect(lines.some((l: string) => l.includes("todo gave up"))).toBe(false);
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [{ id: 11, attempts: 4 }], facts: [] });
+      expect(lines().filter((l: string) => l.includes("todo gave up id=10 attempts=5"))).toHaveLength(1);
+    });
+
+    it("a fact is never dropped: it keeps retrying, with one log line when it reaches 5 attempts", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [], facts: [{ id: 7, attempts: 4 }, { id: 8, attempts: 9 }] });
+      const d = deps(changes());
+      d.handleFactChange.mockRejectedValue(new Error("bee 500"));
+      const r = await runBeeChangesSync(d as never);
+      expect(r).toMatchObject({ failed: 2, pending: 2, cursorSaved: true });
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [], facts: [{ id: 7, attempts: 5 }, { id: 8, attempts: 10 }] });
+      expect(lines().filter((l: string) => l.includes("still failing"))).toEqual([
+        expect.stringContaining("fact still failing id=7 attempts=5"),
+      ]);
+      expect(lines().some((l: string) => l.includes("gave up"))).toBe(false);
+    });
+
+    it("caps the retry list at 200 ids: the oldest stay, a new failure past the cap waits for the feed", async () => {
+      const old = Array.from({ length: 199 }, (_, i) => ({ id: 1000 + i, attempts: 1 }));
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [], facts: old });
+      const d = deps(changes({ facts: [500, 501] }));
+      d.handleFactChange.mockRejectedValue(new Error("bee 500"));
+      const r = await runBeeChangesSync(d as never);
+      expect(r).toMatchObject({ cursorSaved: true, pending: 200 });
+      const ids = (saved() as { facts: { id: number }[] }).facts.map((f) => f.id);
+      expect(ids).toHaveLength(200);
+      expect(ids).toContain(1000);
+      expect(ids).toContain(500);
+      expect(ids).not.toContain(501);
+      expect(lines().some((l: string) => l.includes("retry list full") && l.includes("id=501"))).toBe(true);
+    });
+
+    it("a busy Bee todo lease costs no attempt and is not a failure", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 10, attempts: 2 }], facts: [] });
+      const d = deps(changes({ todos: [11] }));
+      d.handleTodoChange.mockRejectedValue(new BeeTodoLeaseBusy(0));
+      const r = await runBeeChangesSync(d as never);
+      expect(r).toMatchObject({ failed: 0, todos: 0, pending: 2, cursorSaved: true });
+      expect(saved()).toEqual({ conversations: [], journals: [], todos: [{ id: 10, attempts: 2 }, { id: 11, attempts: 0 }], facts: [] });
+    });
+
+    it("out of time: the remaining ids go on the retry list with no attempt added, and the cursor is still saved", async () => {
+      cursors.getPending.mockResolvedValue({ conversations: [], journals: [], todos: [{ id: 9, attempts: 2 }], facts: [] });
+      const d = deps(changes({ todos: [10, 11], facts: [7] }));
+      let late = false;
+      d.now.mockImplementation(() => new Date(late ? 1_000_000 + 240_000 : 1_000_000));
+      d.handleTodoChange.mockImplementation(async () => { late = true; });
+      const r = await runBeeChangesSync(d as never);
+      expect(d.handleTodoChange).toHaveBeenCalledTimes(1); // 9 ran, then the budget was gone
+      expect(d.handleFactChange).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ todos: 1, failed: 0, cursorSaved: true });
+      expect(cursors.saveCursor).toHaveBeenCalledWith(BEE_CHANGES_CURSOR, "v1-200");
+      expect(saved()).toEqual({
+        conversations: [], journals: [], todos: [{ id: 10, attempts: 0 }, { id: 11, attempts: 0 }], facts: [{ id: 7, attempts: 0 }],
+      });
     });
   });
 

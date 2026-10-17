@@ -4,14 +4,15 @@ import { processConversation } from "../pipeline/process-conversation";
 import { processJournal } from "../pipeline/process-journal";
 import { SystemicTriageError } from "../pipeline/triage";
 import { getCursor, getPending, savePending, saveCursor, type Pending } from "../store/sync-cursors";
-import { handleFactChange, handleTodoChange } from "./handlers";
+import { BeeTodoLeaseBusy, handleFactChange, handleTodoChange } from "./handlers";
 
 export const BEE_CHANGES_CURSOR = "bee_changes";
 export const DEFAULT_BUDGET_MS = 240_000; // same function budget as the nightly backfill
 const STOP_CLAIMING_AT = 0.7; // past this share of the budget no NEW item is started
 const PENDING_TTL_MS = 48 * 3_600_000; // same window as the nightly backfill, which is the backstop after this
 const CONVERSATION_DEADLINE_AT = 0.9; // a conversation still running here stops, saves nothing, releases its claim
-export const MAX_CHANGE_ATTEMPTS = 5; // a todo/fact change that throws this many runs in a row is dropped (logged once)
+export const MAX_CHANGE_ATTEMPTS = 5; // a todo change failing this many runs is dropped; a fact is logged once and kept
+export const MAX_RETRY_IDS = 200; // todo + fact ids on the retry list
 
 type Retries = { todo: Map<number, number>; fact: Map<number, number> }; // id → failed attempts so far
 
@@ -207,34 +208,56 @@ async function syncOnce(
 
   // 3. Todo/fact changes: earlier failures first, then the feed's, each id once per run. Handlers are idempotent and
   // re-read Bee, so a retry by id is the whole change. One that throws goes on the retry list and the cursor still
-  // advances (a poison todo can't freeze the feed); it is dropped after MAX_CHANGE_ATTEMPTS with one log line.
-  await runChanges("todo", [...retries.todo.keys(), ...c.todos], d.handleTodoChange, retries.todo, result);
-  await runChanges("fact", [...retries.fact.keys(), ...c.facts], d.handleFactChange, retries.fact, result);
+  // advances (a poison todo can't freeze the feed). A todo is dropped after MAX_CHANGE_ATTEMPTS (the reconciler's
+  // backstop re-checks every linked tip, so nothing is lost); a fact never is. Out of time: the rest wait, no attempt.
+  await runChanges("todo", [...retries.todo.keys(), ...c.todos], d.handleTodoChange, retries, result, outOfTime);
+  await runChanges("fact", [...retries.fact.keys(), ...c.facts], d.handleFactChange, retries, result, outOfTime);
 
   await saveCursor(BEE_CHANGES_CURSOR, c.nextCursor);
   result.cursorSaved = true;
 }
 
+// Put an id on the retry list. Ids already there always stay (oldest kept); a new one past MAX_RETRY_IDS is not added
+// and waits for the feed to list it again (a todo is also covered by the reconciler's backstop).
+function keepForRetry(retries: Retries, kind: "todo" | "fact", id: number, attempts: number): void {
+  if (!retries[kind].has(id) && retries.todo.size + retries.fact.size >= MAX_RETRY_IDS) {
+    console.error(`[bee-changes] retry list full; ${kind} id=${id} waits for the feed`);
+    return;
+  }
+  retries[kind].set(id, attempts);
+}
+
 async function runChanges(
-  kind: "todo" | "fact", ids: number[], handle: (id: number) => Promise<void>, retry: Map<number, number>,
-  result: ChangesResult,
+  kind: "todo" | "fact", ids: number[], handle: (id: number) => Promise<void>, retries: Retries,
+  result: ChangesResult, outOfTime: () => boolean,
 ): Promise<void> {
+  const retry = retries[kind];
   for (const id of new Set(ids)) {
+    if (outOfTime()) {
+      keepForRetry(retries, kind, id, retry.get(id) ?? 0);
+      continue;
+    }
     try {
       await handle(id);
       retry.delete(id);
       result[kind === "todo" ? "todos" : "facts"]++;
     } catch (err) {
+      if (err instanceof BeeTodoLeaseBusy) {
+        keepForRetry(retries, kind, id, retry.get(id) ?? 0); // another todo writer is running: not a failure
+        continue;
+      }
       const attempts = (retry.get(id) ?? 0) + 1;
       const name = err instanceof Error ? err.name : "unknown";
       result.failed++;
-      if (attempts >= MAX_CHANGE_ATTEMPTS) {
+      if (kind === "todo" && attempts >= MAX_CHANGE_ATTEMPTS) {
         retry.delete(id);
-        console.error(`[bee-changes] ${kind} gave up id=${id} attempts=${attempts} error=${name}`);
-      } else {
-        retry.set(id, attempts);
-        console.error(`[bee-changes] ${kind} failed id=${id} attempts=${attempts} error=${name}`);
+        console.error(`[bee-changes] todo gave up id=${id} attempts=${attempts} error=${name}`);
+        continue;
       }
+      keepForRetry(retries, kind, id, attempts);
+      console.error(attempts === MAX_CHANGE_ATTEMPTS
+        ? `[bee-changes] fact still failing id=${id} attempts=${attempts} error=${name}; keeps retrying every run`
+        : `[bee-changes] ${kind} failed id=${id} attempts=${attempts} error=${name}`);
     }
   }
 }
