@@ -9,6 +9,7 @@ vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
   processConversation: vi.fn(async () => ({ skipped: false, ideas: 0, recs: 1, reviews: 0 })),
 }));
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
+vi.mock("../../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
 
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
 import { handleLiveUtterance } from "../../../agent/lib/pipeline/live";
@@ -16,6 +17,8 @@ import { processConversation } from "../../../agent/lib/pipeline/process-convers
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
+import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
+import type { BeeClient } from "../../../agent/lib/bee/client";
 
 const evt = (event: string, data: unknown) => parseBeeEnvelope({ event, ts: "t", data });
 const now = () => new Date("2026-10-16T16:00:00Z");
@@ -59,6 +62,19 @@ describe("handleBeeEvent", () => {
     expect(rememberConversationUuid).toHaveBeenCalledWith("u1", 12);
   });
 
+  it("maps flat and variant new-conversation shapes; skips (without throwing) when id or uuid is absent", async () => {
+    await handleBeeEvent(evt("new-conversation", { conversation_uuid: "u2", conversation_id: 7 }));
+    expect(rememberConversationUuid).toHaveBeenCalledWith("u2", 7);
+    await handleBeeEvent(evt("new-conversation", { conversation: { uuid: "u3", id: "9" } }));
+    expect(rememberConversationUuid).toHaveBeenCalledWith("u3", 9);
+    vi.mocked(rememberConversationUuid).mockClear();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await handleBeeEvent(evt("new-conversation", { conversation_uuid: "only-uuid" }));
+    expect(rememberConversationUuid).not.toHaveBeenCalled();
+    expect(warn.mock.calls.join(" ")).not.toContain("only-uuid");
+    warn.mockRestore();
+  });
+
   it("processes a conversation when its summary arrives, passing deps through", async () => {
     await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12, short_summary: "s" }));
     expect(processConversation).toHaveBeenCalledWith(12, {});
@@ -66,13 +82,41 @@ describe("handleBeeEvent", () => {
     expect(processConversation).toHaveBeenCalledWith(13, { now });
   });
 
-  it.each(["processed", "READY", "completed"])("processes a finished journal (state %s)", async (state) => {
-    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state, text: "Earmark that, Ann's ramen spot" } }), { now });
-    expect(processJournal).toHaveBeenCalledWith({ id: "55", text: "Earmark that, Ann's ramen spot", createdAt: now() }, { now });
+  // The stream sends no created_at: an earmark note's real recording time comes from REST (M2-T14 same-moment check).
+  const recorded = new Date("2026-10-16T15:58:40Z");
+  const beeAt = (at: Date | Error) => ({
+    getJournal: vi.fn(async () => {
+      if (at instanceof Error) throw at;
+      return { id: "55", text: "x", state: "READY", created_at: at.getTime() };
+    }),
+  }) as unknown as BeeClient;
+
+  it.each(["processed", "READY", "completed"])("processes a finished journal (state %s) at its REST created_at", async (state) => {
+    const bee = beeAt(recorded);
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state, text: "Earmark that, Ann's ramen spot" } }), { now, bee });
+    expect(bee.getJournal).toHaveBeenCalledWith("55");
+    expect(processJournal).toHaveBeenCalledWith({ id: "55", text: "Earmark that, Ann's ramen spot", createdAt: recorded }, { now, bee });
+  });
+
+  it("falls back to now when the created_at lookup fails (logs the error name only)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bee = beeAt(new RangeError("secret words"));
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "READY", text: "Earmark that, Ann's ramen spot" } }), { now, bee });
+    expect(processJournal).toHaveBeenCalledWith(expect.objectContaining({ createdAt: now() }), { now, bee });
+    expect(JSON.stringify(err.mock.calls)).toContain("RangeError");
+    expect(JSON.stringify(err.mock.calls)).not.toContain("secret");
+    err.mockRestore();
+  });
+
+  it("a note that is not an earmark needs no lookup", async () => {
+    const bee = beeAt(recorded);
+    await handleBeeEvent(evt("journal-updated", { journal: { id: 57, state: "READY", text: "remind me to call mom" } }), { now, bee });
+    expect(bee.getJournal).not.toHaveBeenCalled();
+    expect(processJournal).toHaveBeenCalledWith(expect.objectContaining({ createdAt: now() }), { now, bee });
   });
 
   it("processes a finished journal delivered as journal-created", async () => {
-    await handleBeeEvent(evt("journal-created", { journal: { id: 56, state: "processed", text: "Earmark that, x" } }), { now });
+    await handleBeeEvent(evt("journal-created", { journal: { id: 56, state: "processed", text: "Earmark that, x" } }), { now, bee: beeAt(recorded) });
     expect(processJournal).toHaveBeenCalledTimes(1);
   });
 
@@ -95,11 +139,43 @@ describe("handleBeeEvent", () => {
     vi.mocked(processJournal).mockRejectedValueOnce(new Error("boom: Earmark that, Ann's ramen spot"));
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(
-      handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "Earmark that, Ann's ramen spot" } })),
+      handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "Earmark that, Ann's ramen spot" } }), { bee: beeAt(recorded) }),
     ).resolves.toBeUndefined();
     const logged = JSON.stringify(err.mock.calls);
     expect(logged).toContain("journal-updated");
     expect(logged).not.toContain("ramen");
     err.mockRestore();
+  });
+
+  // M2-T7: a bloom is drafted right after its save transaction committed, still inside the request's after()/waitUntil.
+  describe("drafting a one-pager after a bloom", () => {
+    const saved = (bloomedClusterIds: number[]) => ({ recIds: [], ideaClusterIds: [12], mentionIds: [1], bloomedClusterIds });
+    const quiet = () => vi.spyOn(console, "log").mockImplementation(() => {});
+
+    it("live: drafts the clusters the save just bloomed, after the save returned", async () => {
+      quiet();
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([12]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      expect(draftBlooms).toHaveBeenCalledWith({ clusterIds: [12] });
+      expect(vi.mocked(handleLiveUtterance).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(draftBlooms).mock.invocationCallOrder[0]!);
+    });
+
+    it("conversation and voice note saves that bloomed draft too", async () => {
+      quiet();
+      vi.mocked(processConversation).mockResolvedValueOnce({ skipped: false, ideas: 1, recs: 0, reviews: 0, failed: 0, incomplete: false, saved: saved([7]) });
+      await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12 }));
+      expect(draftBlooms).toHaveBeenLastCalledWith({ clusterIds: [7] });
+      vi.mocked(processJournal).mockResolvedValueOnce({ created: "idea", saved: saved([8]) });
+      await handleBeeEvent(evt("journal-updated", { journal: { id: 55, state: "processed", text: "x" } }));
+      expect(draftBlooms).toHaveBeenLastCalledWith({ clusterIds: [8] });
+    });
+
+    it("no bloom, no draft call", async () => {
+      quiet();
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      await handleBeeEvent(evt("update-conversation-summary", { conversation_id: 12 }));
+      expect(draftBlooms).not.toHaveBeenCalled();
+    });
   });
 });

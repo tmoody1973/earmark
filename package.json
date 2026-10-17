@@ -15,7 +15,9 @@
     "test:int": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.int.config.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
-    "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test"
+    "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test",
+    "eval:sample": "tsx --env-file=.env.local scripts/eval-sample.ts",
+    "label": "tsx --env-file=.env.local scripts/label.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.16",
