@@ -7,11 +7,15 @@ vi.mock("../../../agent/lib/garden/queries", () => ({
   saveGardenVisit: vi.fn(async () => {}),
   setTipVerdict: vi.fn(async () => true),
 }));
+vi.mock("../../../agent/lib/garden/backlinks", () => ({ setLinkStatus: vi.fn(async () => true) }));
+vi.mock("../../../agent/lib/garden/merge", () => ({ mergeClusters: vi.fn(async () => 41), undoMerge: vi.fn(async () => true) }));
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { getGardenVisit, saveGardenVisit, setTipVerdict } from "../../../agent/lib/garden/queries";
-import { keepTip, notATip, recordGardenVisit } from "../../../app/garden/actions";
+import { setLinkStatus } from "../../../agent/lib/garden/backlinks";
+import { mergeClusters, undoMerge } from "../../../agent/lib/garden/merge";
+import { acceptLink, keepTip, mergeIdeas, notATip, recordGardenVisit, removeLink, undoIdeaMerge } from "../../../app/garden/actions";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
 
@@ -73,5 +77,91 @@ describe.each([["keepTip", keepTip, "kept"], ["notATip", notATip, "not_a_tip"]] 
     signedInAs("user_owner");
     vi.mocked(setTipVerdict).mockResolvedValueOnce(false);
     expect(await action(7)).toEqual({ changed: false });
+  });
+});
+
+// Backlinks (M4-T6). Server actions are public endpoints: owner first, then the payload, before any write.
+const related = { fromType: "idea", fromId: 1, toType: "idea", toId: 2, kind: "related" } as const;
+const fits = { fromType: "rec", fromId: 9, toType: "idea", toId: 2, kind: "fits" } as const;
+const sameIdea = { fromType: "idea", fromId: 1, toType: "idea", toId: 2, kind: "merge_suggestion" } as const;
+
+describe.each([["acceptLink", acceptLink, "accepted"], ["removeLink", removeLink, "removed"]] as const)("%s", (_name, action, status) => {
+  it("refuses anyone but the owner, without a write", async () => {
+    signedInAs("user_stranger");
+    await expect(action(related)).rejects.toThrow(/not found/i);
+    expect(setLinkStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a missing field", { ...related, toId: undefined }],
+    ["a string id", { ...related, fromId: "1" }],
+    ["a zero id", { ...related, fromId: 0 }],
+    ["an unsafe id", { ...related, toId: Number.MAX_VALUE }],
+    ["an unknown kind", { ...related, kind: "source" }],
+    ["a tip on the idea side of related", { ...related, fromType: "rec" }],
+    ["an idea as the source of fits", { ...fits, fromType: "idea" }],
+    ["an extra field", { ...related, status: "accepted" }],
+    ["null", null],
+  ])("rejects %s without a write", async (_label, payload) => {
+    signedInAs("user_owner");
+    await expect(action(payload as never)).rejects.toThrow(/invalid link/i);
+    expect(setLinkStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([["related", related], ["fits", fits]])(`sets a %s link ${status} and refreshes the pages`, async (_k, payload) => {
+    signedInAs("user_owner");
+    expect(await action(payload as never)).toEqual({ changed: true });
+    expect(setLinkStatus).toHaveBeenCalledWith(payload, status);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+});
+
+describe("acceptLink on a merge suggestion", () => {
+  it("is refused: accepting \"same idea\" is the merge itself, which has its own confirmed action", async () => {
+    signedInAs("user_owner");
+    await expect(acceptLink(sameIdea)).rejects.toThrow(/invalid link/i);
+    expect(setLinkStatus).not.toHaveBeenCalled();
+  });
+
+  it("removeLink accepts it: \"not the same idea\" is a plain remove", async () => {
+    signedInAs("user_owner");
+    expect(await removeLink(sameIdea)).toEqual({ changed: true });
+  });
+});
+
+describe("mergeIdeas", () => {
+  it("refuses anyone but the owner", async () => {
+    signedInAs("user_stranger");
+    await expect(mergeIdeas(1, 2)).rejects.toThrow(/not found/i);
+    expect(mergeClusters).not.toHaveBeenCalled();
+  });
+
+  it.each([[0, 2], [1, -2], [1.5, 2], ["1", 2], [3, 3], [null, 2]])("rejects keep %s / merged %s without a write", async (keep, merged) => {
+    signedInAs("user_owner");
+    await expect(mergeIdeas(keep as never, merged as never)).rejects.toThrow(/invalid idea/i);
+    expect(mergeClusters).not.toHaveBeenCalled();
+  });
+
+  it("merges and returns the merge id for Undo", async () => {
+    signedInAs("user_owner");
+    expect(await mergeIdeas(1, 2)).toEqual({ mergeId: 41 });
+    expect(mergeClusters).toHaveBeenCalledWith(1, 2);
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+});
+
+describe("undoIdeaMerge", () => {
+  it("refuses anyone but the owner, and bad ids", async () => {
+    signedInAs("user_stranger");
+    await expect(undoIdeaMerge(4)).rejects.toThrow(/not found/i);
+    signedInAs("user_owner");
+    await expect(undoIdeaMerge(-4 as never)).rejects.toThrow(/invalid merge/i);
+    expect(undoMerge).not.toHaveBeenCalled();
+  });
+
+  it("undoes and reports whether anything changed", async () => {
+    signedInAs("user_owner");
+    expect(await undoIdeaMerge(4)).toEqual({ changed: true });
+    expect(undoMerge).toHaveBeenCalledWith(4);
   });
 });
