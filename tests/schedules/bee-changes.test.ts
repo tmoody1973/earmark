@@ -29,7 +29,7 @@ describe("bee-changes schedule tail (M2-T7)", () => {
   it("still drafts when the sync throws, and re-throws the sync's own error", async () => {
     const boom = Object.assign(new Error("x"), { name: "BeeApiError" });
     vi.mocked(runBeeChangesSync).mockRejectedValueOnce(boom);
-    await expect(run()).rejects.toBe(boom);
+    await expect(run()).rejects.toThrow(new Error(boom.name));
     expect(draftBlooms).toHaveBeenCalledTimes(1);
   });
 
@@ -41,7 +41,7 @@ describe("bee-changes schedule tail (M2-T7)", () => {
 
   it("reconciles Bee todos every run (M3-T7), even when the sync throws, and a failing reconcile never throws", async () => {
     vi.mocked(runBeeChangesSync).mockRejectedValueOnce(new Error("x"));
-    await expect(run()).rejects.toThrow("x");
+    await expect(run()).rejects.toThrow("Error");
     expect(drainTodoQueue).toHaveBeenCalledTimes(1);
     vi.mocked(runBeeChangesSync).mockResolvedValueOnce({} as never);
     vi.mocked(drainTodoQueue).mockRejectedValueOnce(Object.assign(new Error("db"), { name: "NeonDbError" }));

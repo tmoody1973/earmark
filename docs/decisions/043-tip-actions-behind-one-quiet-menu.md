@@ -1,4 +1,4 @@
-# 029 — A tip's actions live behind one quiet "…" on its card, and only move forward
+# 043 — A tip's actions live behind one quiet "…" on its card, and only move forward
 
 **Decision:** Each tip card on the Shelf, Home and a person's page has one small "…" button. It opens a short list of what makes sense next for that tip: **Try this** (puts it on the try list, status "queued"), **Tried it**, and **Dismiss** while it is untried; once tried, only **Loved it / It was fine / Not for me**. A tip only moves forward: a tried tip never goes back on the try list and can't be dismissed from a card (that would silently take it out of its giver's tried and loved counts, decision 024), and a maybe or a cleared tip can't be changed or rated from anywhere.
 
