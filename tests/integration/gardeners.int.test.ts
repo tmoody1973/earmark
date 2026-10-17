@@ -3,7 +3,7 @@ import { Pool } from "@neondatabase/serverless";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db } from "../../agent/lib/db";
 import { decideRun } from "../../agent/lib/gardeners/decide";
-import { runDueGardeners, runGardener, type GardenerRow } from "../../agent/lib/gardeners/run";
+import { getGardener, NotClaimedError, runDueGardeners, runGardener, type GardenerRow } from "../../agent/lib/gardeners/run";
 import { runEpisode } from "../../agent/lib/episode/publish";
 import { weekOfSunday } from "../../agent/lib/time";
 
@@ -26,11 +26,18 @@ const sql = () => db();
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)("gardeners (real Neon)", () => {
   let customId = 0;
+  const extraIds: number[] = [];
+  const plant = async (name: string, schedule: string, enabled = true) => {
+    const [r] = (await sql()`insert into gardeners (name, task, schedule, sources, enabled) values (${name}, 'Turn my ready ideas into pitches.', ${schedule}::jsonb, '{ideas}'::text[], ${enabled}) returning id`) as { id: string }[];
+    extraIds.push(Number(r.id));
+    return Number(r.id);
+  };
   const cleanup = async () => {
     if (customId) await sql()`delete from gardeners where id = ${customId}`; // cascades to its runs
+    for (const id of extraIds) await sql()`delete from gardeners where id = ${id}`;
     await sql()`delete from gardener_runs where episode_id in (select id from episodes where week_of = any(${WEEKS}::date[]))`;
     await sql()`delete from episodes where week_of = any(${WEEKS}::date[])`;
-    await sql()`update gardeners set last_run_at = null where kind = 'episode'`;
+    await sql()`update gardeners set last_run_at = null, last_attempt_at = null, fail_count = 0 where kind = 'episode'`;
   };
   beforeAll(cleanup);
   afterAll(cleanup);
@@ -68,7 +75,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("gardeners (real Neon)", () => {
   });
 
   it("an episode run delegates to runEpisode and links episode_id; approving publishes, dismissing does not", async () => {
-    const [g] = (await sql()`select id, name, kind, task, schedule, sources, needs_approval, last_run_at from gardeners where kind = 'episode'`) as GardenerRow[];
+    const [g] = (await sql()`select id, name, kind, task, schedule, sources, needs_approval, last_run_at, last_attempt_at, fail_count from gardeners where kind = 'episode'`) as GardenerRow[];
 
     const fakesA = epFakes();
     const runA = await runGardener(g, { episode: (now) => runEpisode(now, fakesA as never), now: EP_A });
@@ -85,10 +92,61 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("gardeners (real Neon)", () => {
     await decideRun(runA, "dismissed"); // an approved run cannot be dismissed into a mess
     expect(((await sql()`select status from gardener_runs where id = ${runA}`) as { status: string }[])[0].status).toBe("approved");
 
-    const runB = await runGardener(g, { episode: (now) => runEpisode(now, epFakes() as never), now: EP_B });
+    const gB = (await getGardener(g.id))!;
+    const runB = await runGardener(gB, { episode: (now) => runEpisode(now, epFakes() as never), now: EP_B });
     await decideRun(runB, "dismissed");
     await decideRun(runB, "approved"); // too late: dismissed stays dismissed and unpublished
     expect(await published(WEEKS[1])).toBeNull();
     expect(((await sql()`select status from gardener_runs where id = ${runB}`) as { status: string }[])[0].status).toBe("dismissed");
+  });
+
+  const WED = new Date("2099-05-06T10:00:00Z"); // schedule below: Wednesday 09:00 UTC
+  const at = (h: number, m = 0) => new Date(`2099-05-06T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`);
+  const runsOf = async (id: number) => Number(((await sql()`select count(*)::int as n from gardener_runs where gardener_id = ${id}`) as { n: number }[])[0].n);
+
+  it("a failing gardener is not retried on the next tick, is retried after the backoff, and stops at the maximum", async () => {
+    const id = await plant("Inttest failing", '{"every":"week","weekday":3,"hourUtc":9}');
+    const generateImpl = vi.fn(async () => { throw new TypeError("model down"); });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tick = (now: Date) => runDueGardeners(now, { run: (g: GardenerRow) => runGardener(g, { generateImpl: generateImpl as never, now }) });
+    expect(await tick(at(10))).toEqual({ ran: 0, failed: 1 }); // attempt 1
+    expect(await tick(at(11))).toEqual({ ran: 0, failed: 0 }); // next hourly tick: backed off
+    expect(generateImpl).toHaveBeenCalledTimes(1);
+    expect(await tick(at(13, 5))).toEqual({ ran: 0, failed: 1 }); // retry 1, 3h later
+    expect(await tick(at(16, 10))).toEqual({ ran: 0, failed: 1 }); // retry 2
+    expect(await tick(at(23, 59))).toEqual({ ran: 0, failed: 0 }); // maximum reached for the period
+    expect(generateImpl).toHaveBeenCalledTimes(3);
+    expect(await runsOf(id)).toBe(0);
+    expect(JSON.stringify(err.mock.calls)).not.toContain("model down");
+    err.mockRestore();
+    const [row] = (await sql()`select fail_count from gardeners where id = ${id}`) as { fail_count: number }[];
+    expect(row.fail_count).toBe(3);
+  });
+
+  it("two concurrent runs of the same gardener produce exactly one draft", async () => {
+    const id = await plant("Inttest concurrent", '{"every":"week","weekday":2,"hourUtc":9}');
+    const g = (await getGardener(id))!;
+    const generateImpl = vi.fn(async () => ({ text: "One draft." }));
+    const go = () => runGardener(g, { generateImpl: generateImpl as never, now: WED });
+    const results = await Promise.allSettled([go(), go()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(lost.reason).toBeInstanceOf(NotClaimedError);
+    expect(generateImpl).toHaveBeenCalledTimes(1);
+    expect(await runsOf(id)).toBe(1);
+  });
+
+  it("paused gardeners are never picked, by the schedule or by Run now; resuming brings them back", async () => {
+    const id = await plant("Inttest paused", '{"every":"week","weekday":1,"hourUtc":9}', false);
+    const MON = new Date("2099-05-04T10:00:00Z");
+    const generateImpl = vi.fn(async () => ({ text: "Paused draft." }));
+    const tick = () => runDueGardeners(MON, { run: (g: GardenerRow) => runGardener(g, { generateImpl: generateImpl as never, now: MON }) });
+    expect(await tick()).toEqual({ ran: 0, failed: 0 });
+    await expect(runGardener((await getGardener(id))!, { generateImpl: generateImpl as never, now: MON })).rejects.toBeInstanceOf(NotClaimedError);
+    expect(generateImpl).not.toHaveBeenCalled();
+    expect(await runsOf(id)).toBe(0);
+    await sql()`update gardeners set enabled = true where id = ${id}`;
+    expect(await tick()).toEqual({ ran: 1, failed: 0 });
+    expect(await runsOf(id)).toBe(1);
   });
 });

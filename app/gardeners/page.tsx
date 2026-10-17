@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/agent/lib/db";
 import { isOwner } from "@/agent/lib/owner";
-import { createGardener, runNow, setRunStatus } from "./actions";
+import { createGardener, runNow, setGardenerEnabled, setRunStatus } from "./actions";
 import "./gardeners.css";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +14,13 @@ export const metadata: Metadata = { title: "Gardeners · Earmark" };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const when = (iso: string) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" });
 
-interface GardenerRow { id: number | string; name: string; kind: string; task: string; last_run_at: string | null }
+interface GardenerRow { id: number | string; name: string; kind: string; task: string; last_run_at: string | null; enabled: boolean }
 interface RunRow { id: number | string; output_md: string; status: string; created_at: string; name: string; kind: string }
 
 export default async function GardenersPage() {
   const { userId } = await auth();
   if (!isOwner(userId)) notFound();
-  const gardeners = (await db()`select id, name, kind, task, last_run_at from gardeners where enabled order by id`) as GardenerRow[];
+  const gardeners = (await db()`select id, name, kind, task, last_run_at, enabled from gardeners order by id`) as GardenerRow[];
   const runs = (await db()`
     select r.id, r.output_md, r.status, r.created_at, g.name, g.kind
     from gardener_runs r join gardeners g on g.id = r.gardener_id
@@ -39,7 +39,13 @@ export default async function GardenersPage() {
               <strong>{g.name}</strong>
               <span className="g-task">{g.task}</span>
               <span className="g-meta">{g.last_run_at ? `Last ran ${when(g.last_run_at)}` : "Has not run yet"}</span>
-              <form action={runNow.bind(null, Number(g.id))}><button type="submit">Run now</button></form>
+              {!g.enabled && <span className="g-meta">Paused</span>}
+              <div className="g-actions">
+                {g.enabled && <form action={runNow.bind(null, Number(g.id))}><button type="submit">Run now</button></form>}
+                <form action={setGardenerEnabled.bind(null, Number(g.id), !g.enabled)}>
+                  <button type="submit" className="quiet">{g.enabled ? "Pause" : "Resume"}</button>
+                </form>
+              </div>
             </li>
           ))}
         </ul>
