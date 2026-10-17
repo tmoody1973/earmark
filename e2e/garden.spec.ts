@@ -367,3 +367,33 @@ test("Maybe?: Keep moves a tip to the Shelf, Not a tip clears it, People never c
   await expect(card("Hania Rani")).toBeVisible();
   await noOverflow();
 });
+
+// Home opens with an empty pile; a maybe saved while it is open must appear on the next live refresh
+// (router.refresh keeps client state, so the row cannot decide once at mount). Every other maybe on the TEST branch
+// is parked (composted) for the test and restored after.
+test("Maybe?: a maybe that arrives while Home is open shows up on the live refresh", async ({ page }) => {
+  test.skip(process.env.E2E_REAL === "1", "writes: test branch only");
+  const sql = neon(process.env.TEST_DATABASE_URL!);
+  await sql`delete from recommendations where raw_text = 'sample-maybe-live'`;
+  const parked = (await sql`update recommendations set status = 'composted' where status = 'needs_review' returning id`)
+    .map((r) => Number(r.id));
+  try {
+    await signInAs(page, OWNER_EMAIL);
+    await page.goto("/");
+    const plant = page.locator("#garden").getByTestId("plant").first();
+    await expect(plant).toBeVisible();
+    await expect(page.locator("#maybe")).toHaveCount(0); // empty pile: no row
+    await page.evaluate(() => { (window as unknown as { stillHere?: boolean }).stillHere = true; });
+
+    await sql`insert into recommendations (type, raw_text, canonical_name, excerpt, said_at, source, status, confidence)
+      values ('podcast', 'sample-maybe-live', 'Heavyweight', 'sample excerpt', now(), 'ambient', 'needs_review', 0.7)`;
+    // a mention on a plant already on the page: the poller asks for a router.refresh (agent/lib/garden/live.ts)
+    await sql`insert into garden_events (kind, cluster_id) values ('mention', ${Number(await plant.getAttribute("data-cluster-id"))})`;
+
+    await expect(page.getByTestId("maybe-card").filter({ hasText: "Heavyweight" })).toBeVisible({ timeout: 20_000 });
+    expect(await page.evaluate(() => (window as unknown as { stillHere?: boolean }).stillHere)).toBe(true); // a refresh, not a reload
+  } finally {
+    await sql`delete from recommendations where raw_text = 'sample-maybe-live'`;
+    await sql`update recommendations set status = 'needs_review' where id = any(${parked})`;
+  }
+});

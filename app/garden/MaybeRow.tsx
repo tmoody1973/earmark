@@ -1,15 +1,15 @@
 "use client";
 import Link from "next/link";
 import { useOptimistic, useState, useTransition } from "react";
+import { verdictMessage, type MaybeChoice } from "@/agent/lib/garden/maybe";
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import { keepTip, notATip } from "./actions";
 import { cardSubline, TYPE_LABEL } from "./cards/RecCard";
 import { Icon } from "./cards/icons";
 import "./cards/cards.css";
 
-type Choice = "keep" | "drop";
+type Choice = MaybeChoice;
 const ACTION = { keep: keepTip, drop: notATip } as const;
-const SAID = { keep: "Kept", drop: "Removed" } as const;
 
 interface Props {
   tips: RecCardData[];
@@ -24,15 +24,14 @@ interface Props {
 /**
  * "Maybe?" (decision 025): tips Earmark wasn't sure about, each with Keep and Not a tip. A tap removes the card at
  * once (optimistic; it comes back if the save fails), says so in a live region, and moves focus to the next card.
- * Hidden entirely when there are none. No orange: that accent means only new and bloomed.
+ * Nothing visible when there are none. Always mounted, with its live region: a router.refresh keeps client state, so
+ * a maybe that arrives later must still appear, and the last card's announcement must still be read.
+ * No orange: that accent means only new and bloomed.
  */
 export function MaybeRow({ tips, more, moreHref, emptyFocusId }: Props) {
   const [shown, hide] = useOptimistic(tips, (list, id: number) => list.filter((t) => t.id !== id));
   const [, startTransition] = useTransition();
   const [said, setSaid] = useState("");
-  // Keep the live region mounted after the last card goes, so its announcement is still read.
-  const [hadAny] = useState(tips.length > 0);
-  if (!hadAny) return null;
 
   function decide(tip: RecCardData, choice: Choice) {
     const i = shown.findIndex((t) => t.id === tip.id);
@@ -40,15 +39,16 @@ export function MaybeRow({ tips, more, moreHref, emptyFocusId }: Props) {
     const target = next ? document.getElementById(`maybe-${next.id}-keep`) : document.getElementById(emptyFocusId);
     if (target && !next) target.tabIndex = -1;
     target?.focus();
+    setSaid(""); // clear first, so the same message twice (a repeat failure) is announced again
     startTransition(async () => {
       hide(tip.id);
+      let result: { changed: boolean } | null = null;
       try {
-        await ACTION[choice](tip.id);
-        setSaid(`${SAID[choice]}: ${tip.name}`);
+        result = await ACTION[choice](tip.id);
       } catch (err) {
         console.error("maybe verdict failed", tip.id, (err as Error).name);
-        setSaid(`Couldn't save that. ${tip.name} is back in Maybe; try again.`);
       }
+      setSaid(verdictMessage(choice, tip.name, result));
     });
   }
 
