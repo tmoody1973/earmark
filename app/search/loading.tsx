@@ -1,4 +1,3 @@
-import "../garden/shell.css";
 import "./search.css";
 
 export default function Loading() {
