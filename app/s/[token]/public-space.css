@@ -1,0 +1,8 @@
+/* Published Space (M5-T14): the garden's world, lighter. One column, 16px gutter (.garden), no horizontal scroll.
+   Tip cards and tokens come from cards.css / globals.css; nothing new is designed here. */
+.pub-space { max-width: 40rem; }
+.pub-space .garden-head { padding-block: 0 1rem; }
+.pub-sentence { font-family: var(--serif); font-size: 1.125rem; }
+.pub-meta { font-size: 0.9375rem; }
+.pub-space .shelf-grid { columns: 1; }
+.pub-empty { margin-top: 2rem; }

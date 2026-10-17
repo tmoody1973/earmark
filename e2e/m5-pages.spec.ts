@@ -66,3 +66,14 @@ test("alexa simulator answers a typed question", async ({ page }, info) => {
   await expect(page.locator(".turns .used")).toHaveText(/^used: \S+/);
   expect(errors, "no console errors").toEqual([]);
 });
+
+// M5-T14: a revoked or unknown published-Space link is a polite 404, never indexed. Public route: no sign-in.
+test("unknown /s/ link is a polite 404 with noindex", async ({ page }) => {
+  const res = await page.goto(`/s/${"x".repeat(43)}`);
+  expect(res?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "This page is no longer shared" })).toBeVisible();
+  // Next adds its own noindex to a 404 beside ours: every robots tag must say noindex.
+  const robots = await page.locator('meta[name="robots"]').evaluateAll((els) => els.map((e) => e.getAttribute("content")));
+  expect(robots.length).toBeGreaterThan(0);
+  for (const content of robots) expect(content).toMatch(/noindex/);
+});
