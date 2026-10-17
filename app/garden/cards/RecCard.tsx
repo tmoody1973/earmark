@@ -21,8 +21,9 @@ export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card
  * opens the item's link when it has one.
  * `actions`: the owner's "…" (Try this, Tried, a rating, Dismiss; FR-22). Off by default, so a page someone else
  * reads (a Space) never offers them, and gets a plain article with no client state.
+ * `from`: off on a person's own page, where "from Ann" would only repeat the heading (Thank Ann still shows).
  */
-export function RecCard({ card, actions = false }: { card: RecCardData; actions?: boolean }) {
+export function RecCard({ card, actions = false, from = true }: { card: RecCardData; actions?: boolean; from?: boolean }) {
   const note = card.variant === "note";
   const subline = cardSubline(card);
   const titleId = `rec-${card.id}-title`;
@@ -57,7 +58,7 @@ export function RecCard({ card, actions = false }: { card: RecCardData; actions?
         <TipTag status={card.status} rating={card.rating} />
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
-          {card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
+          {from && card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
           {/* Outside the title link (no nested <a>); card.recommender is already owner-guarded (credit). FR-24 */}
           {card.rating === "loved" && card.recommender && (
             <Link className="rec-thank" href={`/receipts/${card.id}`}>Thank {card.recommender.firstName}</Link>
