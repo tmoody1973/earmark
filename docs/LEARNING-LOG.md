@@ -51,3 +51,8 @@ Dated entries. Each answers: what did we expect, what happened, what do we now b
 - **Expected:** searching MusicBrainz for the title AND the artist would find the album, and Jev would only need to rule out remixes and tributes.
 - **What happened:** Bee heard "Salt" for the band SAULT. Requiring the artist returned three wrong albums; Jev correctly answered "none fits", so the tip stayed unmatched. Making the artist an optional, approximately-spelled hint brought back the right album, and Jev accepted it.
 - **What we now believe:** search wide and let the judge be strict. The lookup should tolerate Bee's mishearings; the same-item check is where precision lives.
+
+## 2026-10-16 · A book search that only worked if Bee heard the author right
+- **Expected:** searching Open Library for the title and the author together would find the book, as the plan's example did.
+- **What happened:** Open Library requires every word to match. "The Overstory Richard Pwers" (one letter off in the author) found nothing at all. Asking for "title OR author" instead put the right book first whether the author was heard right or not, and still found it with no author.
+- **What we now believe:** the same lesson as MusicBrainz (decision 012), now for books: each search must treat what Bee heard as a hint, and leave the strict "is this the same item?" call to Jev. Check every new source with a deliberately misheard name before trusting it.

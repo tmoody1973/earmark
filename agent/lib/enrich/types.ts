@@ -1,7 +1,10 @@
 import type { RecType } from "../types";
 
 // recommendations.links (jsonb): service name → https URL. cardLink() prefers apple_music, then any https value.
-export type RecLinks = Partial<Record<"apple_music" | "musicbrainz" | "discogs" | "url", string>>;
+export type RecLinks = Partial<Record<
+  "apple_music" | "musicbrainz" | "discogs" | "url" | "openlibrary" | "wikipedia" | "tmdb" | "google_maps" | "podcast_index" | "apple_podcasts",
+  string
+>>;
 
 export interface Candidate {
   canonicalName: string;

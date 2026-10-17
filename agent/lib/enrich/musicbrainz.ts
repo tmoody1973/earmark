@@ -30,7 +30,8 @@ export function resetMusicBrainzThrottle(): void {
 
 // Lucene query syntax: escape every special character so a title like "Help!" or "AC/DC" stays a plain term, and
 // lowercase the operator words (only uppercase AND/OR/NOT are operators) so "AND ALSO THE TREES" stays a title.
-const escapeLucene = (s: string) =>
+// Open Library's search is Solr, the same Lucene syntax, so open-library.ts reuses this.
+export const escapeLucene = (s: string) =>
   s.replace(/[+\-!(){}[\]^"~*?:\\/]|&&|\|\|/g, (m) => m.split("").map((ch) => `\\${ch}`).join(""))
     .replace(/\b(AND|OR|NOT)\b/g, (w) => w.toLowerCase());
 
