@@ -73,7 +73,13 @@ describe("approveReceipt", () => {
     expect(url).toBe(`https://earmark.test/r/${TOKEN}`);
     expect(sql.mock.calls[0].slice(1)).toContain("Thank you, Ann.");
     expect(text(sql.mock.calls[0])).not.toContain("recommendations");
-    expect(setStatus).toHaveBeenCalledWith(4, "thanked", "garden");
+    expect(setStatus).toHaveBeenCalledWith(4, "thanked", "garden", { defer: undefined });
+  });
+  it("hands the server action's defer to setRecStatus so the tap never waits on Bee", async () => {
+    sql.mockResolvedValueOnce([{ share_token: TOKEN, recommendation_id: 4 }]);
+    const defer = vi.fn();
+    await approveReceipt(4, 11, "Thanks, Ann.", defer);
+    expect(setStatus).toHaveBeenCalledWith(4, "thanked", "garden", { defer });
   });
   it("refuses an empty note and an unknown receipt", async () => {
     await expect(approveReceipt(4, 11, "   ")).rejects.toThrow(/empty/);
