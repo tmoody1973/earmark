@@ -44,3 +44,4 @@
 
 /* Phone tap targets (M5-T15): the back link and the shared URL link are at least 44px tall. */
 .receipts > p:first-child a, .r-url a { display: inline-flex; align-items: center; min-height: 44px; }
+.receipts section > .r-meta { margin: 0.75rem 0 0; } /* the form's zero-margin .r-meta rule left this line flush under the buttons */
