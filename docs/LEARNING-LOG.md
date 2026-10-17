@@ -56,3 +56,8 @@ Dated entries. Each answers: what did we expect, what happened, what do we now b
 - **Expected:** searching Open Library for the title and the author together would find the book, as the plan's example did.
 - **What happened:** Open Library requires every word to match. "The Overstory Richard Pwers" (one letter off in the author) found nothing at all. Asking for "title OR author" instead put the right book first whether the author was heard right or not, and still found it with no author.
 - **What we now believe:** the same lesson as MusicBrainz (decision 012), now for books: each search must treat what Bee heard as a hint, and leave the strict "is this the same item?" call to Jev. Check every new source with a deliberately misheard name before trusting it.
+
+## 2026-10-16 · Green CI, failed deploy
+- **Expected:** a pull request that passed CI (tests, typecheck, the website build) would deploy.
+- **What happened:** two merges in a row passed CI but failed to deploy. One file used by the background jobs imported a Next.js helper, and the background-job builder (eve) can't load Next.js code. CI never ran that builder, so nothing went red. Vercel kept serving the last good version, so nothing broke for the user, but nothing new could ship for about 35 minutes until a reviewer for another lane noticed `next dev` wouldn't start.
+- **What we now believe:** CI has to build everything the host builds, not just the part we think of as "the app". The CI check now runs the background-job build too, and code under `agent/` never imports Next.js; the website passes Next.js helpers in when it needs them.
