@@ -93,7 +93,7 @@ export async function getSpace(id: number): Promise<SpaceView | null> {
   const tips = (await sql`
     select si.status as member_status,
       r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
-      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
+      r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
       p.id as recommender_id, p.first_name
     from space_items si join recommendations r on r.id = si.item_id
     left join recommenders p on p.id = r.recommender_id

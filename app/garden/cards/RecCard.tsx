@@ -47,6 +47,13 @@ export function RecCard({ card, actions = false }: { card: RecCardData; actions?
         </h3>
         {subline && <p className="rec-sub">{subline}</p>}
         {card.why && <p className="rec-why">“{card.why}”</p>}
+        {/* What, not why (M3-T4b): a quiet line under the why, with its source as its own small link. */}
+        {card.about && (
+          <p className="rec-about">
+            {card.about.text}{" "}
+            <a className="rec-about-src" href={card.about.url} rel="noopener noreferrer">Wikipedia</a>
+          </p>
+        )}
         <TipTag status={card.status} rating={card.rating} />
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">

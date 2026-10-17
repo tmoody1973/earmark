@@ -13,7 +13,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   let c: PoolClient;
   const ids: number[] = [];
   // Summaries, Bee and embeddings are fakes in every sweep here unless a test passes its own (M3-T5).
-  const quiet = { summarize: vi.fn(async () => null), beeSummary: vi.fn(async () => null), embedRecs: vi.fn(async () => 0) };
+  const quiet = { summarize: vi.fn(async () => null), beeSummary: vi.fn(async () => null), embedRecs: vi.fn(async () => 0),
+    about: vi.fn(async () => null) }; // Wikipedia notes (M3-T4b): a fake unless a test passes its own
   const lane = async () => {
     const m = await import("../../agent/lib/recs/lane");
     return { ...m, sweepRecLane: (d: Parameters<typeof m.sweepRecLane>[0] = {}) => m.sweepRecLane({ ...quiet, ...d }) };
@@ -330,6 +331,81 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     await sweepRecLane({ enrich: vi.fn(async () => match()) as unknown as Enrich, pick, env: {}, onlyIds: [renamed, same] });
     expect(await hasVec(renamed)).toBe(false);
     expect(await hasVec(same)).toBe(true);
+  });
+
+  // M3-T4b: the Wikipedia note.
+  const note = async (id: number) => (await c.query(`select about, about_url, about_at is not null as looked, about_tries as tries
+    from recommendations where id = $1`, [id])).rows[0];
+  const matched = async (o: Parameters<typeof addRec>[0] & { creator?: string } = {}) => {
+    const id = await addRec(o);
+    await c.query(`update recommendations set enrichment_status = 'matched', creator = $2, summarized_at = now()
+      where id = $1`, [id, o.creator ?? null]);
+    return id;
+  };
+  const SAULT = { text: "Sault are a British music group.", url: "https://en.wikipedia.org/wiki/Sault_(band)" };
+
+  it("writes a Wikipedia note once for matched tips; pending and cleared tips get none; errors retry up to 3 times", async () => {
+    const { sweepRecLane } = await lane();
+    const album = await matched({ type: "album", name: "Untitled (Rise)", creator: "SAULT",
+      links: { musicbrainz: "https://musicbrainz.org/release-group/0b2d4ec0-0000-4000-8000-000000000001" } });
+    const unsure = await matched({ type: "artist", name: "Low" });
+    const failing = await matched({ type: "place", name: "Kopp's" });
+    const pending = await addRec({ type: "book", name: "Pending book" });
+    const dismissed = await matched({ type: "artist", name: "Gone", status: "dismissed" });
+    const all = [album, unsure, failing, pending, dismissed];
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const about = vi.fn(async (r: { canonical_name: string }) => {
+      if (r.canonical_name === "Kopp's") throw Object.assign(new Error("t"), { name: "TimeoutError" });
+      return r.canonical_name === "Low" ? null : SAULT;
+    });
+    const enrich = vi.fn(async () => null) as unknown as Enrich;
+
+    expect(await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about })).toMatchObject({ abouts: 1 });
+    expect(about.mock.calls.map(([r]) => r.canonical_name).sort()).toEqual(["Kopp's", "Low", "Untitled (Rise)"]);
+    expect(about.mock.calls.find(([r]) => r.canonical_name === "Untitled (Rise)")![0]).toEqual({ type: "album",
+      canonical_name: "Untitled (Rise)", creator: "SAULT", year_or_address: null,
+      links: { musicbrainz: "https://musicbrainz.org/release-group/0b2d4ec0-0000-4000-8000-000000000001" } });
+    expect(await note(album)).toEqual({ about: SAULT.text, about_url: SAULT.url, looked: true, tries: 0 });
+    expect(await note(unsure)).toEqual({ about: null, about_url: null, looked: true, tries: 0 }); // unsure: nothing, ever
+    expect(await note(failing)).toEqual({ about: null, about_url: null, looked: false, tries: 1 }); // an error: try again
+    expect(err.mock.calls.flat().join(" ")).toMatch(/rec-lane about failed rec=\d+ error=TimeoutError/);
+    for (const id of [pending, dismissed]) expect(await note(id)).toEqual({ about: null, about_url: null, looked: false, tries: 0 });
+
+    for (let run = 2; run <= 3; run++) {
+      about.mockClear();
+      await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about });
+      expect(about.mock.calls.map(([r]) => r.canonical_name)).toEqual(["Kopp's"]); // only the failed one is asked again
+    }
+    expect(await note(failing)).toEqual({ about: null, about_url: null, looked: true, tries: 3 }); // 3 tries: done
+    about.mockClear();
+    await sweepRecLane({ enrich, pick, env: {}, onlyIds: all, about });
+    expect(about).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("caps Wikipedia lookups per run and stops on a 429; forgetting the tip deletes its note", async () => {
+    const { sweepRecLane, MAX_ABOUTS_PER_RUN } = await lane();
+    const batch: number[] = [];
+    for (let i = 0; i < MAX_ABOUTS_PER_RUN + 2; i++) batch.push(await matched({ type: "artist", name: `cap ${i}` }));
+    const about = vi.fn(async () => SAULT);
+    expect(await sweepRecLane({ env: {}, onlyIds: batch, about })).toMatchObject({ abouts: MAX_ABOUTS_PER_RUN });
+    expect(about).toHaveBeenCalledTimes(MAX_ABOUTS_PER_RUN);
+
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const busy = vi.fn(async () => { throw new ProviderHttpError("en.wikipedia.org", 429); });
+    const rest = [await matched({ type: "artist", name: "busy 1" }), await matched({ type: "artist", name: "busy 2" })];
+    await sweepRecLane({ env: {}, onlyIds: rest, about: busy });
+    expect(busy).toHaveBeenCalledTimes(1); // Wikipedia asked us to slow down: no more lookups this run
+    for (const id of rest) expect(await note(id)).toMatchObject({ looked: false, tries: 0 }); // and nothing counted
+    err.mockRestore();
+
+    // Forget's own row step (forget-rows.ts) deletes the recommendations row, and the note lives on that row.
+    const { readPlan, deleteRows } = await import("../../agent/lib/privacy/forget-rows");
+    const noted = batch.at(-1)!; // newest first: the oldest two wait for the next run
+    expect((await note(noted)).about).toBe(SAULT.text);
+    expect((await note(batch[0]!)).looked).toBe(false);
+    await deleteRows(c, await readPlan(c, { type: "rec", id: noted }, false));
+    expect((await c.query(`select count(*)::int as n from recommendations where id = $1`, [noted])).rows[0].n).toBe(0);
   });
 
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {
