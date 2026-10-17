@@ -15,7 +15,7 @@ type MusicType = keyof typeof ENTITY;
 const isMusic = (t: string): t is MusicType => t in ENTITY;
 
 // Per-process spacing only. BINDING for callers (decision 012): call MusicBrainz only from the cron sweep, one rec at a
-// time, under a Postgres advisory lock, stopping the sweep on the first 503; never from the webhook.
+// time, under the rec-lane lease (lane.ts; decision 013), stopping the sweep on the first 503; never from the webhook.
 let nextAt = 0;
 async function mbSlot(): Promise<void> {
   const now = Date.now();

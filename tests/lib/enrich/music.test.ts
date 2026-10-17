@@ -46,13 +46,20 @@ describe("enrichMusic", () => {
       throw Object.assign(new Error(`boom ${EXCERPT}`), { name: "TimeoutError" });
     });
     const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: null });
-    expect(m).toMatchObject({ mbid: "rg-1", imageUrl: null });
+    expect(m).toMatchObject({ mbid: "rg-1", imageUrl: null, artRetry: "rg-1" }); // the lane retries art later
     const line = logs.find((l) => l.includes("cover-art"))!;
     expect(line).toContain("rec=42");
     expect(line).toContain("mbid=rg-1");
     expect(line).toContain("TimeoutError");
     expect(logs.join("\n")).not.toContain("SECRET-TRANSCRIPT");
     expect(logs.join("\n")).not.toContain("boom");
+  });
+
+  it("a release group with no art (404) is final: no art retry", async () => {
+    const fetchImpl = vi.fn(async (u: string) => (u.startsWith("https://musicbrainz.org/") ? json(MB) : json({}, 404)));
+    const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: null });
+    expect(m).toMatchObject({ imageUrl: null });
+    expect(m!.artRetry).toBeUndefined();
   });
 
   it("propagates a MusicBrainz failure (the lane decides retry), without logging the excerpt", async () => {
