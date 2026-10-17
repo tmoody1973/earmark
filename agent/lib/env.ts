@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
   EARMARK_OWNER_CLERK_ID: z.string().optional(), // required by the web app only
   EARMARK_OWNER_FIRST_NAME: z.string().optional(), // garden owner: never credited as a recommender
+  NOTION_TOKEN: z.string().optional(), // needed only to trash a Notion page (pnpm forget) until M3 Notion sync
 });
 export type Env = z.infer<typeof EnvSchema>;
 
