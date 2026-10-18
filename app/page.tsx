@@ -68,7 +68,10 @@ export default async function Garden() {
                 Look back by who, where or when
               </Link>
             </div>
-            <Icon name="sprout" size={30} className="garden-mark" />
+            <div className="garden-head-side">
+              <Link className="garden-about" href="/about">About</Link>
+              <Icon name="sprout" size={30} className="garden-mark" />
+            </div>
           </header>
           <SearchField index={index} />
           <NewRow chips={view.newChips} />
