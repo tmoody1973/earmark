@@ -16,7 +16,15 @@ export function TabBar() {
   const path = usePathname();
   const current = (href: string) =>
     path === href ? "page" : href !== "/" && path.startsWith(`${href}/`) ? "true" : undefined;
+  // Home has its own search box; /search is the destination itself.
+  const showSearch = path !== "/" && path !== "/search" && !path.startsWith("/search/");
   return (
+    <>
+    {showSearch && (
+      <Link className="search-corner" href="/search" aria-label="Search what you heard">
+        <Icon name="search" size={22} />
+      </Link>
+    )}
     <nav className="tabbar" aria-label="Garden sections">
       <ul>
         {TABS.map((t) => (
@@ -29,5 +37,6 @@ export function TabBar() {
         ))}
       </ul>
     </nav>
+    </>
   );
 }
