@@ -112,12 +112,21 @@
 .tabbar a[aria-current] svg { stroke-width: 2; }
 .tabbar a { border-radius: 12px; }
 .tabbar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; } /* inset: the bar edge would clip it */
+/* Search from every tab: a corner icon, top-right (hidden on Home, which has its own box, and on /search). */
+.search-corner {
+  position: fixed; z-index: 9; top: calc(env(safe-area-inset-top) + 0.25rem); right: max(0.25rem, env(safe-area-inset-right));
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+  color: var(--ink-2); background: var(--ground); text-decoration: none;
+}
+.search-corner:hover { color: var(--ink); }
+.search-corner:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 body:has(.tabbar) { padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
 
 @media (min-width: 64rem) {
   .tabbar { inset: 0 auto 0 0; width: 5.5rem; padding: 2.25rem 0 0; background: var(--ground); border-top: 0; border-right: 1px solid var(--hairline); }
   .tabbar ul { display: flex; flex-direction: column; gap: 0.5rem; }
   .tabbar a { min-height: 4rem; }
+  .search-corner { top: 1.5rem; right: 1.5rem; }
   body:has(.tabbar) { padding-bottom: 0; padding-left: 5.5rem; }
   /* the row ends at the column edge, not the screen's: fade the cut chip, and pad the end so the last one clears it */
   .new-chips:not(.is-open) {
