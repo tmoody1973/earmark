@@ -46,7 +46,7 @@ export function parseAppleSearch(json: unknown, q: EnrichQuery): Candidate[] {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+export const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // Apple adds links to an identity MusicBrainz already settled, so no second Jev call: an Apple result is attached only
 // when its name and artist equal the match's (normalised). ponytail: exact-name equality; ISRC/UPC lookup

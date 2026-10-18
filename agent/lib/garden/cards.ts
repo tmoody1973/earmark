@@ -93,3 +93,12 @@ export function cardLink(links: unknown): string | null {
   const record = links as Record<string, unknown>;
   return toHttps(record.apple_music) ?? toHttps(record.url) ?? Object.values(record).map(toHttps).find(Boolean) ?? null;
 }
+
+/**
+ * Where tapping a card goes. The owner's cards (the ones with the "…" actions) open the tip's own page, /tips/<id>,
+ * which carries the external links; a card someone else reads (a shared Space) keeps the external link and never
+ * names a /tips id.
+ */
+export function recCardHref(card: { id: number; link: string | null }, owner: boolean): string | null {
+  return owner ? `/tips/${card.id}` : card.link;
+}
