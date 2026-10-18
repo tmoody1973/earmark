@@ -392,3 +392,15 @@
   .serendipity-item--rec .serendipity-actions { flex-direction: row; align-items: center; }
   .serendipity-item--idea { grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); gap: 1.25rem; }
 }
+
+/* "Which one?" (decision 048): a quiet dashed chip on the owner's card; the tip page holds the question. Never orange. */
+.rec-which {
+  align-self: flex-start;
+  margin: 0.5rem 0 0;
+  padding: 0.25rem 0.625rem;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink-2);
+}
