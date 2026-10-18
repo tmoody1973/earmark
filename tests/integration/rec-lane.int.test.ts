@@ -14,7 +14,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   const ids: number[] = [];
   // Summaries, Bee and embeddings are fakes in every sweep here unless a test passes its own (M3-T5).
   const quiet = { summarize: vi.fn(async () => null), beeSummary: vi.fn(async () => null), embedRecs: vi.fn(async () => 0),
-    about: vi.fn(async () => null) }; // Wikipedia notes (M3-T4b): a fake unless a test passes its own
+    about: vi.fn(async () => null), // Wikipedia notes (M3-T4b): a fake unless a test passes its own
+    extras: vi.fn(async () => ({})) }; // the tip page's extras (decision 044): never a real request here
   const lane = async () => {
     const m = await import("../../agent/lib/recs/lane");
     return { ...m, sweepRecLane: (d: Parameters<typeof m.sweepRecLane>[0] = {}) => m.sweepRecLane({ ...quiet, ...d }) };
@@ -429,6 +430,82 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(e).toMatchObject({ enrichment_status: "matched", canonical_name: "The Art of Code - Dylan Beattie",
       creator: "NDC Conferences", image_url: "https://i.ytimg.com/vi/6avJHaC3C2U/hqdefault.jpg" });
     expect(e.links).toEqual({ youtube: url, urls: ["https://example.com/x", url] });
+  });
+
+  // Decision 044: the tip page's extras, fetched once after the about step.
+  const extrasOf = async (id: number) => (await c.query(`select extras, extras_at is not null as looked, extras_tries as tries
+    from recommendations where id = $1`, [id])).rows[0];
+  const aboutDone = async (o: Parameters<typeof matched>[0] = {}) => {
+    const id = await matched(o);
+    await c.query(`update recommendations set about_at = now() where id = $1`, [id]);
+    return id;
+  };
+  const PREVIEW = { preview: { audioUrl: "https://audio-ssl.itunes.apple.com/p.m4a", appleUrl: "https://music.apple.com/us/album/x/1" } };
+
+  it("stores extras once for matched tips whose about step is done; others wait; errors retry up to 3 times", async () => {
+    const { sweepRecLane, MAX_EXTRAS_TRIES } = await lane();
+    const song = await aboutDone({ type: "song", name: "Movement 1", creator: "Floating Points" });
+    const nothing = await aboutDone({ type: "place", name: "Kopp's" });
+    const failing = await aboutDone({ type: "book", name: "Flaky book" });
+    const aboutPending = await matched({ type: "album", name: "No about yet" }); // the about step hasn't looked: wait
+    const pending = await addRec({ type: "song", name: "Pending song" });
+    const dismissed = await aboutDone({ type: "song", name: "Gone", status: "dismissed" });
+    const all = [song, nothing, failing, aboutPending, pending, dismissed];
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const extras = vi.fn(async (r: { canonical_name: string }) => {
+      if (r.canonical_name === "Flaky book") throw Object.assign(new Error("t"), { name: "TimeoutError" });
+      return r.canonical_name === "Movement 1" ? PREVIEW : {};
+    });
+
+    // the about step errors for this one, so its about_at stays null and the extras step must not look at it yet
+    const about = vi.fn(async (r: { canonical_name: string }) => {
+      if (r.canonical_name === "No about yet") throw Object.assign(new Error("t"), { name: "TimeoutError" });
+      return null;
+    });
+    expect(await sweepRecLane({ env: {}, onlyIds: all, extras, about })).toMatchObject({ extras: 1 });
+    expect(extras.mock.calls.map(([r]) => r.canonical_name).sort()).toEqual(["Flaky book", "Kopp's", "Movement 1"]);
+    expect(extras.mock.calls.find(([r]) => r.canonical_name === "Movement 1")![0]).toEqual({ type: "song",
+      canonical_name: "Movement 1", creator: "Floating Points", apple_music_id: null, links: {}, about_url: null });
+    expect(await extrasOf(song)).toEqual({ extras: PREVIEW, looked: true, tries: 0 });
+    expect(await extrasOf(nothing)).toEqual({ extras: {}, looked: true, tries: 0 }); // looked, nothing: never asked again
+    expect(await extrasOf(failing)).toEqual({ extras: null, looked: false, tries: 1 });
+    expect(err.mock.calls.flat().join(" ")).toMatch(/rec-lane extras failed rec=\d+ error=TimeoutError/);
+    for (const id of [aboutPending, pending, dismissed]) expect(await extrasOf(id)).toEqual({ extras: null, looked: false, tries: 0 });
+
+    const rest = all.filter((id) => id !== aboutPending); // (its about step would give up after 3 errors, then it's due)
+    for (let run = 2; run <= MAX_EXTRAS_TRIES; run++) {
+      extras.mockClear();
+      await sweepRecLane({ env: {}, onlyIds: rest, extras, about });
+      expect(extras.mock.calls.map(([r]) => r.canonical_name)).toEqual(["Flaky book"]); // only the failed one again
+    }
+    expect(await extrasOf(failing)).toEqual({ extras: null, looked: false, tries: MAX_EXTRAS_TRIES }); // 3 tries: done
+    extras.mockClear();
+    await sweepRecLane({ env: {}, onlyIds: rest, extras, about });
+    expect(extras).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("caps extras lookups per run and stops on a 503 without counting a try; forgetting the tip deletes its extras", async () => {
+    const { sweepRecLane, MAX_EXTRAS_PER_RUN } = await lane();
+    const batch: number[] = [];
+    for (let i = 0; i < MAX_EXTRAS_PER_RUN + 2; i++) batch.push(await aboutDone({ type: "song", name: `extras cap ${i}` }));
+    const extras = vi.fn(async () => PREVIEW);
+    expect(await sweepRecLane({ env: {}, onlyIds: batch, extras })).toMatchObject({ extras: MAX_EXTRAS_PER_RUN });
+    expect(extras).toHaveBeenCalledTimes(MAX_EXTRAS_PER_RUN);
+
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const busy = vi.fn(async () => { throw new ProviderHttpError("itunes.apple.com", 503); });
+    const rest = [await aboutDone({ type: "song", name: "busy 1" }), await aboutDone({ type: "song", name: "busy 2" })];
+    await sweepRecLane({ env: {}, onlyIds: rest, extras: busy });
+    expect(busy).toHaveBeenCalledTimes(1); // the service asked us to slow down: no more lookups this run
+    for (const id of rest) expect(await extrasOf(id)).toEqual({ extras: null, looked: false, tries: 0 }); // nothing counted
+    err.mockRestore();
+
+    const { readPlan, deleteRows } = await import("../../agent/lib/privacy/forget-rows");
+    const stored = batch.at(-1)!; // newest first
+    expect((await extrasOf(stored)).extras).toEqual(PREVIEW);
+    await deleteRows(c, await readPlan(c, { type: "rec", id: stored }, false));
+    expect((await c.query(`select count(*)::int as n from recommendations where id = $1`, [stored])).rows[0].n).toBe(0);
   });
 
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {
