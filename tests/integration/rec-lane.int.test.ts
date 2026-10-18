@@ -64,7 +64,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const enrich = vi.fn(viaPick((r) => (r.type === "book" ? match() : null)));
 
     const res = await sweepRecLane({ enrich, pick, env: {}, onlyIds: ids });
-    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, secondLook: 1, jevCalls: 2, waitingForKeys: ["place", "film_tv"] });
+    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, secondLook: 1, jevCalls: 2, waitingForKeys: ["film_tv"] });
     expect(enrich.mock.calls.map(([r]) => r.id).sort()).toEqual([book, maybe].sort());
 
     const b = await row(book);
@@ -441,5 +441,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(Number((await row(id)).pending_for_min)).toBeLessThan(1); // the give-up clock restarts
     await c.query(`update recommendations set enrichment_status = 'matched' where id = $1`, [id]);
     expect(await runRecLane(id)).toEqual({ queued: false });
+  });
+
+  it("hands the tip's said location (decision 046) to the lookup", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await addRec({ type: "place" });
+    await c.query(`update recommendations set said_lat = 41.88, said_lng = -87.63 where id = $1`, [id]);
+    const enrich = vi.fn(async (_r: RecToEnrich) => null);
+    await sweepRecLane({ enrich: enrich as unknown as Enrich, pick, env: {}, onlyIds: [id] });
+    expect(enrich.mock.calls[0]![0]).toMatchObject({ id, saidLat: 41.88, saidLng: -87.63 });
   });
 });

@@ -123,6 +123,13 @@ function dedupe(planned: Planned[], earmarked: readonly string[]): Planned[] {
   return out;
 }
 
+// Decision 046: a rec heard in this conversation remembers where the conversation was (Bee primary_location), so its
+// place lookup can lean there. Ideas don't need it. Pure; no location in, items out unchanged.
+export function withSaidLocation(items: SaveItem[], loc: Conversation["primary_location"]): SaveItem[] {
+  if (!loc) return items;
+  return items.map((it) => (it.kind === "rec" ? { ...it, saidLat: loc.latitude, saidLng: loc.longitude } : it));
+}
+
 // Earmarks already saved from this conversation (a released claim being retried) are skipped before any model call.
 // A model outage throws (run released, retried); any other failure on one earmark saves it as a raw needs_review rec (see planDeliberateItem).
 // items: what to save now. earmarkedNames: rec names of ALL earmarks of this conversation, including ones saved on an
@@ -230,7 +237,7 @@ export async function processConversation(
     const ambient = dedupe(outcomes.flatMap((o) => (o.planned ? [o.planned] : [])), [...earmarkedNames, ...voiceNotes.map((v) => v.name)]);
     const items = notSavedByVoiceNote(id, [...deliberate, ...ambient.map((p) => p.item)], voiceNotes);
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
-    const saveItems = await planIdeaClusters(items, d.compost, { span });
+    const saveItems = withSaidLocation(await planIdeaClusters(items, d.compost, { span }), conversation.primary_location);
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
     // All model calls are done; one transaction saves every item, the counts and done, or nothing.
     const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);

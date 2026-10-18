@@ -46,10 +46,10 @@ const ideas = () => committed.filter((q) => /insert into idea_clusters/.test(q.s
 const lines = (n: number, text = "you have to try Ardent, Ann says") =>
   Array.from({ length: n }, (_, i) => ({ text: `${text} ${i}`, speaker: "Unknown", spoken_at: 1760600000000 + i }));
 
-function bee(state = "COMPLETED", utterances = lines(4), summary: string | null = null): BeeClient {
+function bee(state = "COMPLETED", utterances = lines(4), summary: string | null = null, primary_location: unknown = null): BeeClient {
   return {
     getConversation: vi.fn(async () => ({
-      conversation: { id: 42, start_time: 1760600000000, state, summary, transcriptions: [{ realtime: false, utterances }] },
+      conversation: { id: 42, start_time: 1760600000000, state, summary, primary_location, transcriptions: [{ realtime: false, utterances }] },
     })),
   } as unknown as BeeClient;
 }
@@ -94,6 +94,19 @@ describe("processConversation", () => {
     expect(q.sql).toContain("insert into recommenders");
     expect(q.params).toEqual(expect.arrayContaining(["Ann", "place", "Ardent", "second_person", "new", "ambient", 42, 0.95]));
     expect(committed.some((c) => /update processed_conversations/.test(c.sql) && c.params.includes(1))).toBe(true);
+  });
+
+  it("stores where the conversation happened on the rec as said_lat/said_lng", async () => {
+    const loc = { address: null, latitude: 43.0389, longitude: -87.9065 };
+    await processConversation(42, { ...base, bee: bee("COMPLETED", lines(4), null, loc), triage: tri({}) });
+    expect(recs()[0]!.sql).toContain("said_lat");
+    expect(recs()[0]!.params).toEqual(expect.arrayContaining([43.0389, -87.9065]));
+  });
+
+  it("leaves said_lat/said_lng null when Bee has no location", async () => {
+    await processConversation(42, { ...base, bee: bee(), triage: tri({}) });
+    expect(recs()[0]!.params).not.toContain(undefined);
+    expect(recs()[0]!.params.filter((p) => typeof p === "number" && p > 40 && p < 44 && !Number.isInteger(p))).toEqual([]);
   });
 
   it("stores a mid-confidence rec as needs_review", async () => {
