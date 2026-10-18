@@ -7,6 +7,7 @@ import { createBeeClient } from "../bee/client";
 import { db } from "../db";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
+import { discogsAccess } from "../enrich/discogs";
 import { fetchExtras, type ExtrasRec, type RecExtras } from "../enrich/extras";
 import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
@@ -98,7 +99,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
-    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec),
+    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env)),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -301,7 +302,11 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
     try {
       const extras = await d.extras({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
         apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
-      const saved = await db()`update recommendations set extras = ${JSON.stringify(extras)}::jsonb, extras_at = now()
+      // Merged, never replaced (the refresh script may have added extras.discogs already); links.discogs follows it.
+      const saved = await db()`update recommendations set extras = coalesce(extras, '{}'::jsonb) || ${JSON.stringify(extras)}::jsonb,
+          links = case when ${extras.discogs?.url ?? null}::text is null then links
+            else coalesce(links, '{}'::jsonb) || jsonb_build_object('discogs', ${extras.discogs?.url ?? null}::text) end,
+          extras_at = now()
         where id = ${id} and extras_at is null returning id`;
       if (saved.length > 0 && Object.keys(extras).length > 0) r.extras++; // not a tip forgotten mid-run
     } catch (err) {

@@ -15,6 +15,7 @@
 //  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
+import { fetchDiscogsSoft, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
 import { getJson, USER_AGENT } from "./types";
 import { youtubeVideoUrl } from "./youtube";
 
@@ -32,6 +33,7 @@ export interface RecExtras {
   videoId?: string;
   book?: { description: string | null; firstPublished: string | null; pages: number | null };
   wiki?: { text: string; url: string };
+  discogs?: DiscogsExtras; // albums, songs, artists (decision 047); its url is also copied to links.discogs
 }
 export interface ExtrasRec {
   type: RecType; canonical_name: string; creator: string | null; apple_music_id: string | null; links: unknown; about_url: string | null;
@@ -169,6 +171,8 @@ export function readExtras(raw: unknown): RecExtras {
     if (book.description || book.firstPublished || book.pages) out.book = book;
   }
   if (typeof x.wiki?.text === "string" && typeof x.wiki.url === "string" && x.wiki.url.startsWith(WIKI)) out.wiki = { text: x.wiki.text, url: x.wiki.url };
+  const discogs = readDiscogs(x.discogs);
+  if (discogs) out.discogs = discogs;
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -269,8 +273,12 @@ async function wikipedia(aboutUrl: string | null, fetchImpl: typeof fetch): Prom
   return summary === null ? null : wikiExtract(summary, aboutUrl!);
 }
 
-/** One matched tip → its extras ({} when there is nothing). A 429/5xx or a timeout throws, for the lane to handle. */
-export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch): Promise<RecExtras> {
+/**
+ * One matched tip → its extras ({} when there is nothing). A 429/5xx or a timeout throws, for the lane to handle.
+ * Discogs (decision 047) runs last and only when the caller passes a key (never read from process.env here). Its 429 stops
+ * the step before anything is saved; its other failures are logged and leave the other extras intact.
+ */
+export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = null): Promise<RecExtras> {
   const out: RecExtras = {};
   if (rec.type === "song" || rec.type === "album") {
     const preview = await itunesPreview(rec, rec.type, fetchImpl);
@@ -287,5 +295,12 @@ export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetc
   }
   const wiki = await wikipedia(rec.about_url, fetchImpl);
   if (wiki) out.wiki = wiki;
+  if (rec.type === "album" || rec.type === "song" || rec.type === "artist") {
+    if (!discogs) logDiscogsSkippedOnce();
+    else {
+      const found = await fetchDiscogsSoft(rec, discogs, fetchImpl);
+      if (found) out.discogs = found;
+    }
+  }
   return out;
 }
