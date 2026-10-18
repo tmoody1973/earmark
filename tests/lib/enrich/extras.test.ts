@@ -4,6 +4,7 @@ import {
   youtubeId, type ExtrasRec,
 } from "../../../agent/lib/enrich/extras";
 import { ProviderHttpError } from "../../../agent/lib/enrich/types";
+import { isBackOffSignal } from "../../../agent/lib/recs/lane";
 
 // Shapes recorded from real keyless calls (2026-10-18), trimmed: iTunes search/lookup, Song Exploder's RSS, Open Library
 // work + search, Wikipedia page summary. Tests never call the network.
@@ -195,5 +196,70 @@ describe("fetchExtras (fetch mocked)", () => {
   it("a 429 or a 5xx throws for the lane (which backs off or counts a try)", async () => {
     const f = vi.fn(async () => json({}, 429));
     await expect(fetchExtras(rec({ apple_music_id: "1" }), f as never)).rejects.toBeInstanceOf(ProviderHttpError);
+  });
+});
+
+// Review round 1 (PR #40): a feed is someone else's server, not a shared service; and it must stay a public https host.
+describe("podcast feeds: never a back-off, never a private host", () => {
+  const podcast = rec({ type: "podcast", canonical_name: "Song Exploder", creator: null,
+    links: { apple_podcasts: "https://podcasts.apple.com/us/podcast/song-exploder/id788236947" } });
+  const lookup = (feedUrl: string) => json({ results: [{ kind: "podcast", collectionName: "Song Exploder", feedUrl }] });
+  const feedFetch = (feedUrl: string, feed: (url: string) => Response) =>
+    vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => (url.startsWith("https://itunes.apple.com/") ? lookup(feedUrl) : feed(url)));
+  const redirect = (to: string) => new Response(null, { status: 302, headers: { location: to } });
+  const urls = (f: ReturnType<typeof feedFetch>) => f.mock.calls.map(([u]) => u);
+
+  it("a feed answering 503 throws an error that is NOT a back-off signal (it counts a try)", async () => {
+    const f = feedFetch("https://feed.example.com/rss", () => new Response("busy", { status: 503 }));
+    const err = await fetchExtras(podcast, f as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ProviderHttpError);
+    expect(isBackOffSignal(err)).toBe(false);
+  });
+  it("refuses a plain-http feed without fetching it", async () => {
+    const f = feedFetch("http://feed.example.com/rss", () => new Response(RSS));
+    expect(await fetchExtras(podcast, f as never)).toEqual({});
+    expect(urls(f)).toHaveLength(1); // the iTunes lookup only
+  });
+  it.each(["https://127.0.0.1/rss", "https://10.0.0.5/rss", "https://[::1]/rss", "https://2130706433/rss", "https://localhost/rss",
+    "https://printer.local/rss", "https://intranet/rss"])("refuses %s without fetching it", async (feedUrl) => {
+    const f = feedFetch(feedUrl, () => new Response(RSS));
+    expect(await fetchExtras(podcast, f as never)).toEqual({});
+    expect(urls(f)).toHaveLength(1);
+  });
+  it("follows a redirect to a public https host, re-checking it, and asks fetch not to follow redirects itself", async () => {
+    const f = feedFetch("https://feed.example.com/rss",
+      (url) => (url === "https://feed.example.com/rss" ? redirect("https://cdn.example.org/rss") : new Response(RSS)));
+    expect((await fetchExtras(podcast, f as never)).episodes).toHaveLength(3);
+    expect(urls(f).slice(1)).toEqual(["https://feed.example.com/rss", "https://cdn.example.org/rss"]);
+    expect(f.mock.calls[1]![1]).toMatchObject({ redirect: "manual" });
+  });
+  it("refuses a redirect to a private host or to http, and gives up after 3 redirects", async () => {
+    for (const to of ["https://169.254.169.254/latest", "https://192.168.1.1/rss", "https://172.16.0.1/rss", "http://cdn.example.org/rss"]) {
+      const f = feedFetch("https://feed.example.com/rss", (url) => (url === "https://feed.example.com/rss" ? redirect(to) : new Response(RSS)));
+      expect(await fetchExtras(podcast, f as never)).toEqual({});
+      expect(urls(f).slice(1)).toEqual(["https://feed.example.com/rss"]); // the refused hop is never fetched
+    }
+    let n = 0;
+    const loop = feedFetch("https://feed.example.com/rss", () => redirect(`https://feed.example.com/rss${++n}`));
+    expect(await fetchExtras(podcast, loop as never)).toEqual({});
+    expect(urls(loop).slice(1)).toHaveLength(4); // the feed plus 3 redirects, then no more
+  });
+});
+
+describe("iTunes rate limiting", () => {
+  it("an iTunes 403 is a back-off signal (stop the step, no try counted); another host's 403 is not", async () => {
+    const f = vi.fn(async () => json({}, 403));
+    const err = await fetchExtras(rec({ apple_music_id: "1" }), f as never).catch((e: unknown) => e);
+    expect(isBackOffSignal(err)).toBe(true);
+    expect(isBackOffSignal(new ProviderHttpError("openlibrary.org", 403))).toBe(false);
+  });
+});
+
+describe("readExtras dates", () => {
+  it("drops an episode whose date isn't a date (the page formats it)", () => {
+    expect(readExtras({ episodes: [{ title: "Bad", date: "not a date", audioUrl: "https://a/b.mp3" },
+      { title: "Ok", date: "2026-10-14T19:00:00.000Z", audioUrl: "https://a/c.mp3" }] }).episodes)
+      .toEqual([{ title: "Ok", date: "2026-10-14T19:00:00.000Z", audioUrl: "https://a/c.mp3" }]);
   });
 });

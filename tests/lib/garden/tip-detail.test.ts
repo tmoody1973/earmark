@@ -20,6 +20,11 @@ describe("tipLinks (the tip page's link buttons)", () => {
       .toEqual([{ label: "Watch · YouTube", url: "https://www.youtube.com/watch?v=6avJHaC3C2U" }, { label: "example.com", url: "https://www.example.com/a" }]);
     expect(tipLinks("place", { google_maps: "https://maps.google.com/?cid=1" })).toEqual([{ label: "Map · Google Maps", url: "https://maps.google.com/?cid=1" }]);
   });
+  it("a malformed stored link (email capture keeps trailing punctuation) never throws: unparseable dropped, odd kept", () => {
+    expect(() => tipLinks("album", { url: "https://music.apple.com/x]" })).not.toThrow();
+    expect(tipLinks("album", { url: "https://music.apple.com/x]" })).toEqual([{ label: "Listen · music.apple.com", url: "https://music.apple.com/x]" }]);
+    expect(tipLinks("album", { urls: ["https://foo.com]", "https://ok.example/a"] })).toEqual([{ label: "ok.example", url: "https://ok.example/a" }]);
+  });
   it("never a non-web link", () => {
     expect(tipLinks("other", { url: "javascript:alert(1)", n: 4 })).toEqual([]);
     expect(tipLinks("other", null)).toEqual([]);

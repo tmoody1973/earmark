@@ -28,7 +28,9 @@ const SERVICE: Record<string, string> = {
 const VERB: Record<RecType, string> = {
   album: "Listen", song: "Listen", artist: "Listen", podcast: "Listen", book: "Read", film_tv: "Watch", video: "Watch", place: "Map", other: "Open",
 };
-const https = (v: unknown) => (typeof v === "string" && /^https?:\/\/\S+$/i.test(v) ? v.replace(/^http:/i, "https:") : null);
+// Parseable too: an emailed link can keep trailing punctuation ("https://foo.com]"), and host() must never throw.
+const https = (v: unknown) =>
+  (typeof v === "string" && /^https?:\/\/\S+$/i.test(v) && URL.canParse(v) ? v.replace(/^http:/i, "https:") : null);
 const host = (url: string) => new URL(url).hostname.replace(/^www\./, "");
 
 /** The page's link buttons: the card's own link first ("Listen · Apple Music"), then the rest by service, each once. Pure. */
