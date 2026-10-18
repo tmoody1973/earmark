@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/agent/lib/db";
 import { isOwner } from "@/agent/lib/owner";
 import { createGardener, runNow, setGardenerEnabled, setRunStatus } from "./actions";
+import { Markdown } from "./markdown";
 import "./gardeners.css";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export default async function GardenersPage() {
         {runs.map((r) => (
           <article key={r.id} className="g-run">
             <h3>{r.name} <span className="g-meta">{when(r.created_at)} · {r.status}</span></h3>
-            <pre>{r.output_md}</pre>
+            <Markdown text={r.output_md} />
             {r.status === "draft" && (
               <div className="g-actions">
                 <form action={setRunStatus.bind(null, Number(r.id), "approved")}>
