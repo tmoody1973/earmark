@@ -30,6 +30,23 @@ describe("enrichRec", () => {
     expect(String(fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/musicbrainz\.org\/ws\/2\/release-group\?/);
   });
 
+  describe("place location bias", () => {
+    const viewbox = async (r: Partial<RecToEnrich>, env: Record<string, string> = {}) => {
+      const fetchImpl = vi.fn<(u: string) => Promise<Response>>(async () => json([]));
+      await enrichRec(rec({ type: "place", ...r }), { env, pick: pickFirst, fetchImpl: fetchImpl as never });
+      return new URL(String(fetchImpl.mock.calls[0]![0])).searchParams.get("viewbox");
+    };
+    const center = (vb: string) => { const [l, t, r, b] = vb.split(",").map(Number); return [(t + b) / 2, (l + r) / 2].map((n) => Math.round(n * 10) / 10); };
+    it("uses the rounded said location over the rec's own and the home default", async () => {
+      const vb = await viewbox({ saidLat: 41.8781, saidLng: -87.6298, lat: 43.1, lng: -88.1 }, { EARMARK_HOME_LAT: "43.04", EARMARK_HOME_LNG: "-87.91" });
+      expect(center(vb!)).toEqual([41.9, -87.6]);
+    });
+    it("falls back to the home default, and to no bias when unset", async () => {
+      expect(center((await viewbox({}, { EARMARK_HOME_LAT: "43.04", EARMARK_HOME_LNG: "-87.91" }))!)).toEqual([43, -87.9]);
+      expect(await viewbox({})).toBeNull();
+    });
+  });
+
   it("refuses a type whose keyed provider is not configured (the sweep never selects one)", async () => {
     await expect(enrichRec(rec({ type: "film_tv" }), { env: {}, pick: pickFirst })).rejects.toThrow(/film_tv/);
   });
