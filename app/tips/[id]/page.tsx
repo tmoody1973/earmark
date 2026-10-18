@@ -181,6 +181,14 @@ export default async function TipPage({ params }: Props) {
         )}
 
         {extras.discogs && <Credits discogs={extras.discogs} />}
+
+        {/* TMDB's terms: credit the source and say it isn't endorsed, wherever its film/TV data shows. */}
+        {card.type === "film_tv" && (
+          <p className="idea-quiet tip-source">
+            Film and TV details from <a href="https://www.themoviedb.org/" rel="noopener noreferrer">TMDB</a>. This product
+            uses the TMDB API but is not endorsed or certified by TMDB.
+          </p>
+        )}
       </main>
     </>
   );

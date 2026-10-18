@@ -94,3 +94,6 @@
   .tip-head h1 { font-size: 2.75rem; }
   .tip-art { max-width: 26rem; }
 }
+
+.tip-source { margin-top: 2rem; font-size: 0.8125rem; }
+.tip-source a { color: var(--ink-2); text-underline-offset: 2px; }
