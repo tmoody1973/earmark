@@ -22,6 +22,7 @@
     "forget": "tsx --env-file=.env.local scripts/forget.ts",
     "refresh:music-addons": "tsx --env-file=.env.local scripts/refresh-music-addons.ts",
     "backfill:said-location": "tsx --env-file=.env.local scripts/backfill-said-location.ts",
+    "requeue:unmatched": "tsx --env-file=.env.local scripts/requeue-unmatched.ts",
     "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test",
     "eval:sample": "tsx --env-file=.env.local scripts/eval-sample.ts",
     "label": "tsx --env-file=.env.local scripts/label.ts",
