@@ -1,5 +1,6 @@
 import type { RecType } from "../types";
 import { appleAccess } from "./apple-music";
+import { biasFor } from "./bias";
 import { pickMatch } from "./match";
 import { enrichMusic } from "./music";
 import { providerFor } from "./registry";
@@ -14,6 +15,8 @@ export interface RecToEnrich {
   excerpt: string;
   lat: number | null;
   lng: number | null;
+  saidLat?: number | null; // where the conversation happened (Bee location); see bias.ts
+  saidLng?: number | null;
   links?: unknown; // read for a video tip's YouTube URL
 }
 export interface EnrichDeps { env?: Record<string, string | undefined>; pick?: typeof pickMatch; fetchImpl?: typeof fetch }
@@ -27,7 +30,8 @@ export async function enrichRec(rec: RecToEnrich, deps: EnrichDeps = {}): Promis
   const env = deps.env ?? process.env;
   const pick = deps.pick ?? pickMatch;
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const query: EnrichQuery = { type: rec.type, name: rec.canonical_name, creator: rec.creator, lat: rec.lat, lng: rec.lng };
+  const bias = biasFor({ saidLat: rec.saidLat, saidLng: rec.saidLng, lat: rec.lat, lng: rec.lng }, env);
+  const query: EnrichQuery = { type: rec.type, name: rec.canonical_name, creator: rec.creator, lat: bias?.lat ?? null, lng: bias?.lng ?? null };
   const described = rec.creator ? `${rec.canonical_name} by ${rec.creator}` : rec.canonical_name;
   if (MUSIC.has(rec.type)) {
     return enrichMusic({ recId: rec.id, query, described, excerpt: rec.excerpt }, { fetchImpl, pick, apple: appleAccess(env) });
