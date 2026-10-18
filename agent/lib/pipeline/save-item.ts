@@ -16,6 +16,9 @@ interface Common {
   // Deliberate "Earmark that" said inside a conversation: its triggered utterance's key (deliberate.ts). Unique per
   // conversation in the database, so a re-run can never save it twice. Null for everything else.
   deliberateKey?: string | null;
+  // Where the conversation happened (Bee primary_location), recs only; null/absent when Bee had none (decision 046).
+  saidLat?: number | null;
+  saidLng?: number | null;
   spokenAt: Date;
   confidence: number;
   source: Source;
@@ -154,9 +157,9 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
   if (!name) {
     return [
       txn`insert into recommendations (type, raw_text, canonical_name, creator, recommender_id, attribution_source, excerpt,
-                                       bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence)
+                                       bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence, said_lat, said_lng)
           values (${item.recType}, ${excerpt}, ${ex.canonicalName}, ${ex.creator}, null, 'none', ${excerpt},
-                  ${item.beeConversationId}, ${item.beeJournalId}, ${item.deliberateKey ?? null}, ${item.spokenAt}, ${item.source}, ${status}, ${item.confidence})
+                  ${item.beeConversationId}, ${item.beeJournalId}, ${item.deliberateKey ?? null}, ${item.spokenAt}, ${item.source}, ${status}, ${item.confidence}, ${item.saidLat ?? null}, ${item.saidLng ?? null})
           returning id`,
     ];
   }
@@ -167,9 +170,10 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
           returning id
         )
         insert into recommendations (type, raw_text, canonical_name, creator, recommender_id, attribution_source, excerpt,
-                                     bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence)
+                                     bee_conversation_id, bee_journal_id, deliberate_key, said_at, source, status, confidence, said_lat, said_lng)
         select ${item.recType}::text, ${excerpt}::text, ${ex.canonicalName}::text, ${ex.creator}::text, r.id, ${attribution.source}::text, ${excerpt}::text,
-               ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${item.spokenAt}::timestamptz, ${item.source}::text, ${status}::text, ${item.confidence}::real
+               ${item.beeConversationId}::bigint, ${item.beeJournalId}::text, ${item.deliberateKey ?? null}::text, ${item.spokenAt}::timestamptz, ${item.source}::text, ${status}::text, ${item.confidence}::real,
+               ${item.saidLat ?? null}::float8, ${item.saidLng ?? null}::float8
         from r
         returning id`,
   ];
