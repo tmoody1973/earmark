@@ -8,6 +8,7 @@ import type { Todo } from "../bee/client";
 import { publicImageUrl } from "../capture/thumbs";
 import { db } from "../db";
 import { getEnv, ownerFirstName, requireEnv } from "../env";
+import { withLink } from "../sync/todo-text";
 import { credit } from "../garden/queries";
 import { newShareToken } from "../privacy/tokens";
 import { chicagoLocalToUtc as timeChicagoLocalToUtc } from "../time";
@@ -84,10 +85,10 @@ export async function approveReceipt(
 
 export async function deferReceipt(receiptId: number, alarmAt: Date, now: Date = new Date()): Promise<void> {
   const [r] = (await db()`
-    select rr.id, rr.bee_todo_id, r.canonical_name, r.recommender_id, rc.first_name
+    select rr.id, rr.bee_todo_id, rr.recommendation_id, r.canonical_name, r.recommender_id, rc.first_name
     from rec_receipts rr join recommendations r on r.id = rr.recommendation_id
     left join recommenders rc on rc.id = r.recommender_id where rr.id = ${receiptId}`) as {
-    canonical_name: string; bee_todo_id: number | string | null; recommender_id: number | string | null; first_name: string | null;
+    recommendation_id: number | string; canonical_name: string; bee_todo_id: number | string | null; recommender_id: number | string | null; first_name: string | null;
   }[];
   const who = r && credit({ recommender_id: r.recommender_id as never, first_name: r.first_name });
   if (!r || !who) throw new ReceiptError(`receipt ${receiptId} has no recommender`);
@@ -95,7 +96,7 @@ export async function deferReceipt(receiptId: number, alarmAt: Date, now: Date =
   const result = await createEarmarkTodo({
     entityType: "rec_receipt",
     entityId: receiptId,
-    text: `Earmark · Thank ${who.firstName} for the ${r.canonical_name} tip`,
+    text: withLink(`Earmark · Thank ${who.firstName} for the ${r.canonical_name} tip`, "receipts", Number(r.recommendation_id)),
     alarmAt: alarmAt.toISOString(),
   });
   if ("skipped" in result) throw new ReceiptError(SKIPPED[result.skipped]);

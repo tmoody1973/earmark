@@ -100,13 +100,13 @@ describe("approveReceipt", () => {
 });
 
 describe("deferReceipt", () => {
-  const row = { id: 11, canonical_name: "Ramen Kyuu", recommender_id: 7, first_name: "Ann", bee_todo_id: null };
+  const row = { id: 11, recommendation_id: 4, canonical_name: "Ramen Kyuu", recommender_id: 7, first_name: "Ann", bee_todo_id: null };
   it("creates an Earmark todo with the alarm and stores its id", async () => {
     sql.mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
     createTodo.mockResolvedValueOnce({ todoId: 501 });
     await deferReceipt(11, new Date("2026-10-20T23:00:00Z"), NOW);
     expect(createTodo).toHaveBeenCalledWith({
-      entityType: "rec_receipt", entityId: 11, text: "Earmark · Thank Ann for the Ramen Kyuu tip", alarmAt: "2026-10-20T23:00:00.000Z",
+      entityType: "rec_receipt", entityId: 11, text: "Earmark · Thank Ann for the Ramen Kyuu tip https://earmark.test/receipts/4", alarmAt: "2026-10-20T23:00:00.000Z",
     });
     expect(sql.mock.calls[1].slice(1)).toContain(501);
   });
