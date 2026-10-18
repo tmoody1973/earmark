@@ -28,6 +28,7 @@ const EnvSchema = z.object({
   EARMARK_FEED_TOKEN: blankIsUnset(z.string().min(32).optional()), // path secret of /feed/<token>; the route 404s while unset
   // MCP server (M5-T9): service-level OAuth client credentials. Blank is unset; the MCP routes fail closed (503) until all four are set.
   EARMARK_PUBLIC_BASE_URL: blankIsUnset(z.string().url().optional()), // production origin; token issuer + MCP resource base
+  NOMINATIM_EMAIL: blankIsUnset(z.string().email().optional()), // optional contact sent to OSM Nominatim (keyless place lookup, decision 044)
   EARMARK_MCP_CLIENT_ID: blankIsUnset(z.string().min(8).optional()),
   EARMARK_MCP_CLIENT_SECRET: blankIsUnset(z.string().min(32).optional()),
   EARMARK_MCP_JWT_SECRET: blankIsUnset(z.string().min(32).optional()),
