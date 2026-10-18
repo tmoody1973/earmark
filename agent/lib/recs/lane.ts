@@ -37,7 +37,7 @@ export const MAX_EMBEDS_PER_RUN = 20;
 // M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary; music adds one Wikidata ASK).
 export const MAX_ABOUTS_PER_RUN = 10;
 export const MAX_ABOUT_TRIES = 3; // errors/timeouts (not 503/429): then done, no note
-// Decision 044. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia).
+// Decision 045. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia).
 export const MAX_EXTRAS_PER_RUN = 10;
 export const MAX_EXTRAS_TRIES = 3; // errors/timeouts (not 503/429): then the lane stops asking (extras_at stays null)
 
@@ -282,7 +282,7 @@ async function writeAbouts(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
   }
 }
 
-// The tip page's extras (decision 044): matched, visible tips (maybes too) whose about step is done, so a Wikipedia
+// The tip page's extras (decision 045): matched, visible tips (maybes too) whose about step is done, so a Wikipedia
 // about_url is known; least-tried first, then newest. A result, even {} (nothing to add), is final (extras_at). A thrown
 // error or timeout counts a try; at MAX_EXTRAS_TRIES the tip is no longer asked. A 503/429 changes nothing and stops
 // this step for the run. Never a model call.

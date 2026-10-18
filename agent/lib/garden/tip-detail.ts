@@ -5,7 +5,7 @@ import type { RecType } from "../types";
 import { cardLink } from "./cards";
 import { toRecCard, type GardenRecRow, type RecCardData } from "./queries";
 
-// The tip page (/tips/[id], decision 044): owner-only, so unlike every shelf path it reads the excerpt. Public pages
+// The tip page (/tips/[id], decision 045): owner-only, so unlike every shelf path it reads the excerpt. Public pages
 // (/s/, /r/) never call this.
 
 export interface TipLink { label: string; url: string }

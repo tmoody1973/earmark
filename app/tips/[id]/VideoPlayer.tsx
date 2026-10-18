@@ -1,7 +1,7 @@
 "use client";
 import { useState, type ReactNode } from "react";
 
-// Nothing from YouTube loads with the page (decision 044): the stored thumbnail (children, the card's own artwork) and a
+// Nothing from YouTube loads with the page (decision 045): the stored thumbnail (children, the card's own artwork) and a
 // Play button. Only a tap puts in the privacy-enhanced (youtube-nocookie.com) player, which then starts playing.
 export function VideoPlayer({ videoId, title, children }: { videoId: string; title: string; children: ReactNode }) {
   const [playing, setPlaying] = useState(false);

@@ -1,4 +1,4 @@
-/* The tip page (/tips/[id], decision 044). Tokens: app/globals.css. Reuses the idea page's panels and pill links
+/* The tip page (/tips/[id], decision 045). Tokens: app/globals.css. Reuses the idea page's panels and pill links
    (ideas.css) and the card's type line, tag, Thank and "…" (cards.css). Never orange. */
 
 .tip-page { max-width: 44rem; }
