@@ -1,4 +1,4 @@
-# 044 — Each tip gets its own page, and its "extras" are fetched once and stored, never on page load
+# 045 — Each tip gets its own page, and its "extras" are fetched once and stored, never on page load
 
 **Decision:** Tapping a tip card on Tarik's own pages opens a new owner-only page, /tips/<id>, with the big artwork, what was said and by whom, its links, its Spaces and ideas, and a few "extras" (a 30-second song preview, a podcast's latest three episodes, a playable video, a book's description, a longer Wikipedia passage). The extras are looked up once by the background enrichment sweep (the "rec lane", which already fills in cover art and the one-line Wikipedia note) and saved on the tip. Opening the page never contacts a third-party service.
 

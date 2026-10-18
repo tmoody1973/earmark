@@ -43,7 +43,7 @@ const saidOn = (iso: string) =>
 const published = (b: { firstPublished: string | null; pages: number | null }) =>
   [b.firstPublished && `First published ${b.firstPublished}`, b.pages && `${b.pages} pages`].filter(Boolean).join(" · ");
 
-// One tip, on its own page (decision 044). Everything here was stored before the page loaded: the extras come from the
+// One tip, on its own page (decision 045). Everything here was stored before the page loaded: the extras come from the
 // rec lane, and the players load nothing until tapped (audio preload="none"; YouTube only after Play).
 export default async function TipPage({ params }: Props) {
   const tip = await loadTip((await params).id);

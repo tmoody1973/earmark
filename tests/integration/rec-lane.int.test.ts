@@ -15,7 +15,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
   // Summaries, Bee and embeddings are fakes in every sweep here unless a test passes its own (M3-T5).
   const quiet = { summarize: vi.fn(async () => null), beeSummary: vi.fn(async () => null), embedRecs: vi.fn(async () => 0),
     about: vi.fn(async () => null), // Wikipedia notes (M3-T4b): a fake unless a test passes its own
-    extras: vi.fn(async () => ({})) }; // the tip page's extras (decision 044): never a real request here
+    extras: vi.fn(async () => ({})) }; // the tip page's extras (decision 045): never a real request here
   const lane = async () => {
     const m = await import("../../agent/lib/recs/lane");
     return { ...m, sweepRecLane: (d: Parameters<typeof m.sweepRecLane>[0] = {}) => m.sweepRecLane({ ...quiet, ...d }) };
@@ -432,7 +432,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(e.links).toEqual({ youtube: url, urls: ["https://example.com/x", url] });
   });
 
-  // Decision 044: the tip page's extras, fetched once after the about step.
+  // Decision 045: the tip page's extras, fetched once after the about step.
   const extrasOf = async (id: number) => (await c.query(`select extras, extras_at is not null as looked, extras_tries as tries
     from recommendations where id = $1`, [id])).rows[0];
   const aboutDone = async (o: Parameters<typeof matched>[0] = {}) => {
