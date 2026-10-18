@@ -20,6 +20,10 @@ export interface Candidate {
   lat?: number;
   lng?: number;
 }
+// How Jev reads a candidate, and how "Which one?" names one (auto_pick / owner_pick, decision 048).
+export const describeCandidate = (c: Candidate) =>
+  [c.canonicalName, c.creator, c.yearOrAddress, c.detail].filter(Boolean).join(" — ");
+
 export interface EnrichmentMatch extends Candidate {
   matchConfidence: number;
   artRetry?: string; // release group whose Cover Art Archive lookup errored (5xx/timeout, not 404): the lane retries art

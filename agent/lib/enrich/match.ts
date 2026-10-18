@@ -1,7 +1,7 @@
 import { experimental_decide } from "ai";
 import { getEnv } from "../env";
 import { ordered } from "../pipeline/triage";
-import type { Candidate, EnrichmentMatch } from "./types";
+import { describeCandidate, type Candidate, type EnrichmentMatch } from "./types";
 
 export const MATCH_ACCEPT = 0.8; // below this the rec stays unmatched (no_match → review), never a guess
 export const NONE_FITS = "none_fits";
@@ -10,8 +10,7 @@ const JEV_TIMEOUT_MS = 10_000;
 // Non-numeric keys: JS orders integer-like object keys numerically, which would undo the shuffle.
 const keyOf = (i: number) => `m_${i}`;
 
-export const describeCandidate = (c: Candidate) =>
-  [c.canonicalName, c.creator, c.yearOrAddress, c.detail].filter(Boolean).join(" — ");
+export { describeCandidate };
 
 // Jev reads literally (docs/research/triage-models.md §2): the exact condition plus boundary cases go in the wording.
 // Boundary examples are synthetic (invented names), never real transcripts.
