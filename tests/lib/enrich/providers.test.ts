@@ -108,9 +108,13 @@ describe("registry: provider per type, keyed ones only when their env is set", (
     expect(providerFor("other", none)?.name).toBe("wikipedia");
     expect(providerFor("podcast", none)?.name).toBe("itunes");
     expect(providerFor("film_tv", none)).toBeNull();
-    expect(providerFor("place", none)).toBeNull();
+    expect(providerFor("place", none)?.name).toBe("nominatim");
     expect(providerFor("video", none)?.name).toBe("youtube");
-    expect(enabledTypes(none)).toEqual(["album", "song", "artist", "book", "podcast", "video", "other"]);
+    expect(enabledTypes(none)).toEqual(["album", "song", "artist", "book", "place", "podcast", "video", "other"]);
+  });
+  it("a Google key wins for places; a blank key falls back to Nominatim", () => {
+    expect(providerFor("place", { GOOGLE_PLACES_API_KEY: "g" })?.name).toBe("places");
+    expect(providerFor("place", { GOOGLE_PLACES_API_KEY: "  " })?.name).toBe("nominatim");
   });
   it("keys switch TMDB, Places and Podcast Index on", () => {
     const env = { TMDB_API_KEY: "t", GOOGLE_PLACES_API_KEY: "g", PODCAST_INDEX_KEY: "k", PODCAST_INDEX_SECRET: "s" };
