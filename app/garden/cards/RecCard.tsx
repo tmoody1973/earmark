@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
+import { recCardHref } from "@/agent/lib/garden/cards";
 import type { RecCardData } from "@/agent/lib/garden/queries";
 import type { RecType } from "@/agent/lib/types";
 import { Artwork } from "./Artwork";
@@ -17,8 +18,9 @@ export const cardSubline = (card: RecCardData) => (card.variant === "map" ? card
 
 /**
  * One tip on the shelf. Every variant shares this anatomy; only the artwork differs (Artwork.tsx), and "other"
- * tips are compact note cards with no artwork box. Art sits above the text, never under it. The whole card
- * opens the item's link when it has one.
+ * tips are compact note cards with no artwork box. Art sits above the text, never under it. The whole card is one
+ * link (recCardHref): the owner's cards (`actions`) open the tip's own page, /tips/<id>; a card someone else reads
+ * opens the item's external link when it has one.
  * `actions`: the owner's "…" (Try this, Tried, a rating, Dismiss; FR-22). Off by default, so a page someone else
  * reads (a Space) never offers them, and gets a plain article with no client state.
  * `from`: off on a person's own page, where "from Ann" would only repeat the heading (Thank Ann still shows).
@@ -27,7 +29,8 @@ export function RecCard({ card, actions = false, from = true }: { card: RecCardD
   const note = card.variant === "note";
   const subline = cardSubline(card);
   const titleId = actions ? `rec-${card.id}-title` : undefined; // ids stay off public pages
-  const classes = ["rec-card", note && "rec-card--note", card.link && "rec-card--linked"];
+  const href = recCardHref(card, actions);
+  const classes = ["rec-card", note && "rec-card--note", href && "rec-card--linked"];
   const article: ComponentProps<"article"> & { "data-testid": string; "data-variant": string } = {
     // The #rec-<id> anchor (/shelf?rec=<id>) is private: a public /s page must not expose sequential ids.
     ...(actions && { id: `rec-${card.id}` }),
@@ -45,7 +48,13 @@ export function RecCard({ card, actions = false, from = true }: { card: RecCardD
           {TYPE_LABEL[card.type]}
         </p>
         <h3 className="rec-title" id={titleId}>
-          {card.link ? <a className="rec-link" href={card.link} rel="noopener noreferrer">{card.name}</a> : card.name}
+          {actions && href ? (
+            <Link className="rec-link" href={href}>{card.name}</Link>
+          ) : href ? (
+            <a className="rec-link" href={href} rel="noopener noreferrer">{card.name}</a>
+          ) : (
+            card.name
+          )}
         </h3>
         {subline && <p className="rec-sub">{subline}</p>}
         {card.why && <p className="rec-why">“{card.why}”</p>}

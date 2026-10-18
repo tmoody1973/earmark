@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cardArtwork, cardArtworkUrl, cardLink, cardVariant, clampWhy, imageLoadFailed, lonLatToTile, osmTileUrl, spineHue,
+  cardArtwork, cardArtworkUrl, cardLink, cardVariant, clampWhy, imageLoadFailed, lonLatToTile, osmTileUrl, recCardHref, spineHue,
 } from "../../../agent/lib/garden/cards";
 
 describe("cardVariant", () => {
@@ -128,5 +128,16 @@ describe("imageLoadFailed (an image that failed before React hydrated)", () => {
     expect(imageLoadFailed({ complete: true, naturalWidth: 0 })).toBe(true);
     expect(imageLoadFailed({ complete: true, naturalWidth: 600 })).toBe(false);
     expect(imageLoadFailed({ complete: false, naturalWidth: 0 })).toBe(false); // still loading: onError decides
+  });
+});
+
+describe("recCardHref (where tapping a card goes)", () => {
+  it("the owner's cards (with the … actions) open the tip page, even with no external link", () => {
+    expect(recCardHref({ id: 42, link: "https://music.apple.com/x" }, true)).toBe("/tips/42");
+    expect(recCardHref({ id: 7, link: null }, true)).toBe("/tips/7");
+  });
+  it("a public card (a shared Space) keeps its external link and never links to /tips", () => {
+    expect(recCardHref({ id: 42, link: "https://music.apple.com/x" }, false)).toBe("https://music.apple.com/x");
+    expect(recCardHref({ id: 42, link: null }, false)).toBeNull();
   });
 });

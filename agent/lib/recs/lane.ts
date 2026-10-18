@@ -7,6 +7,7 @@ import { createBeeClient } from "../bee/client";
 import { db } from "../db";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
+import { fetchExtras, type ExtrasRec, type RecExtras } from "../enrich/extras";
 import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
 import { enabledTypes, REC_TYPES } from "../enrich/registry";
@@ -36,6 +37,9 @@ export const MAX_EMBEDS_PER_RUN = 20;
 // M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary; music adds one Wikidata ASK).
 export const MAX_ABOUTS_PER_RUN = 10;
 export const MAX_ABOUT_TRIES = 3; // errors/timeouts (not 503/429): then done, no note
+// Decision 045. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia).
+export const MAX_EXTRAS_PER_RUN = 10;
+export const MAX_EXTRAS_TRIES = 3; // errors/timeouts (not 503/429): then the lane stops asking (extras_at stays null)
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
@@ -46,7 +50,9 @@ export type ReviewReason = "confidence_band" | "no_recommender" | "no_match" | n
 export const retryDelayMinutes = (attempts: number) => 15 * 4 ** (attempts - 1); // 15 min, 1 h, 4 h, 16 h
 
 // The service is asking us to slow down: stop the whole sweep, don't count it against the tip.
-export const isBackOffSignal = (err: unknown) => err instanceof ProviderHttpError && (err.status === 503 || err.status === 429);
+// iTunes Search can say it with a 403 too (its ~20 calls/minute limit); anywhere else a 403 is a real refusal.
+export const isBackOffSignal = (err: unknown) => err instanceof ProviderHttpError
+  && (err.status === 503 || err.status === 429 || (err.status === 403 && err.host === "itunes.apple.com"));
 
 /** Why a tip needs Tarik's eye, if it does (M3-T9's Slack cards read review_reason). Pure. */
 export function reviewReasonFor(rec: {
@@ -63,7 +69,7 @@ export function reviewReasonFor(rec: {
 export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
-      jevCalls: number; artFixed: number; abouts: number; summarized: number; summaryFailed: number; embedded: number;
+      jevCalls: number; artFixed: number; abouts: number; extras: number; summarized: number; summaryFailed: number; embedded: number;
       stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
@@ -75,6 +81,7 @@ export interface SweepDeps {
   beeSummary: (conversationId: number) => Promise<string | null>;
   embedRecs: (limit: number) => Promise<number>;
   about: (rec: AboutRec) => Promise<About | null>;
+  extras: (rec: ExtrasRec) => Promise<RecExtras>;
   env: Record<string, string | undefined>;
   budgetMs: number;
   onlyIds: readonly number[] | null; // tests: scope the sweep to their own rows
@@ -91,7 +98,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
-    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec),
+    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -125,7 +132,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     order by enrich_next_at, id
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number })[];
 
-  const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0,
+  const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
     summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
   const countedPick: typeof pickMatch = (input, candidates, opts) => {
     if (candidates.length > 0) r.jevCalls++;
@@ -182,6 +189,13 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       await writeAbouts(d, r, overBudget);
     } catch (err) {
       logEnrichError("rec-lane abouts", {}, err); // the why and embed steps below still run
+    }
+  }
+  if (!overBudget()) {
+    try {
+      await writeExtras(d, r, overBudget);
+    } catch (err) {
+      logEnrichError("rec-lane extras step", {}, err); // the why and embed steps below still run
     }
   }
   if (!overBudget()) {
@@ -266,6 +280,34 @@ async function writeAbouts(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
       await db()`update recommendations set about_tries = about_tries + 1,
           about_at = case when about_tries + 1 >= ${MAX_ABOUT_TRIES} then now() end
         where id = ${id} and about_at is null`;
+    }
+  }
+}
+
+// The tip page's extras (decision 045): matched, visible tips (maybes too) whose about step is done, so a Wikipedia
+// about_url is known; least-tried first, then newest. A result, even {} (nothing to add), is final (extras_at). A thrown
+// error or timeout counts a try; at MAX_EXTRAS_TRIES the tip is no longer asked. A 503/429 changes nothing and stops
+// this step for the run. Never a model call.
+async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
+  const rows = (await db()`
+    select id, type, canonical_name, creator, apple_music_id, links, about_url from recommendations
+    where enrichment_status = 'matched' and about_at is not null and extras_at is null and extras_tries < ${MAX_EXTRAS_TRIES}
+      and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+      and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
+    order by extras_tries, id desc limit ${MAX_EXTRAS_PER_RUN}`) as (ExtrasRec & { id: number | string })[];
+  for (const row of rows) {
+    if (overBudget()) break;
+    const id = Number(row.id);
+    try {
+      const extras = await d.extras({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
+        apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
+      const saved = await db()`update recommendations set extras = ${JSON.stringify(extras)}::jsonb, extras_at = now()
+        where id = ${id} and extras_at is null returning id`;
+      if (saved.length > 0 && Object.keys(extras).length > 0) r.extras++; // not a tip forgotten mid-run
+    } catch (err) {
+      logEnrichError("rec-lane extras", { rec: id }, err);
+      if (isBackOffSignal(err)) break; // the service is busy: not this tip's fault, nothing counted
+      await db()`update recommendations set extras_tries = extras_tries + 1 where id = ${id} and extras_at is null`;
     }
   }
 }
