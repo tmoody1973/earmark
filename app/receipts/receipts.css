@@ -6,10 +6,10 @@
 .receipts h1 { font-family: var(--serif); font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; text-wrap: balance; }
 .receipts h2 { font-size: 1.0625rem; font-weight: 600; margin: 2rem 0 0.75rem; }
 .receipts .lede, .receipts .r-meta { color: var(--ink-2); font-size: 0.9375rem; }
-.r-form { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.r-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin-top: 1rem; }
 .r-form label { font-size: 0.9375rem; }
 .r-form textarea, .r-form input {
-  font: inherit; box-sizing: border-box; width: 100%; padding: 0.5rem 0.75rem; min-height: 44px;
+  font: inherit; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: 0.5rem 0.75rem; min-height: 44px;
   background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: 10px;
 }
 .r-form textarea { font-family: var(--serif); line-height: 1.45; resize: vertical; }
