@@ -57,7 +57,9 @@ a { color: var(--ink); text-decoration-line: underline; text-underline-offset: 0
   /* viewport-fit=cover (layout.tsx): keep clear of the notch and of rounded side edges in landscape */
   padding: calc(2rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 4rem max(1rem, env(safe-area-inset-left));
 }
-.garden-center { display: flex; justify-content: center; padding-top: 3rem; }
+.garden-center { display: flex; flex-direction: column; align-items: center; padding-top: 3rem; }
+.sign-in-about { margin: 1rem 0 0; font-size: 0.9375rem; }
+.sign-in-about a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink-2); }
 
 .garden h1 { font-family: var(--serif); font-size: 2rem; line-height: 1.2; margin: 0 0 0.25rem; }
 .garden .garden-head h1 {
