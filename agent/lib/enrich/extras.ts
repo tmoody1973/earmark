@@ -15,7 +15,7 @@
 //  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
-import { discogsAccess, fetchDiscogs, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
+import { fetchDiscogsSoft, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
 import { getJson, USER_AGENT } from "./types";
 import { youtubeVideoUrl } from "./youtube";
 
@@ -275,9 +275,10 @@ async function wikipedia(aboutUrl: string | null, fetchImpl: typeof fetch): Prom
 
 /**
  * One matched tip → its extras ({} when there is nothing). A 429/5xx or a timeout throws, for the lane to handle.
- * Discogs (decision 047) runs last, so a 429 there stops the step before anything is saved and the tip is asked again.
+ * Discogs (decision 047) runs last and only when the caller passes a key (never read from process.env here). Its 429 stops
+ * the step before anything is saved; its other failures are logged and leave the other extras intact.
  */
-export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = discogsAccess()): Promise<RecExtras> {
+export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = null): Promise<RecExtras> {
   const out: RecExtras = {};
   if (rec.type === "song" || rec.type === "album") {
     const preview = await itunesPreview(rec, rec.type, fetchImpl);
@@ -297,7 +298,7 @@ export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetc
   if (rec.type === "album" || rec.type === "song" || rec.type === "artist") {
     if (!discogs) logDiscogsSkippedOnce();
     else {
-      const found = await fetchDiscogs(rec, discogs, fetchImpl);
+      const found = await fetchDiscogsSoft(rec, discogs, fetchImpl);
       if (found) out.discogs = found;
     }
   }

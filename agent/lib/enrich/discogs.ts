@@ -1,6 +1,6 @@
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
-import { getJson, USER_AGENT } from "./types";
+import { getJson, logEnrichError, ProviderHttpError, USER_AGENT } from "./types";
 
 // Discogs add-on (decision 047): label, catalog number, year, formats, genres/styles and credits for a matched
 // album / song / artist, stored once on recommendations.extras.discogs (+ links.discogs). Consumer key/secret in the
@@ -75,17 +75,23 @@ const strings = (v: unknown, max: number): string[] =>
  */
 export function pickCandidates(json: unknown, rec: DiscogsRec): number[] {
   const results: any[] = Array.isArray((json as any)?.results) ? (json as any).results : [];
-  const rows = results.flatMap((r) => (isId(r?.id) && str(r.title) ? [{ id: r.id as number, title: rec.type === "artist" ? noNumber(r.title) : r.title.replace(/\s\(\d+\)(?= - )/, "") }] : []));
+  // "Artist - Title" split at the first " - " (an artist whose own name holds " - " simply never matches: conservative)
+  const rows = results.flatMap((r) => {
+    if (!isId(r?.id) || !str(r.title)) return [];
+    if (rec.type === "artist") return [{ id: r.id as number, artist: norm(noNumber(r.title)), title: "" }];
+    const cut = (r.title as string).indexOf(" - ");
+    return cut < 0 ? [] : [{ id: r.id as number, artist: norm(noNumber((r.title as string).slice(0, cut))), title: norm((r.title as string).slice(cut + 3)) }];
+  });
   const name = norm(rec.canonical_name);
   if (!name) return [];
   if (rec.type === "artist") {
-    const hits = [...new Map(rows.filter((r) => norm(r.title) === name).map((r) => [r.id, r.id])).values()];
+    const hits = [...new Set(rows.filter((r) => r.artist === name).map((r) => r.id))];
     return hits.length === 1 ? hits : [];
   }
   const creator = norm(rec.creator);
   if (!creator) return [];
-  if (rec.type === "album") return rows.filter((r) => norm(r.title) === `${creator} ${name}`).slice(0, 1).map((r) => r.id);
-  return rows.filter((r) => norm(r.title).startsWith(`${creator} `)).slice(0, MAX_SONG_CANDIDATES).map((r) => r.id);
+  if (rec.type === "album") return rows.filter((r) => r.artist === creator && r.title === name).slice(0, 1).map((r) => r.id);
+  return rows.filter((r) => r.artist === creator).slice(0, MAX_SONG_CANDIDATES).map((r) => r.id);
 }
 
 /** Does this release's tracklist hold the song? "Movement 1" fits "Movement 1 (feat. …)", nothing looser. Pure. */
@@ -198,4 +204,32 @@ export async function fetchDiscogs(rec: DiscogsRec, access: DiscogsAccess, fetch
     if (parsed) return parsed;
   }
   return null;
+}
+
+let rejected = false;
+/** Test-only. */
+export function resetDiscogsRejected(): void {
+  rejected = false;
+}
+
+/**
+ * fetchDiscogs for the extras step: Discogs is a bonus, so its failures never cost the tip's other extras. A 429 still
+ * throws (the step backs off, nothing saved, nothing burned). A 401/403 means the key is bad: logged once, then Discogs
+ * is skipped until the process restarts. Anything else is logged (error name only) and Discogs stays absent, which the
+ * refresh script can fill in later. Never takes the key from process.env: the caller passes it.
+ */
+export async function fetchDiscogsSoft(rec: DiscogsRec, access: DiscogsAccess, fetchImpl: typeof fetch): Promise<DiscogsExtras | null> {
+  if (rejected) return null;
+  try {
+    return await fetchDiscogs(rec, access, fetchImpl);
+  } catch (err) {
+    if (err instanceof ProviderHttpError && err.status === 429) throw err;
+    if (err instanceof ProviderHttpError && (err.status === 401 || err.status === 403)) {
+      rejected = true;
+      logEnrichError("discogs rejected the key; skipping Discogs", {}, err);
+      return null;
+    }
+    logEnrichError("discogs", {}, err);
+    return null;
+  }
 }
