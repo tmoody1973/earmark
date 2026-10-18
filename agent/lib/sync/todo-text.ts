@@ -14,9 +14,13 @@ const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", t
 
 export const slotsAvailable = (open: number) => Math.max(0, MAX_OPEN_TODOS - open);
 
-// The Shelf shows the newest 60 tips plus the one named by ?rec= (getShelf), and RecCard's article id is `rec-<id>`,
-// so the link always lands on the tip. ponytail: no per-tip page exists; add one and point this at it if one lands.
-export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/shelf?rec=${recId}#rec-${recId}`;
+// A Bee todo's link opens the tip's own page (/tips/<id>, owner-only): art, preview, credits and what was said.
+export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/tips/${recId}`;
+
+// A todo built outside the reconciler (place nudge, thank-you reminder) gets its page link too; no base URL, no link.
+export function withLink(text: string, page: "tips" | "receipts", recId: number, base = process.env.EARMARK_PUBLIC_BASE_URL?.trim()): string {
+  return base && Number.isInteger(recId) && recId > 0 ? `${text} ${base.replace(/\/$/, "")}/${page}/${recId}` : text;
+}
 
 export function formatTodoText(
   rec: Pick<RecRow, "id" | "type" | "canonical_name" | "creator" | "recommender_first_name" | "said_at">,

@@ -3,6 +3,7 @@ import { getEnv, ownerFirstName } from "../env";
 import { distanceMeters, type LatLng } from "../geo";
 import { credit } from "../garden/queries";
 import { createEarmarkTodo } from "../sync/bee-todos"; // M3-T7 (generic Earmark todo, 10-open cap)
+import { withLink } from "../sync/todo-text";
 
 // FR-16: Bee reports where the owner is; near a saved place tip, make one Bee todo, at most once per place per day.
 // Logs elsewhere carry the outcome only, never coordinates or names.
@@ -107,7 +108,7 @@ export async function handleLocationUpdate(
   const day = chicagoDate(now);
   const nudgeId = await deps.claim(hit.id, day);
   if (nudgeId === null) return "already";
-  const text = `Earmark · You're near ${hit.canonicalName}${hit.recommenderName ? ` — ${hit.recommenderName} recommended it` : ""}`;
+  const text = withLink(`Earmark · You're near ${hit.canonicalName}${hit.recommenderName ? ` — ${hit.recommenderName} recommended it` : ""}`, "tips", hit.id);
   let result: Awaited<ReturnType<NudgeDeps["createTodo"]>>;
   try {
     // Each day's nudge is its own entity (place_nudges.id), so forget can find every day's Bee todo.
