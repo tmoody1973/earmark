@@ -11,6 +11,9 @@ describe("rec lane rules", () => {
     expect(isBackOffSignal(new ProviderHttpError("musicbrainz.org", 503))).toBe(true);
     expect(isBackOffSignal(new ProviderHttpError("openlibrary.org", 429))).toBe(true);
     expect(isBackOffSignal(new ProviderHttpError("openlibrary.org", 500))).toBe(false);
+    // iTunes Search can say "slow down" with a 403; elsewhere a 403 is a real refusal
+    expect(isBackOffSignal(new ProviderHttpError("itunes.apple.com", 403))).toBe(true);
+    expect(isBackOffSignal(new ProviderHttpError("musicbrainz.org", 403))).toBe(false);
     expect(isBackOffSignal(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe(false);
   });
 

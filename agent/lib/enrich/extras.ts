@@ -6,7 +6,8 @@
 //    carries no previewUrl, so its first track comes from /lookup?id=<collectionId>&entity=song&limit=1.
 //    Apple's terms for previews: streamed only (we store the URL, never the audio), shown next to a link to the store,
 //    with "provided courtesy of iTunes" (the page does both).
-//  - podcast: /lookup?id=<Apple Podcasts id> (or /search?media=podcast) → feedUrl → the RSS (10 s, first 1 MB) → the
+//  - podcast: /lookup?id=<Apple Podcasts id> (or /search?media=podcast) → feedUrl → the RSS (https to a public host only, at most
+//    3 redirects each re-checked, 10 s, first 1 MB; a feed's failure counts a try, never a back-off) → the
 //    newest 3 audio episodes.
 //  - video: the YouTube id from the stored link; no request.
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
@@ -14,7 +15,7 @@
 //  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
-import { getJson, ProviderHttpError, USER_AGENT } from "./types";
+import { getJson, USER_AGENT } from "./types";
 import { youtubeVideoUrl } from "./youtube";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- untyped external JSON, read defensively */
@@ -155,7 +156,9 @@ export function readExtras(raw: unknown): RecExtras {
   if (audio && apple) out.preview = { audioUrl: audio, appleUrl: apple };
   const episodes = Array.isArray(x.episodes) ? x.episodes.flatMap((e: any): Episode[] => {
     const audioUrl = https(e?.audioUrl);
-    return audioUrl && typeof e.title === "string" ? [{ title: e.title, date: typeof e.date === "string" ? e.date : null, audioUrl }] : [];
+    const date = typeof e?.date === "string" ? e.date : null;
+    if (date !== null && Number.isNaN(Date.parse(date))) return []; // the page formats it: a non-date would throw
+    return audioUrl && typeof e.title === "string" ? [{ title: e.title, date, audioUrl }] : [];
   }) : [];
   if (episodes.length) out.episodes = episodes.slice(0, MAX_EPISODES);
   if (typeof x.videoId === "string" && VIDEO_ID.test(x.videoId)) out.videoId = x.videoId;
@@ -170,11 +173,46 @@ export function readExtras(raw: unknown): RecExtras {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// A feed's text, at most `max` bytes (the newest items come first, so a cut is fine), 10 s in all. 404/410: no feed.
+/**
+ * A feed URL we may fetch: https to a public-looking host name. No IP literals at all (v4 in any spelling, since URL
+ * normalises "2130706433" to "127.0.0.1"; v6 in brackets), no localhost, *.local or dotless intranet names. Pure.
+ * ponytail: checks the name, not where DNS sends it; resolve and check the address if feeds ever come from users.
+ */
+export function isPublicHttpsUrl(url: string): boolean {
+  if (!URL.canParse(url)) return false;
+  const { protocol, hostname } = new URL(url);
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return protocol === "https:" && host.includes(".") && !host.startsWith("[") && !/^[\d.]+$/.test(host)
+    && host !== "localhost" && !host.endsWith(".localhost") && !host.endsWith(".local") && !host.endsWith(".internal");
+}
+
+export const MAX_FEED_REDIRECTS = 3;
+
+// A feed is one podcaster's server, not a shared service: its failures count a try for that tip and never stop the
+// step (a 503 here must not pin one dead feed at the front of the queue). Name only in logs, like ProviderHttpError.
+export class FeedError extends Error {
+  override name = "FeedError";
+  constructor(readonly status: number) {
+    super(`feed ${status}`);
+  }
+}
+
+// A feed's text, at most `max` bytes (the newest items come first, so a cut is fine), 10 s in all. Redirects are
+// followed by hand, at most 3, each hop re-checked (isPublicHttpsUrl); a refused hop or 404/410 is "no feed".
 async function getCappedText(url: string, fetchImpl: typeof fetch, max = RSS_MAX_BYTES): Promise<string | null> {
-  const res = await fetchImpl(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(RSS_TIMEOUT_MS) });
-  if (res.status === 404 || res.status === 410) return null;
-  if (!res.ok) throw new ProviderHttpError(new URL(url).host, res.status);
+  const signal = AbortSignal.timeout(RSS_TIMEOUT_MS);
+  let res: Response | null = null;
+  for (let hop = 0, at = url; hop <= MAX_FEED_REDIRECTS; hop++) {
+    if (!isPublicHttpsUrl(at)) return null;
+    res = await fetchImpl(at, { headers: { "User-Agent": USER_AGENT }, redirect: "manual", signal });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!location) break;
+    if (!URL.canParse(location, at)) return null;
+    at = new URL(location, at).href;
+    res = null; // a redirect past the last allowed hop leaves no answer
+  }
+  if (!res || res.status === 404 || res.status === 410) return null;
+  if (!res.ok) throw new FeedError(res.status);
   const reader = res.body?.getReader();
   if (!reader) return null;
   const chunks: Uint8Array[] = [];
@@ -211,7 +249,7 @@ async function podcastEpisodes(rec: ExtrasRec, fetchImpl: typeof fetch): Promise
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped external JSON */
   const show: any = ((await getJson(url, HEADERS, fetchImpl)) as any)?.results?.[0];
   if (!show || (!id && !fits(show.collectionName, rec.canonical_name))) return [];
-  const feed = typeof show.feedUrl === "string" && /^https?:\/\//i.test(show.feedUrl) ? show.feedUrl : null;
+  const feed = typeof show.feedUrl === "string" ? show.feedUrl : null; // checked (https, public host) before each fetch
   const xml = feed ? await getCappedText(feed, fetchImpl) : null;
   return xml ? latestEpisodes(xml) : [];
 }

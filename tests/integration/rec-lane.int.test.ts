@@ -65,7 +65,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     const enrich = vi.fn(viaPick((r) => (r.type === "book" ? match() : null)));
 
     const res = await sweepRecLane({ enrich, pick, env: {}, onlyIds: ids });
-    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, secondLook: 1, jevCalls: 2, waitingForKeys: ["place", "film_tv"] });
+    expect(res).toMatchObject({ status: "done", tried: 2, matched: 1, secondLook: 1, jevCalls: 2, waitingForKeys: ["film_tv"] }); // places are keyless since PR #39 (Nominatim)
     expect(enrich.mock.calls.map(([r]) => r.id).sort()).toEqual([book, maybe].sort());
 
     const b = await row(book);
@@ -506,6 +506,38 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect((await extrasOf(stored)).extras).toEqual(PREVIEW);
     await deleteRows(c, await readPlan(c, { type: "rec", id: stored }, false));
     expect((await c.query(`select count(*)::int as n from recommendations where id = $1`, [stored])).rows[0].n).toBe(0);
+  });
+
+  it("a dead podcast feed (503) burns a try and the next tip in the same run is still looked up", async () => {
+    const { sweepRecLane } = await lane();
+    const { fetchExtras } = await import("../../agent/lib/enrich/extras");
+    const song = await aboutDone({ type: "song", name: "Feed neighbour", creator: "IT Band" });
+    await c.query(`update recommendations set apple_music_id = '42' where id = $1`, [song]);
+    const show = await aboutDone({ type: "podcast", name: "Dead Feed Show", // newer: first in line
+      links: { apple_podcasts: "https://podcasts.apple.com/us/podcast/dead/id777" } });
+    const res = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("lookup?id=777")) return res({ results: [{ collectionName: "Dead Feed Show", feedUrl: "https://dead.example.com/rss" }] });
+      if (url.includes("lookup?id=42")) return res({ results: [{ wrapperType: "track", trackName: "Feed neighbour", artistName: "IT Band",
+        previewUrl: "https://audio-ssl.itunes.apple.com/n.m4a", trackViewUrl: "https://music.apple.com/us/album/n/1?i=2" }] });
+      return new Response("down", { status: 503 }); // the feed host
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await sweepRecLane({ env: {}, onlyIds: [show, song], extras: (r) => fetchExtras(r, fetchImpl as never) });
+    expect(await extrasOf(show)).toEqual({ extras: null, looked: false, tries: 1 }); // a try, not a back-off
+    expect(await extrasOf(song)).toMatchObject({ looked: true, extras: { preview: { audioUrl: "https://audio-ssl.itunes.apple.com/n.m4a" } } });
+    err.mockRestore();
+  });
+
+  it("a tip forgotten while its extras were being fetched is not counted", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await aboutDone({ type: "song", name: "Forgotten mid-run" });
+    const extras = vi.fn(async () => {
+      await c.query(`delete from recommendations where id = $1`, [id]);
+      return PREVIEW;
+    });
+    expect(await sweepRecLane({ env: {}, onlyIds: [id], extras })).toMatchObject({ extras: 0 });
+    expect(extras).toHaveBeenCalledTimes(1);
   });
 
   it("runRecLane queues a pending rec for the next sweep without calling any provider", async () => {

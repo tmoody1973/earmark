@@ -50,7 +50,9 @@ export type ReviewReason = "confidence_band" | "no_recommender" | "no_match" | n
 export const retryDelayMinutes = (attempts: number) => 15 * 4 ** (attempts - 1); // 15 min, 1 h, 4 h, 16 h
 
 // The service is asking us to slow down: stop the whole sweep, don't count it against the tip.
-export const isBackOffSignal = (err: unknown) => err instanceof ProviderHttpError && (err.status === 503 || err.status === 429);
+// iTunes Search can say it with a 403 too (its ~20 calls/minute limit); anywhere else a 403 is a real refusal.
+export const isBackOffSignal = (err: unknown) => err instanceof ProviderHttpError
+  && (err.status === 503 || err.status === 429 || (err.status === 403 && err.host === "itunes.apple.com"));
 
 /** Why a tip needs Tarik's eye, if it does (M3-T9's Slack cards read review_reason). Pure. */
 export function reviewReasonFor(rec: {
@@ -299,9 +301,9 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
     try {
       const extras = await d.extras({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
         apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
-      await db()`update recommendations set extras = ${JSON.stringify(extras)}::jsonb, extras_at = now()
-        where id = ${id} and extras_at is null`;
-      if (Object.keys(extras).length > 0) r.extras++;
+      const saved = await db()`update recommendations set extras = ${JSON.stringify(extras)}::jsonb, extras_at = now()
+        where id = ${id} and extras_at is null returning id`;
+      if (saved.length > 0 && Object.keys(extras).length > 0) r.extras++; // not a tip forgotten mid-run
     } catch (err) {
       logEnrichError("rec-lane extras", { rec: id }, err);
       if (isBackOffSignal(err)) break; // the service is busy: not this tip's fault, nothing counted
