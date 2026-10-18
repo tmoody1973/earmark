@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   bookFromOpenLibrary, EXTRAS_TEXT_MAX, fetchExtras, latestEpisodes, pickItunesPreview, readExtras, trimText, wikiExtract,
   youtubeId, type ExtrasRec,
@@ -41,7 +41,9 @@ const RSS = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:itun
 <item><title>Script</title><pubDate>Wed, 16 Oct 2026 19:00:00 -0000</pubDate><enclosure url="javascript:alert(1)"/></item>
 </channel></rss>`;
 
-afterEach(() => vi.restoreAllMocks());
+// Music cases must never reach Discogs, even when the shell has the keys set (Discogs is tested in discogs.test.ts).
+beforeEach(() => { vi.stubEnv("DISCOGS_KEY", ""); vi.stubEnv("DISCOGS_SECRET", ""); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe("trimText", () => {
   it("keeps short text, and cuts long text at a word with an ellipsis, within the cap", () => {

@@ -301,7 +301,11 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
     try {
       const extras = await d.extras({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
         apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
-      const saved = await db()`update recommendations set extras = ${JSON.stringify(extras)}::jsonb, extras_at = now()
+      // Merged, never replaced (the refresh script may have added extras.discogs already); links.discogs follows it.
+      const saved = await db()`update recommendations set extras = coalesce(extras, '{}'::jsonb) || ${JSON.stringify(extras)}::jsonb,
+          links = case when ${extras.discogs?.url ?? null}::text is null then links
+            else coalesce(links, '{}'::jsonb) || jsonb_build_object('discogs', ${extras.discogs?.url ?? null}::text) end,
+          extras_at = now()
         where id = ${id} and extras_at is null returning id`;
       if (saved.length > 0 && Object.keys(extras).length > 0) r.extras++; // not a tip forgotten mid-run
     } catch (err) {

@@ -24,7 +24,7 @@ const coverArt: MusicAddOn = async (m, input, deps) => {
   }
 };
 
-const appleMusic: MusicAddOn = async (m, input, deps) => {
+export const appleMusic: MusicAddOn = async (m, input, deps) => {
   if (!deps.apple) {
     logAppleSkippedOnce();
     return m;
@@ -41,7 +41,8 @@ const appleMusic: MusicAddOn = async (m, input, deps) => {
 };
 
 // Order matters: Cover Art Archive first (keyless), then Apple (fills art only when CAA had none).
-// Discogs seam (later, DISCOGS_TOKEN): label, year, pressing, credits → append a `discogs` add-on here.
+// Discogs (label, year, credits) is not an add-on here: it is the 2-4 calls of the tip page extras step (extras.ts,
+// decision 047), where a 429 stops the step without burning a try. scripts/refresh-music-addons.ts backfills both.
 export const MUSIC_ADDONS: readonly MusicAddOn[] = [coverArt, appleMusic];
 
 // Albums, songs, artists: MusicBrainz identity (keyless) → Jev picks or abstains → add-ons.

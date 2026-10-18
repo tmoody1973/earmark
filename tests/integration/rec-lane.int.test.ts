@@ -485,6 +485,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     err.mockRestore();
   });
 
+  it("Discogs extras are merged into existing extras and links.discogs is set; other link keys survive (decision 047)", async () => {
+    const { sweepRecLane } = await lane();
+    const id = await aboutDone({ type: "album", name: "Promises", creator: "Floating Points" });
+    await c.query(`update recommendations set extras = '{"videoId":"dQw4w9WgXcQ"}'::jsonb, links = '{"musicbrainz":"https://musicbrainz.org/x"}'::jsonb where id = $1`, [id]);
+    const discogs = { url: "https://www.discogs.com/release/555", labels: [], year: 2021, formats: [], genres: [], styles: [], credits: [], fetchedAt: "2026-10-18T00:00:00.000Z" };
+    await sweepRecLane({ env: {}, onlyIds: [id], extras: vi.fn(async () => ({ discogs })) });
+    const r = (await c.query(`select extras, links from recommendations where id = $1`, [id])).rows[0];
+    expect(r.extras).toEqual({ videoId: "dQw4w9WgXcQ", discogs });
+    expect(r.links).toEqual({ musicbrainz: "https://musicbrainz.org/x", discogs: "https://www.discogs.com/release/555" });
+  });
+
   it("caps extras lookups per run and stops on a 503 without counting a try; forgetting the tip deletes its extras", async () => {
     const { sweepRecLane, MAX_EXTRAS_PER_RUN } = await lane();
     const batch: number[] = [];
@@ -523,7 +534,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
       return new Response("down", { status: 503 }); // the feed host
     });
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    await sweepRecLane({ env: {}, onlyIds: [show, song], extras: (r) => fetchExtras(r, fetchImpl as never) });
+    await sweepRecLane({ env: {}, onlyIds: [show, song], extras: (r) => fetchExtras(r, fetchImpl as never, null) });
     expect(await extrasOf(show)).toEqual({ extras: null, looked: false, tries: 1 }); // a try, not a back-off
     expect(await extrasOf(song)).toMatchObject({ looked: true, extras: { preview: { audioUrl: "https://audio-ssl.itunes.apple.com/n.m4a" } } });
     err.mockRestore();
