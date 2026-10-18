@@ -54,6 +54,17 @@
 .tip-episode-date { display: block; margin: 0.125rem 0 0.5rem; font-size: 0.875rem; color: var(--ink-3); }
 .tip-book { margin: 1rem 0 0; font-family: var(--serif); font-size: 1rem; line-height: 1.6; color: var(--ink); }
 
+/* Credits & label (decision 047): quiet facts, chips, a credits list; the attribution is required by Discogs' API terms */
+.tip-facts { margin: 1rem 0 0; display: grid; gap: 0.5rem; }
+.tip-facts div { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+.tip-facts dt { min-width: 4.5rem; font-size: 0.875rem; color: var(--ink-2); }
+.tip-facts dd { margin: 0; font-size: 0.9375rem; color: var(--ink); }
+.tip-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0; padding: 0; }
+.tip-tags li { padding: 0.25rem 0.75rem; border-radius: 999px; border: 1px solid var(--hairline); font-size: 0.8125rem; color: var(--ink-2); }
+.tip-credits { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.25rem; font-size: 0.9375rem; color: var(--ink); }
+.tip-attribution { margin: 0.75rem 0 0; font-size: 0.8125rem; line-height: 1.4; color: var(--ink-2); }
+.tip-attribution a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink-2); text-underline-offset: 2px; }
+
 /* video: the stored thumbnail and a Play pill over it; the player replaces both only after a tap */
 .tip-video { position: relative; }
 .tip-video iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: var(--radius-card); }
