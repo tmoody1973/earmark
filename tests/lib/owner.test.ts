@@ -38,6 +38,14 @@ describe("isPublicPath (M5 channels)", () => {
   it.each(["/api/captures", "/spaces/1", "/tips/1"])("%s stays private", (p) => expect(isPublicPath(p)).toBe(false));
 });
 
+describe("isPublicPath (about page)", () => {
+  it("/about is public, even signed out", () => {
+    expect(isPublicPath("/about")).toBe(true);
+    expect(gate("/about", null, "user_abc")).toBe("allow");
+  });
+  it.each(["/about/x", "/aboutx", "/about-us", "/about/"])("%s stays private", (p) => expect(isPublicPath(p)).toBe(false));
+});
+
 describe("gate (what proxy.ts does with a request)", () => {
   it("lets public paths through for anyone, signed in or not", () => {
     expect(gate("/api/bee/events", null, "user_abc")).toBe("allow");
