@@ -35,7 +35,7 @@ describe("isPublicPath", () => {
 
 describe("isPublicPath (M5 channels)", () => {
   it.each(["/api/capture/photo", "/api/mcp", "/r/abc", "/s/abc", "/feed/xyz.xml"])("%s is public", (p) => expect(isPublicPath(p)).toBe(true));
-  it.each(["/api/captures", "/spaces/1"])("%s stays private", (p) => expect(isPublicPath(p)).toBe(false));
+  it.each(["/api/captures", "/spaces/1", "/tips/1"])("%s stays private", (p) => expect(isPublicPath(p)).toBe(false));
 });
 
 describe("gate (what proxy.ts does with a request)", () => {
