@@ -65,7 +65,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
     expect(await drain(bee, [a])).toMatchObject({ status: "done", created: 1 });
     const { bee_todo_id } = await rec(a);
     const text = bee.todos.get(Number(bee_todo_id))!.text;
-    expect(text).toBe(`Earmark · Listen: IT Alpha, IT Band (Oct 12) https://earmark.test/shelf?rec=${a}#rec-${a}`);
+    expect(text).toBe(`Earmark · Listen: IT Alpha, IT Band (Oct 12) https://earmark.test/tips/${a}`);
     expect(text).not.toContain("SECRET");
     expect(await sync(a)).toEqual({ bee_id: bee_todo_id, last_written_state: { text, completed: false } });
 
@@ -111,7 +111,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
   it("crash between create and save: the next run adopts the todo with the same text instead of creating a twin", async () => {
     const a = await addRec("queued", "IT Crash");
     const bee = fakeBee();
-    const orphan = bee.add({ text: `Earmark · Listen: IT Crash, IT Band (Oct 12) https://earmark.test/shelf?rec=${a}#rec-${a}`, completed: false });
+    const orphan = bee.add({ text: `Earmark · Listen: IT Crash, IT Band (Oct 12) https://earmark.test/tips/${a}`, completed: false });
     expect(await drain(bee, [a])).toMatchObject({ created: 0, adopted: 1 });
     expect(bee.createTodo).not.toHaveBeenCalled();
     expect(Number((await rec(a)).bee_todo_id)).toBe(orphan);
