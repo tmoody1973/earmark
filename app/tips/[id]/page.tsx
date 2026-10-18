@@ -14,6 +14,7 @@ import { TipCard, TipMenu, TipTag } from "@/app/garden/cards/TipActions";
 import { TabBar } from "@/app/garden/TabBar";
 import { Credits } from "./Credits";
 import { VideoPlayer } from "./VideoPlayer";
+import { WhichOne } from "./WhichOne";
 import "@/app/garden/shell.css";
 import "@/app/garden/people.css";
 import "@/app/garden/cards/cards.css";
@@ -94,7 +95,16 @@ export default async function TipPage({ params }: Props) {
               ))}
             </ul>
           )}
+          {tip.whichOne?.mode === "correct" && (
+            <WhichOne tipId={card.id} type={card.type} heading="Not the right one?" view={tip.whichOne} />
+          )}
         </header>
+
+        {/* Decision 048: Earmark wasn't sure which item this is, so it asks (first name only) */}
+        {tip.whichOne?.mode === "ask" && (
+          <WhichOne tipId={card.id} type={card.type} view={tip.whichOne}
+            heading={from ? `Which one did ${from.firstName} mean?` : "Which one is it?"} />
+        )}
 
         <section className="idea-panel" aria-labelledby="said-h">
           <h2 id="said-h" className="tip-said">
