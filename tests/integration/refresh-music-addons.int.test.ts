@@ -123,8 +123,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("refresh music add-ons (decision
     const id = await addRec({ name: "Quiet" });
     const f = fakeFetch();
     const res = await refreshMusicAddons(c, { yes: true }, deps(f, { scopeRecIds: [id], apple: null, discogs: null }));
-    expect(res.candidates).toEqual([id]);
+    expect(res.candidates).toEqual([]); // nothing configured: not a candidate for a part that cannot run
     expect(f).not.toHaveBeenCalled();
     expect((await row(id)).links).toEqual({});
+  });
+
+  it("--limit advances past misses: a miss is marked, so the next run takes the next tips; --retry-misses asks again", async () => {
+    const { refreshMusicAddons } = await mod();
+    const three = [await addRec({ name: "Miss 1", creator: "Nobody" }), await addRec({ name: "Miss 2", creator: "Nobody" }), await addRec({ name: "Miss 3", creator: "Nobody" })];
+    const d = (over: object = {}) => deps(fakeFetch(), { scopeRecIds: three, apple: null, limit: 2, ...over });
+    const one = await refreshMusicAddons(c, { yes: true }, d());
+    expect(one.candidates).toEqual([three[0], three[1]]);
+    const two = await refreshMusicAddons(c, { yes: true }, d());
+    expect(two.candidates).toEqual([three[2]]);
+    expect((await refreshMusicAddons(c, { yes: true }, d())).candidates).toEqual([]);
+    const marked = (await row(three[0])).extras.discogs;
+    expect(marked).toMatchObject({ miss: true });
+    expect(marked.url).toBeUndefined(); // readDiscogs ignores it: the page shows nothing
+    expect((await refreshMusicAddons(c, { yes: false, retryMisses: true }, d({ limit: 10 }))).candidates).toEqual(three);
+  });
+
+  it("the Apple result is saved even when Discogs then answers 429", async () => {
+    const { refreshMusicAddons } = await mod();
+    const id = await addRec({ name: "Promises" });
+    const res = await refreshMusicAddons(c, { yes: true }, deps(fakeFetch({ discogsStatus: 429 }), { scopeRecIds: [id] }));
+    expect(res).toMatchObject({ stoppedOn: "api.discogs.com 429", appleAdded: [id], discogsAdded: [] });
+    expect((await row(id)).links.apple_music).toBe("https://music.apple.com/us/album/promises/77");
   });
 });

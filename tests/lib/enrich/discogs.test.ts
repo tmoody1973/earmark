@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DISCOGS_GAP_MS, discogsAccess, discogsFacts, fetchDiscogs, hasTrack, MAX_CREDITS, parseRelease, pickCandidates, readDiscogs,
-  resetDiscogsSkipLog, resetDiscogsThrottle, logDiscogsSkippedOnce, type DiscogsRec,
+  resetDiscogsRejected, resetDiscogsSkipLog, resetDiscogsThrottle, logDiscogsSkippedOnce, type DiscogsRec,
 } from "../../../agent/lib/enrich/discogs";
 import { fetchExtras, readExtras } from "../../../agent/lib/enrich/extras";
 import { ProviderHttpError } from "../../../agent/lib/enrich/types";
@@ -47,6 +47,21 @@ describe("pickCandidates", () => {
     const rec: DiscogsRec = { type: "song", canonical_name: "Hard Life", creator: "Sault" };
     const res = { results: [{ id: 5, title: "Other - Hard Life" }, { id: 6, title: "Sault (2) - 5" }, { id: 7, title: "Sault (2) - 7" }, { id: 8, title: "Sault (2) - 9" }] };
     expect(pickCandidates(res, rec)).toEqual([6, 7]);
+  });
+});
+
+describe("pickCandidates exactness", () => {
+  it("song: the artist must EQUAL the Discogs artist, not just start the title", () => {
+    const song = (creator: string): DiscogsRec => ({ type: "song", canonical_name: "Hard Life", creator });
+    expect(pickCandidates({ results: [{ id: 1, title: "Prince Buster - Hard Life" }] }, song("Prince"))).toEqual([]);
+    expect(pickCandidates({ results: [{ id: 2, title: "The Band of Gypsys - Hard Life" }] }, song("The Band"))).toEqual([]);
+    expect(pickCandidates({ results: [{ id: 3, title: "Prince - Hard Life" }] }, song("Prince"))).toEqual([3]);
+  });
+  it("album: artist and title are compared separately, so 'A B' + 'C' never meets 'A' + 'B C'", () => {
+    const res = { results: [{ id: 1, title: "A - B C" }] };
+    expect(pickCandidates(res, { type: "album", canonical_name: "C", creator: "A B" })).toEqual([]);
+    expect(pickCandidates({ results: [{ id: 2, title: "A B - C" }] }, { type: "album", canonical_name: "B C", creator: "A" })).toEqual([]);
+    expect(pickCandidates(res, { type: "album", canonical_name: "B C", creator: "A" })).toEqual([1]);
   });
 });
 
@@ -214,7 +229,7 @@ describe("fetchDiscogs", () => {
 });
 
 describe("fetchExtras with Discogs", () => {
-  beforeEach(() => resetDiscogsThrottle());
+  beforeEach(() => { resetDiscogsThrottle(); resetDiscogsRejected(); });
   const rec = { type: "artist" as const, canonical_name: "Sault", creator: null, apple_music_id: null, links: {}, about_url: null };
 
   it("adds extras.discogs for music tips when configured; unconfigured is skipped with one log line", async () => {
@@ -228,5 +243,33 @@ describe("fetchExtras with Discogs", () => {
     logDiscogsSkippedOnce(); // already logged: stays quiet
     expect((await fetchExtras(rec, fetchImpl, access)).discogs).toMatchObject({ url: "https://www.discogs.com/artist/9" });
     log.mockRestore();
+  });
+
+  const songRec = { type: "song" as const, canonical_name: "Movement 1", creator: "Floating Points", apple_music_id: "1550697824", links: {}, about_url: null };
+  const itunes = { results: [{ wrapperType: "track", trackName: "Movement 1", artistName: "Floating Points", previewUrl: "https://audio-ssl.itunes.apple.com/p.m4a",
+    trackViewUrl: "https://music.apple.com/us/album/movement-1/1?i=2" }] };
+  const routed = (discogsStatus: number) => vi.fn(async (url: string | URL | Request) =>
+    String(url).includes("discogs.com") ? json({ message: "x" }, discogsStatus) : json(itunes)) as unknown as typeof fetch;
+
+  it("a Discogs 500 keeps the other extras (nothing thrown, no try burned) and leaves discogs absent", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const x = await fetchExtras(songRec, routed(500), access);
+    expect(x.preview?.audioUrl).toBe("https://audio-ssl.itunes.apple.com/p.m4a");
+    expect(x.discogs).toBeUndefined();
+    expect(err.mock.calls.flat().join(" ")).toMatch(/error=ProviderHttpError status=500/);
+    err.mockRestore();
+  });
+  it("a Discogs 429 still throws (the step backs off)", async () => {
+    await expect(fetchExtras(songRec, routed(429), access)).rejects.toMatchObject({ status: 429 });
+  });
+  it("a Discogs 401 is logged once and Discogs is skipped for the rest of the run", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = routed(401);
+    await fetchExtras(songRec, f, access);
+    await fetchExtras(songRec, f, access);
+    const discogsCalls = (f as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([u]) => String(u).includes("discogs.com"));
+    expect(discogsCalls).toHaveLength(1);
+    expect(err.mock.calls.filter(([m]) => /discogs rejected/.test(String(m)))).toHaveLength(1);
+    err.mockRestore();
   });
 });

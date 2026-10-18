@@ -7,6 +7,7 @@ import { createBeeClient } from "../bee/client";
 import { db } from "../db";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
+import { discogsAccess } from "../enrich/discogs";
 import { fetchExtras, type ExtrasRec, type RecExtras } from "../enrich/extras";
 import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
@@ -98,7 +99,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
-    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec),
+    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env)),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
