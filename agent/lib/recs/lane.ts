@@ -12,7 +12,7 @@ import { fetchExtras, type ExtrasRec, type RecExtras } from "../enrich/extras";
 import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
 import { enabledTypes, providerFor, REC_TYPES } from "../enrich/registry";
-import { describeCandidate, logEnrichError, ProviderHttpError, type Candidate, type EnrichmentMatch } from "../enrich/types";
+import { describeCandidate, logEnrichError, MAX_CANDIDATES, ProviderHttpError, type Candidate, type EnrichmentMatch } from "../enrich/types";
 import { HIDDEN_TIP_STATUSES } from "../garden/queries";
 import { ensureRecEmbeddings } from "../links/candidates";
 import { CLAIM_LEASE } from "../store/conversations";
@@ -20,7 +20,7 @@ import type { RecStatus, RecType } from "../types";
 import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
 
 export const MAX_RECS_PER_RUN = 10;
-export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip; tips with no candidates cost none
+export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip (music ≤2: the Apple fallback); tips with no candidates cost none
 export const MAX_ATTEMPTS = 5; // failures (not 503s, not second looks' own no_match) → then 'failed'
 export const SWEEP_BUDGET_MS = 240_000; // stop starting new tips after 4 min, far inside the 15-min lease
 export const BUSY_RETRY_MINUTES = 15; // a 503/429 sends that tip to the back for this long, attempt not counted
@@ -139,13 +139,15 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
     summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
-  // What Jev was shown and what it chose, for this tip ("Which one?", decision 048). Every provider asks pick once.
+  // What Jev was shown and what it chose, for this tip ("Which one?", decision 048). Every provider asks pick once, but
+  // music may ask twice (MusicBrainz, then Apple, decision 050): the latest look's candidates first, the earlier look's
+  // fill the list up to MAX_CANDIDATES (what "Which one?" shows), each keeping its provider.
   type Seen = { candidates: readonly Candidate[]; picked: EnrichmentMatch | null };
   const last: { seen: Seen | null } = { seen: null };
   const countedPick: typeof pickMatch = async (input, candidates, opts) => {
     if (candidates.length > 0) r.jevCalls++;
     const picked = await d.pick(input, candidates, opts);
-    last.seen = { candidates, picked };
+    last.seen = { candidates: [...candidates, ...(last.seen?.candidates ?? [])].slice(0, MAX_CANDIDATES), picked };
     return picked;
   };
 

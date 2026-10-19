@@ -146,6 +146,14 @@ describe("readExtras (what the page trusts from the stored jsonb)", () => {
 });
 
 describe("fetchExtras (fetch mocked)", () => {
+  it("an Apple-only album match (no MusicBrainz id, decision 050) runs every step, Discogs by name, without throwing", async () => {
+    const f = vi.fn(async () => json({ results: [] }));
+    const appleOnly = rec({ type: "album", canonical_name: "MettaSun", creator: "Jimetta Rose", apple_music_id: "1700",
+      links: { apple_music: "https://music.apple.com/us/album/1700" } });
+    expect(await fetchExtras(appleOnly, f as never, { key: "k", secret: "s" })).toEqual({});
+    expect((f.mock.calls as unknown as [string][]).some(([u]) => u.startsWith("https://api.discogs.com/"))).toBe(true);
+  });
+
   it("a song with an Apple Music id: one lookup by id", async () => {
     const f = vi.fn(async () => json({ results: [songHit] }));
     expect(await fetchExtras(rec({ apple_music_id: "1550697824" }), f as never)).toEqual({ preview: expect.objectContaining({ audioUrl: PREVIEW }) });

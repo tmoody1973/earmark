@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 import type { enrichRec } from "../../agent/lib/enrich/enrich";
@@ -258,6 +259,55 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     const e = await row(extras);
     expect(e).toMatchObject({ canonical_name: B.canonicalName, extras: null, extras_at: null });
     expect(e.links).toEqual(B.links); // no links.discogs for the old item
+  });
+
+  // Decision 050: MusicBrainz has nothing (MettaSun, tip 150), Apple's catalog does. Real enrichRec, fake HTTP and Jev.
+  const APPLE_ENV = { APPLE_TEAM_ID: "T", APPLE_MUSIC_KEY_ID: "K",
+    APPLE_MUSIC_PRIVATE_KEY: generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString() };
+  const METTA = { results: { albums: { data: [{ id: "1700", attributes: { name: "MettaSun", artistName: "Jimetta Rose", releaseDate: "2026-09-01",
+    url: "https://music.apple.com/us/album/1700", artwork: { url: "https://is1-ssl.mzstatic.com/{w}x{h}.jpg" } } }] } } };
+  const MB_ONE = { "release-groups": [{ id: "rg-metta", title: "Metta Sun", "primary-type": "Album", "artist-credit": [{ name: "Someone Else", joinphrase: "" }] }] };
+  const musicFetch = (mb: unknown) => vi.fn(async (u: string) => new Response(JSON.stringify(
+    u.startsWith("https://musicbrainz.org/") ? mb : u.startsWith("https://api.music.apple.com/") ? METTA : {}),
+  { status: u.includes("musicbrainz.org") || u.includes("api.music.apple.com") ? 200 : 404, headers: { "content-type": "application/json" } }));
+  const realEnrich = (fetchImpl: ReturnType<typeof musicFetch>): Enrich => async (r, deps) =>
+    (await import("../../agent/lib/enrich/enrich")).enrichRec(r, { ...deps, fetchImpl: fetchImpl as unknown as typeof fetch });
+  const appleKey = "MettaSun — Jimetta Rose — 2026";
+
+  it("a music tip MusicBrainz can't find ends matched from Apple, with Apple's id, link and art", async () => {
+    const id = await addRec({ type: "album", name: "MettaSun" });
+    await c.query(`update recommendations set creator = 'Jimetta Rose' where id = $1`, [id]);
+    const pick = vi.fn(async (_i: unknown, cs: readonly Candidate[]) => (cs[0] ? { ...cs[0], matchConfidence: 0.92 } : null));
+    expect(await sweep({ enrich: realEnrich(musicFetch({ "release-groups": [] })), pick, env: APPLE_ENV, onlyIds: [id] })).toMatchObject({ matched: 1 });
+    const r = await row(id);
+    expect(r).toMatchObject({ enrichment_status: "matched", canonical_name: "MettaSun", creator: "Jimetta Rose", year_or_address: "2026",
+      image_url: "https://is1-ssl.mzstatic.com/600x600.jpg", auto_pick: appleKey, art_retry_mbid: null });
+    expect(r.links).toEqual({ apple_music: "https://music.apple.com/us/album/1700" });
+    expect((await c.query(`select apple_music_id from recommendations where id = $1`, [id])).rows[0].apple_music_id).toBe("1700");
+    expect(r.match_candidates.map((x: Candidate) => x.provider)).toEqual(["apple"]);
+  });
+
+  it("Jev abstains on both: the options keep Apple's first, then MusicBrainz's, each with its provider", async () => {
+    const id = await addRec({ type: "album", name: "MettaSun" });
+    expect(await sweep({ enrich: realEnrich(musicFetch(MB_ONE)), pick: picks(null), env: APPLE_ENV, onlyIds: [id] })).toMatchObject({ secondLook: 1 });
+    const r = await row(id);
+    expect(r).toMatchObject({ enrichment_status: "pending", auto_pick: "none" });
+    expect(r.match_candidates.map((x: Candidate) => [x.provider, x.canonicalName])).toEqual([["apple", "MettaSun"], ["musicbrainz", "Metta Sun"]]);
+  });
+
+  it("the owner picks an Apple option: Apple's id, link and art are written; Search again falls back to Apple too", async () => {
+    const { pickCandidate, searchAgain } = await whichOne();
+    const id = await addRec({ type: "album", name: "Metta Sun", set: `enrichment_status = 'no_match', candidates_at = now() - interval '1 minute'` });
+    const fetchImpl = musicFetch({ "release-groups": [] });
+    expect(await searchAgain(id, "MettaSun", { env: APPLE_ENV, fetchImpl: fetchImpl as unknown as typeof fetch })).toEqual({ status: "ok", found: 1 });
+    expect((await row(id)).match_candidates[0]).toMatchObject({ provider: "apple", appleMusicId: "1700" });
+
+    expect(await pickCandidate(id, 0, appleKey)).toEqual({ changed: true });
+    const r = await row(id);
+    expect(r).toMatchObject({ enrichment_status: "matched", match_source: "owner", canonical_name: "MettaSun", creator: "Jimetta Rose",
+      image_url: "https://is1-ssl.mzstatic.com/600x600.jpg", art_retry_mbid: null, owner_pick: appleKey });
+    expect(r.links).toEqual({ apple_music: "https://music.apple.com/us/album/1700" });
+    expect((await c.query(`select apple_music_id from recommendations where id = $1`, [id])).rows[0].apple_music_id).toBe("1700");
   });
 
   it("requeue: a dry run only lists; --yes sends the automatic no-matches back to the lane", async () => {
