@@ -44,13 +44,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("said location: backfill, requeu
     const noConv = await addRec({ conv: null });
     const dismissed = await addRec({ status: "dismissed" });
     const hasPlace = await addRec({ lat: 43.1, enrichment: "matched" });
+    const ownerNone = await addRec({ conv: null }); // the owner said "None of these" (decision 048): final
+    await c.query(`update recommendations set match_source = 'owner', owner_none_at = now() where id = $1`, [ownerNone]);
     const getLocation = vi.fn(async (conv: number) => (conv === CONV ? { latitude: 43.04, longitude: -87.91 } : null));
     const deps = { getLocation, sleep: async () => {}, scopeRecIds: ids };
 
     const dry = await backfillSaidLocation(c, { yes: false, requeuePlaces: true }, deps);
     expect(dry.located.sort()).toEqual([located, sameConv, dismissed, hasPlace].sort());
     expect(dry.noLocation).toBe(1);
-    expect(dry.requeued).toEqual([located, noLoc, noConv]);
+    expect(dry.requeued).toEqual([located, noLoc, noConv]); // never the owner-settled one
     expect(await row(located)).toMatchObject({ said_lat: null, enrichment_status: "no_match", enrich_attempts: 3, due: false });
 
     const done = await backfillSaidLocation(c, { yes: true, requeuePlaces: true }, deps);
@@ -61,6 +63,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("said location: backfill, requeu
     expect(await row(noConv)).toMatchObject({ said_lat: null });
     expect(await row(dismissed)).toMatchObject({ enrichment_status: "no_match" }); // dismissed tips are never re-queued
     expect(await row(hasPlace)).toMatchObject({ enrichment_status: "matched", enrich_attempts: 3 }); // already has a place
+    expect(await row(ownerNone)).toMatchObject({ enrichment_status: "no_match", enrich_attempts: 3 }); // owner-settled: never re-queued
   });
 
   it("a failing Bee call is counted and skipped, not fatal", async () => {

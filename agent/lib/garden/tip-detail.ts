@@ -4,6 +4,7 @@ import { LINK_MIN } from "../links/criteria";
 import type { RecType } from "../types";
 import { cardLink } from "./cards";
 import { toRecCard, type GardenRecRow, type RecCardData } from "./queries";
+import { whichOneView, type WhichOneRow, type WhichOneView } from "./which-one";
 
 // The tip page (/tips/[id], decision 045): owner-only, so unlike every shelf path it reads the excerpt. Public pages
 // (/s/, /r/) never call this.
@@ -19,6 +20,8 @@ export interface TipDetail {
   spaces: { id: number; name: string }[];
   /** Ideas it fits (links kind 'fits'), by the idea page's own rule (backlinks.ts). */
   ideas: { id: number; title: string }[];
+  /** "Which one?" (decision 048): ask when unsure, or offer a correction under an automatic match; null otherwise. */
+  whichOne: WhichOneView | null;
 }
 
 const SERVICE: Record<string, string> = {
@@ -54,9 +57,10 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
   const [r] = (await sql`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
-      r.excerpt, r.extras, p.id as recommender_id, p.first_name
+      r.excerpt, r.extras, r.enrichment_status, r.match_source, r.owner_none_at, r.match_candidates, r.auto_pick,
+      r.candidates_at, r.enriched_at, p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.id = ${id}`) as Array<GardenRecRow & { excerpt: string; extras: unknown }>;
+    where r.id = ${id}`) as Array<GardenRecRow & WhichOneRow & { excerpt: string; extras: unknown }>;
   if (!r) return null;
   const spaces = (await sql`
     select s.id, s.name from space_items si join spaces s on s.id = si.space_id
@@ -77,5 +81,6 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     extras: readExtras(r.extras),
     spaces: spaces.map((s) => ({ id: Number(s.id), name: s.name })),
     ideas: ideas.map((c) => ({ id: Number(c.id), title: c.title })),
+    whichOne: whichOneView(r),
   };
 }
