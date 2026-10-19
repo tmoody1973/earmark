@@ -20,7 +20,7 @@ export async function gatherEpisodeData(now: Date): Promise<EpisodeData> {
     db()`select title, mention_count, timeline from idea_clusters where stage in ('compost','sprouting') and last_mentioned_at >= ${weekAgo} order by last_mentioned_at desc limit 6`,
     db()`select title, mention_count, draft_format from idea_clusters where stage in ('ready','drafted') order by last_mentioned_at desc limit 4`,
     db()`select r.canonical_name, r.type, r.creator, r.excerpt, rc.first_name from recommendations r left join recommenders rc on rc.id = r.recommender_id
-         where r.created_at >= ${weekAgo} and r.status not in ('dismissed','composted','needs_review') order by r.created_at desc limit 8`,
+         where r.created_at >= ${weekAgo} and r.status not in ('dismissed','composted','needs_review','overheard') order by r.created_at desc limit 8`,
     db()`select r.canonical_name, r.type, rc.first_name from recommendations r left join recommenders rc on rc.id = r.recommender_id
          where r.status in ('new','queued') and r.created_at < ${twoWeeksAgo} order by r.created_at asc limit 3`,
     db()`select r.canonical_name, rc.first_name from recommendations r join recommenders rc on rc.id = r.recommender_id

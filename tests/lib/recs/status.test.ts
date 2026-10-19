@@ -34,15 +34,22 @@ describe("mayMove (pure transition rules)", () => {
   it("lets the system move only tips Earmark itself placed (needs_review, new), never a user-set state", () => {
     expect(mayMove("needs_review", "new", "system")).toBe(true);
     expect(mayMove("new", "composted", "system")).toBe(true);
-    for (const from of ["queued", "tried", "thanked", "dismissed", "composted"] as RecStatus[]) {
+    for (const from of ["queued", "tried", "thanked", "dismissed", "composted", "overheard"] as RecStatus[]) {
       expect(mayMove(from, "new", "system")).toBe(false);
     }
+  });
+
+  it("Heard nearby (decision 052): Tarik keeps (→ new) or clears (→ dismissed) an overheard tip; the system may file one there", () => {
+    expect(mayMove("overheard", "new", "garden")).toBe(true);
+    expect(mayMove("overheard", "dismissed", "garden")).toBe(true);
+    expect(allowedFrom("new", "garden", ["overheard"])).toEqual(["overheard"]);
+    expect(allowedFrom("overheard", "system")).toEqual(["needs_review", "new"]); // the backfill (move-to-heard-nearby.ts)
   });
 
   it("allowedFrom lists every status the move may start from, narrowed by the caller's own guard", () => {
     expect(allowedFrom("new", "system")).toEqual(["needs_review"]);
     expect(allowedFrom("dismissed", "garden", ["needs_review"])).toEqual(["needs_review"]);
-    expect(allowedFrom("queued", "bee")).toEqual(["needs_review", "new", "tried", "thanked"]);
+    expect(allowedFrom("queued", "bee")).toEqual(["needs_review", "new", "tried", "thanked", "overheard"]);
     expect(allowedFrom("new", "system", ["queued"])).toEqual([]);
   });
 });
@@ -65,7 +72,7 @@ describe("setRecStatus", () => {
     expect(flat(write.text)).toContain("for update");
     expect(flat(write.text)).toContain("old.status = any(?::text[])");
     expect(write.values).toContain(7);
-    expect(write.values).toContainEqual(["needs_review", "new", "queued", "thanked", "dismissed", "composted"]);
+    expect(write.values).toContainEqual(["needs_review", "new", "queued", "thanked", "dismissed", "composted", "overheard"]);
   });
 
   it("is a no-op (nothing run) when the tip's current status may not move there", async () => {
@@ -186,7 +193,7 @@ describe("setRecRating", () => {
     h.mock.queue.push([]);
     expect(await setRecRating(7, "loved", "garden", { effects: [] })).toEqual({ changed: false });
     expect(flat(h.mock.calls[0].text)).toContain("and status <> all(?::text[])");
-    expect(h.mock.calls[0].values).toContainEqual(["dismissed", "composted", "needs_review"]);
+    expect(h.mock.calls[0].values).toContainEqual(["dismissed", "composted", "needs_review", "overheard"]);
     expect(h.mock.calls).toHaveLength(1);
   });
 

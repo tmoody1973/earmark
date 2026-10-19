@@ -3,7 +3,7 @@ import { toVectorLiteral } from "../ideas/embed";
 import { isNewBloom } from "../ideas/stage";
 import { NOTE_AGAIN, NOTE_FIRST, timelineEntryJson } from "../ideas/timeline";
 import type { Txn } from "../store/conversations";
-import type { AttributionSource, IdeaExtraction, IdeaStage, RecExtraction, RecType, Source } from "../types";
+import type { AttributionSource, IdeaExtraction, IdeaStage, RecExtraction, RecStatus, RecType, Source } from "../types";
 import { clampExcerpt } from "./excerpt";
 
 interface Common {
@@ -61,6 +61,17 @@ export function savedIds(items: readonly SaveItem[], results: readonly Record<st
       .filter((r) => r.prev_stage != null && isNewBloom(r.prev_stage as IdeaStage, r.next_stage as IdeaStage))
       .map((r) => Number(r.cluster_id)),
   };
+}
+
+/**
+ * A tip's first status, decided here only. Decision 052: overheard (ambient, not "Earmark that", not a voice note) with
+ * nobody recommending it goes to Heard nearby, whatever Jev's band; ads and videos say "you should…" but name no one.
+ * Everything else: the band (accept → shelf, review → Maybe?).
+ */
+export function recStatusAtSave(item: Extract<SaveItem, { kind: "rec" }>): RecStatus {
+  const overheard = item.source === "ambient" && !item.deliberateKey && !item.beeJournalId;
+  if (overheard && !item.attribution.firstName) return "overheard";
+  return item.route === "review" ? "needs_review" : "new";
 }
 
 // The ONLY way accepted ideas and recs are written (M2/M3 change these statements, not separate store functions).
@@ -151,7 +162,7 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
   }
   const { extraction: ex, attribution } = item;
   const excerpt = clampExcerpt(ex.excerpt);
-  const status = review ? "needs_review" : "new";
+  const status = recStatusAtSave(item);
   const name = attribution.firstName;
   // No recommender: plain insert, never a guessed name, attribution forced to 'none'.
   if (!name) {

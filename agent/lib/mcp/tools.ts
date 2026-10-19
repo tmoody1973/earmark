@@ -16,7 +16,7 @@ export async function whatDidTheyRecommend({ person, period }: { person: string;
   const rows = (await db()`
     select r.canonical_name, r.creator, r.type from recommendations r
     join recommenders rc on rc.id = r.recommender_id
-    where rc.first_name_key = lower(${person.trim()}) and r.said_at >= ${since} and r.status not in ('dismissed', 'composted')
+    where rc.first_name_key = lower(${person.trim()}) and r.said_at >= ${since} and r.status not in ('dismissed', 'composted', 'overheard')
     order by r.said_at desc limit 10`) as { canonical_name: string; creator: string | null; type: string }[];
   if (!rows.length) return { text: `No recommendations from ${name} in ${PERIOD_WORDS[period]}.` };
   const list = rows.map((r) => `${r.canonical_name}${r.creator ? ` by ${r.creator}` : ""} (${r.type.replace("_", "/")})`).join("; ");
@@ -54,7 +54,7 @@ export async function addToEarmarkedPlaylist({ item }: { item: string }) {
   const like = `%${item.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
   const [rec] = (await db()`
     select id, canonical_name from recommendations
-    where type in ('album', 'song', 'artist') and canonical_name ilike ${like} and status not in ('dismissed', 'composted')
+    where type in ('album', 'song', 'artist') and canonical_name ilike ${like} and status not in ('dismissed', 'composted', 'overheard')
     order by said_at desc limit 1`) as { id: number; canonical_name: string }[];
   if (!rec) return { text: `I couldn't find a music recommendation called "${item}".` };
   const name = rec.canonical_name;

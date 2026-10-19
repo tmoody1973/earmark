@@ -6,14 +6,15 @@ import { STATUS_EFFECTS, type StatusChange, type StatusEffect, type StatusOrigin
 
 export type { StatusChange, StatusEffect, StatusOrigin } from "./status-effects";
 
-// The order of the status check in migration 001.
-export const REC_STATUSES: readonly RecStatus[] = ["needs_review", "new", "queued", "tried", "thanked", "dismissed", "composted"];
+// The order of the status check in migration 001, then 044's overheard.
+export const REC_STATUSES: readonly RecStatus[] = ["needs_review", "new", "queued", "tried", "thanked", "dismissed", "composted", "overheard"];
 /**
  * The one visibility rule for tips (decision 025): the shelf, the taste ledger and a person's page all hide these.
- * needs_review tips (Earmark wasn't sure) live only in the Maybe? row until Tarik keeps or clears them.
+ * needs_review tips (Earmark wasn't sure) live only in the Maybe? row until Tarik keeps or clears them; overheard tips
+ * (nobody recommended them, decision 052) only in Heard nearby (/heard), and the rec lane never looks them up.
  * Defined here, not in garden/queries.ts (which re-exports it), so the status core can guard on it without a cycle.
  */
-export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review"];
+export const HIDDEN_TIP_STATUSES: readonly RecStatus[] = ["dismissed", "composted", "needs_review", "overheard"];
 const CLEARED: readonly RecStatus[] = ["dismissed", "composted"];
 const PLACED_BY_EARMARK: readonly RecStatus[] = ["needs_review", "new"];
 

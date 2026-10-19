@@ -39,7 +39,7 @@ export async function loadGardenerData(sources: Source[]): Promise<GardenerData>
       data.recs = withoutOwner((await db()`
         select r.canonical_name, r.type, r.creator, r.status, r.rating, rc.first_name, r.said_at
         from recommendations r left join recommenders rc on rc.id = r.recommender_id
-        where r.status not in ('dismissed', 'composted', 'needs_review') order by r.said_at desc limit 60`) as Record<string, unknown>[]);
+        where r.status not in ('dismissed', 'composted', 'needs_review', 'overheard') order by r.said_at desc limit 60`) as Record<string, unknown>[]);
     } else {
       data.recommenders = withoutOwner((await db()`select first_name, recs_given, recs_tried, recs_loved from recommenders order by recs_given desc limit 30`) as Record<string, unknown>[]);
     }
