@@ -136,4 +136,31 @@ describe("triageWindow", () => {
     expect(r.kindProbability).toBeNaN();
     expect(r.recTypeProbability).toBeNaN();
   });
+  it("asks whether a deliberate earmark corrects a saved tip only when told to; ambient questions are unchanged", async () => {
+    const asked: string[][] = [];
+    const model = new MockDecisionModel({
+      doDecide: async ({ questions }) => {
+        asked.push(Object.keys(questions));
+        return {
+          answers: {
+            kind: { type: "choice", choice: "rec_to_user", probabilities: dist(Object.keys(KIND_CRITERIA), "rec_to_user", 0.9) },
+            rec_type: { type: "choice", choice: "artist", probabilities: dist(Object.keys(REC_TYPE_CRITERIA), "artist", 0.8) },
+            joking: { type: "boolean", probability: 0 },
+            broadcast: { type: "boolean", probability: 0 },
+            ...("correction" in questions ? { correction: { type: "boolean", probability: 0.93 } } : {}),
+          },
+          warnings: [],
+        };
+      },
+    });
+    const decideImpl = ((args: Parameters<typeof experimental_decide>[0]) =>
+      experimental_decide({ ...args, model })) as unknown as typeof experimental_decide;
+    const ambient = await triageWindow("Unknown: you have to hear Velvet Mouth", { model: "m", decideImpl });
+    expect(asked[0]).toEqual(["kind", "rec_type", "joking", "broadcast"]);
+    expect(ambient.correctionProbability).toBeUndefined();
+    const spoken = await triageWindow("Unknown: Velvet Moth tip should be Velvet Mouth", { model: "m", decideImpl, correction: true });
+    expect(asked[1]).toEqual(["kind", "rec_type", "joking", "broadcast", "correction"]);
+    expect(spoken.correctionProbability).toBeCloseTo(0.93);
+    expect(spoken.kind).toBe("rec_to_user");
+  });
 });

@@ -78,6 +78,14 @@ export const JOKING_INSTRUCTIONS =
   "Example: 'you should quit and move to Mars'. A real plan phrased as 'what if we…' is not a joke. " +
   "If nothing is recommended or proposed, the answer is false.";
 
+// Deliberate earmarks only (decision 049, piece 3): asked in the same decide call, never for ambient windows.
+// The examples are synthetic (invented names).
+export const CORRECTION_INSTRUCTIONS =
+  "Is the speaker in `window` correcting a tip Earmark saved earlier: saying its name, artist or kind is wrong or was " +
+  "misheard, and giving the right one? True for: 'that Velvet Moth tip should be Velvet Mouth'; 'the Corla Pine album is " +
+  "actually Glass Harbor by Mara Vell'; 'not Kawa Raymond, it's Kawa Ramen'. False for a new recommendation or idea, " +
+  "even one that names or praises a thing ('you have to try Kawa Ramen'), and for correcting anything that is not a saved tip.";
+
 // true = advertising or broadcast media. Asked in the same decide call as kind/rec_type/joking.
 export const BROADCAST_INSTRUCTIONS =
   "Is the audio in `window` an advertisement or a broadcast (radio, podcast or TV) playing from a speaker? " +

@@ -15,6 +15,7 @@ import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict, type TipV
 import { TIP_CHOICES, type TipChoice } from "@/agent/lib/garden/tip";
 import { nextVisit } from "@/agent/lib/garden/visit";
 import { compostTip, keepItem, restIdea, undoCompostTip, type CompostResult, type ItemRef } from "@/agent/lib/garden/serendipity";
+import { applyTipFixProposal, ignoreTipFixProposal } from "@/agent/lib/recs/spoken-fix";
 
 async function requireOwner(): Promise<void> {
   const { userId } = await auth();
@@ -260,4 +261,31 @@ export async function undoCompostSerendipity(ref: { id: number; previous: "new" 
   const changed = await undoCompostTip(parsed.data.id, parsed.data.previous, { defer: after });
   revalidatePath("/", "layout");
   return { changed };
+}
+
+// ---- Fixes said out loud (decision 049, piece 3) ----
+
+function fixId(raw: unknown): number {
+  const parsed = Id.safeParse(raw);
+  if (!parsed.success) throw new Error("invalid fix");
+  return parsed.data;
+}
+
+/**
+ * Apply a fix Tarik said out loud: the tip takes the new words through applyTipFix and is looked up again. changed false:
+ * already applied or ignored. refused: the tip was cleared or changed since, in words the page shows.
+ */
+export async function applySpokenFix(id: number): Promise<{ changed: boolean } | { refused: string }> {
+  await requireOwner();
+  const r = await applyTipFixProposal(fixId(id));
+  revalidatePath("/", "layout"); // Home, Shelf, People and the tip page all show the tip
+  return r.refused ? { refused: "That tip was cleared or changed since, so nothing was fixed." } : { changed: r.changed };
+}
+
+/** Ignore it: the proposal goes away and the tip stays as it is. A no-op unless it is still waiting. */
+export async function ignoreSpokenFix(id: number): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const r = await ignoreTipFixProposal(fixId(id));
+  revalidatePath("/");
+  return r;
 }

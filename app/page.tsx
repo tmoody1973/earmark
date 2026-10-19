@@ -5,7 +5,9 @@ import { isOwner } from "@/agent/lib/owner";
 import { getGardenView, getGardenVisit, getMaybeTips } from "@/agent/lib/garden/queries";
 import { getSerendipity } from "@/agent/lib/garden/serendipity";
 import { nextVisit } from "@/agent/lib/garden/visit";
+import { pendingTipFixes } from "@/agent/lib/recs/spoken-fix";
 import { Icon } from "./garden/cards/icons";
+import { FixRow } from "./garden/FixRow";
 import { IdeaBed } from "./garden/IdeaPlant";
 import { GardenLive } from "./garden/live";
 import { MaybeRow } from "./garden/MaybeRow";
@@ -38,7 +40,7 @@ export default async function Garden() {
   if (!isOwner(userId)) notFound();
   // Read only: a look is recorded by GardenLive on mount / return to the tab (recordGardenVisit), never by a render.
   const { since } = nextVisit(await getGardenVisit(), new Date());
-  const [view, maybe] = await Promise.all([getGardenView(since), getMaybeTips()]);
+  const [view, maybe, fixes] = await Promise.all([getGardenView(since), getMaybeTips(), pendingTipFixes()]);
   const plants = view.plants.slice(0, IDEAS_ON_HOME);
   const shelf = view.shelf.slice(0, SHELF_ON_HOME);
   // After the garden read, so Serendipity never repeats a card already on this page.
@@ -99,6 +101,9 @@ export default async function Garden() {
             </div>
             <Shelf cards={shelf} />
           </section>
+
+          {/* Below the shelf: fixes Tarik said out loud, waiting for Apply (decision 049). Hidden when there are none. */}
+          <FixRow fixes={fixes} emptyFocusId="shelf-h" />
 
           {/* Below the sure tips: the ones Earmark wasn't sure about (decision 025). Hidden when there are none. */}
           {/* ponytail: maybes stay out of the search index; add them if he ever searches for one. */}

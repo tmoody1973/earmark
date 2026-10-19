@@ -33,7 +33,14 @@ vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
   planIdeaClusters: vi.fn(async (items: unknown[]) => items),
 }));
 
+// Which tip a spoken correction means is unit-tested in tests/lib/recs/spoken-fix.test.ts; here it is a stub.
+vi.mock("../../../agent/lib/recs/spoken-fix", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/recs/spoken-fix")>()),
+  planSpokenFix: vi.fn(async () => null),
+}));
+
 import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { planSpokenFix } from "../../../agent/lib/recs/spoken-fix";
 import { isConversationProcessed, markConversationProcessed, recsSaidBetween, releaseConversation, savedDeliberateKeys } from "../../../agent/lib/store/conversations";
 import { processConversation, type PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
 import { SystemicTriageError } from "../../../agent/lib/pipeline/triage";
@@ -411,6 +418,25 @@ describe("processConversation", () => {
 
   describe("deliberate 'Earmark that' (M2-T12)", () => {
     const spoken = (text: string, id: number) => ({ text, speaker: "Unknown", spoken_at: 1760600000000 + id, id });
+
+    it("decision 049 piece 3: a spoken correction is a proposal for the tip, saved with the conversation; no tip, here or from ambient", async () => {
+      vi.mocked(planSpokenFix).mockResolvedValueOnce({ recId: 31, fix: { name: "Velvet Mouth" }, beeConversationId: 42, beeJournalId: null });
+      const utterances = [spoken("Earmark, that Velvet Moth tip should be Velvet Mouth.", 1), spoken("Velvet Mouth is great", 2), spoken("you have to hear them", 3), spoken("really", 4)];
+      const triage = vi.fn(async (text: string) => ({
+        kind: "rec_to_user", kindProbability: 0.95, recType: "artist", recTypeProbability: 0.9, jokingProbability: 0.02, broadcastProbability: 0.01,
+        model: "m", providerMetadata: {}, ...(text.includes("should be") ? { correctionProbability: 0.95 } : {}),
+      })) as PipelineDeps["triage"];
+      const extractRecommendation = vi.fn(async () => ({ canonicalName: "Velvet Mouth", creator: null, recommenderName: null, excerpt: "Velvet Mouth is great" })) as PipelineDeps["extractRecommendation"];
+      const r = await processConversation(42, { ...base, extractRecommendation, bee: bee("COMPLETED", utterances), triage });
+      expect(vi.mocked(triage).mock.calls[0]).toEqual(["Unknown: Velvet Moth tip should be Velvet Mouth", { correction: true }]);
+      expect(planSpokenFix).toHaveBeenCalledWith("Velvet Moth tip should be Velvet Mouth", { beeConversationId: 42, beeJournalId: null }, undefined);
+      expect(r).toMatchObject({ recs: 0, ideas: 0 });
+      expect(recs()).toHaveLength(0); // the ambient "Velvet Mouth is great" names the corrected tip: not saved again
+      const proposal = committed.filter((q) => /insert into tip_fix_proposals/.test(q.sql));
+      expect(proposal).toHaveLength(1);
+      expect(proposal[0]!.params).toEqual(expect.arrayContaining([31, "Velvet Mouth", null, 42]));
+      expect(committed.some((q) => /update processed_conversations/.test(q.sql))).toBe(true); // same transaction
+    });
     const EARMARK = "Earmark that Ann says to try Ardent on Brady Street.";
 
     it("an ambient window that re-mentions an earmarked thing by name does not save it a second time", async () => {

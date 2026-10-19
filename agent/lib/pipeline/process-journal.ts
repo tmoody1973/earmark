@@ -1,6 +1,7 @@
 import { parseEarmarkTrigger } from "../bee/trigger";
 import { db } from "../db";
 import { planIdeaClusters } from "../ideas/compost";
+import { tipFixProposalQuery } from "../recs/spoken-fix";
 import { finishJournalAs, journalItemQuery, markJournalProcessed, recsSaidBetween, releaseJournal } from "../store/conversations";
 import { planDeliberateItem } from "./deliberate";
 import { resolveDeps, type PipelineDeps } from "./process-conversation";
@@ -28,6 +29,13 @@ export async function processJournal(
     const planned = await planDeliberateItem(
       trigger.body, { label: `journal=${j.id}`, beeConversationId: null, beeJournalId: j.id, spokenAt: j.createdAt }, d,
     );
+    // A spoken tip correction (decision 049): its proposal (if Earmark could tell which tip) and the claim, finished as
+    // 'none', commit together. Never a new tip.
+    if (planned.kind === "fix") {
+      const { fix } = planned;
+      await db().transaction((txn) => [...(fix ? [tipFixProposalQuery(txn, fix)] : []), journalItemQuery(txn, j.id, "none")]);
+      return nothing;
+    }
     // One earmark per moment (M2-T14): Bee may also have heard this note inside a conversation that was already
     // processed. If that conversation saved the same rec within ±60 s, store nothing; the claim points at that rec.
     if (planned.kind === "rec") {

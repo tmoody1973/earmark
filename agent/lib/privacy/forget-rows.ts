@@ -100,6 +100,8 @@ async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promi
   if (!r) return missing(target);
   const receipts = await rows(c, `select bee_todo_id from rec_receipts where recommendation_id = $1`, [target.id]);
   const photos = await rows(c, `select thumbnail_url from photos where recommendation_id = $1`, [target.id]);
+  // Spoken fix proposals (decision 049) name the tip's corrected words: they cascade with it (migration 042).
+  const fixes = await count(c, `tip_fix_proposals where rec_id = $1`, [target.id]);
   const s = await shared(c, "rec", target.id);
   const recommender = r.recommender_id == null ? null
     : { id: Number(r.recommender_id), firstName: String(r.first_name), removed: Number(r.others) === 0 };
@@ -113,7 +115,7 @@ async function planRec(c: PoolClient, target: ForgetTarget, lock: string): Promi
     target, resolved: target, exists: true, recommender, savedAt: new Date(r.saved_at as Date), notes: [],
     deletes: {
       recommendations: 1, rec_receipts: receipts.length, photos: photos.length, links, space_items: s.space_items,
-      bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
+      bee_sync: s.bee_sync, fact_proposals: s.fact_proposals, tip_fix_proposals: fixes,
       resort_backup: await count(c, `resort_backup where table_name = 'recommendations' and row_id = $1`, [target.id]),
       recommenders: recommender?.removed ? 1 : 0,
     },
@@ -202,7 +204,7 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
     return [];
   }
   await c.query(`delete from resort_backup where table_name = 'recommendations' and row_id = $1`, [id]);
-  await c.query(`delete from recommendations where id = $1`, [id]); // receipts and photos cascade
+  await c.query(`delete from recommendations where id = $1`, [id]); // receipts, photos and fix proposals cascade
   const p = plan.recommender;
   if (p?.removed) {
     await c.query(`delete from ${RECOMMENDER_LINKS}`, [String(p.id)]);
