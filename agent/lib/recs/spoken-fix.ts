@@ -37,17 +37,21 @@ const grams = (s: string): Set<string> => {
   const t = ` ${s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
   return new Set(Array.from({ length: Math.max(0, t.length - 2) }, (_, i) => t.slice(i, i + 3)));
 };
-const similarity = (a: Set<string>, b: Set<string>) => {
-  let shared = 0;
-  for (const g of a) if (b.has(g)) shared++;
-  return shared / (a.size + b.size - shared || 1);
-};
+const sharedCount = (a: Set<string>, b: Set<string>) => [...a].filter((g) => b.has(g)).length;
 
-/** The recent tips whose words are closest to what the owner called the tip, closest first. Pure. */
+/**
+ * The recent tips whose words are closest to what the owner called the tip, closest first. Pure. Scored against the
+ * name, creator AND the why note: the misheard words may live only in the note (tip 150: "Jemetta Rose's new albums",
+ * note "…a tribute to Sun Raw Records."). Containment (how much of what he said the tip holds), not Jaccard, so a
+ * short phrase isn't drowned by a long name and note; Jaccard breaks ties, then the input's order (newest first).
+ */
 export function closestTips(heardAs: string, tips: readonly RecentTip[]): RecentTip[] {
   const said = grams(heardAs);
-  return tips.map((t) => ({ t, s: similarity(said, grams([t.canonical_name, t.creator].filter(Boolean).join(" "))) }))
-    .sort((a, b) => b.s - a.s).slice(0, MAX_TIP_CANDIDATES).map((x) => x.t);
+  return tips.map((t) => {
+    const g = grams([t.canonical_name, t.creator, t.context_summary].filter(Boolean).join(" "));
+    const shared = sharedCount(said, g);
+    return { t, contained: shared / (said.size || 1), jaccard: shared / (said.size + g.size - shared || 1) };
+  }).sort((a, b) => b.contained - a.contained || b.jaccard - a.jaccard).slice(0, MAX_TIP_CANDIDATES).map((x) => x.t);
 }
 
 /** Tips from the last FIX_LOOKBACK_DAYS that a fix may still change (not dismissed or composted). */
@@ -60,11 +64,15 @@ export async function recentTips(): Promise<RecentTip[]> {
 
 // Non-numeric keys: JS orders integer-like object keys numerically, which would undo the shuffle.
 const keyOf = (i: number) => `t_${i}`;
-const label = (t: RecentTip) => `${t.canonical_name}${t.creator ? ` by ${t.creator}` : ""} (${t.type})`.replaceAll('"', "'");
+const NOTE_CLIP = 120;
+// The note is the why line already shown on the tip page (derived text, never the excerpt or transcript), clipped.
+const clip = (s: string) => (s.length > NOTE_CLIP ? `${s.slice(0, NOTE_CLIP - 1).trimEnd()}…` : s);
+const label = (t: RecentTip) => (`${t.canonical_name}${t.creator ? ` by ${t.creator}` : ""} (${t.type})` +
+  (t.context_summary ? ` — note: ${clip(t.context_summary)}` : "")).replaceAll('"', "'");
 // Jev reads literally: the condition plus the boundary case in the wording. Invented names only.
 export const WHICH_TIP_INSTRUCTIONS =
   "The speaker says a tip Earmark saved is wrong; they call it `wrong_words` (their whole sentence is `what_was_said`). " +
-  "Which listed tip do they mean? If none of them, choose none_fits.";
+  "Which listed tip do they mean? The words may match the tip's name, its creator or its note. If none of them, choose none_fits.";
 const BOUNDARY =
   "Speech is often misheard, so a close spelling or sound counts ('Velvet Moth' for 'Velvet Mouth'); a tip that shares " +
   "only a common word ('the', 'new', 'album') does not.";

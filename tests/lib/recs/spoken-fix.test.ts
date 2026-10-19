@@ -42,6 +42,17 @@ describe("closestTips", () => {
     expect(closestTips("Velvet Mouth", TIPS)[0]!.id).toBe(1); // misheard again, still nearest
   });
 
+  it("finds a tip whose misheard word is only in its note (the real case, invented names), among decoys", () => {
+    // Shaped like tip 150: name and creator lack the misheard words; the why line holds them.
+    const target: RecentTip = { ...tip(20, "Corla Pine's new albums", "Corla Pine"), context_summary: "Said to be a tribute to Velvet Moth Records." };
+    const decoys = [
+      tip(21, "Velvet Underground & Nico", "The Velvet Underground"), tip(22, "Moth Smoke", "Mohsin Hamid", "book"),
+      tip(23, "Moths of the Night Garden", "Mara Vell"), tip(24, "Records of the Sun", "Sundial Quartet"),
+      tip(25, "Raw Velvet", null, "song"), tip(26, "Velvet Room Bar", null, "place"),
+    ];
+    expect(closestTips("Velvet Moth", [...decoys, target]).map((t) => t.id)).toContain(20);
+  });
+
   it("no tips, no candidates", () => {
     expect(closestTips("Velvet Moth", [])).toEqual([]);
   });
@@ -68,6 +79,23 @@ describe("pickTip (Jev, with an abstain option)", () => {
     const got = await pickTip(said, cands, { model: "m", decideImpl: decideWith(() => "t_0", 0.9, seen) });
     expect(got?.id).toBe(1);
     expect(seen[0]).toEqual(expect.arrayContaining(["t_0", "t_1", "none_fits"]));
+  });
+
+  it("each option shows Jev the tip's note, clipped, so a misheard word that lives only there can be matched", async () => {
+    let criteria: Record<string, string> = {};
+    const model = new MockDecisionModel({
+      doDecide: async ({ questions }) => {
+        criteria = (questions.tip as { criteria: Record<string, string> }).criteria;
+        const keys = Object.keys(criteria);
+        return { answers: { tip: { type: "choice", choice: "none_fits", probabilities: Object.fromEntries(keys.map((k) => [k, k === "none_fits" ? 1 : 0])) } }, warnings: [] };
+      },
+    });
+    const decideImpl = ((args: Parameters<typeof experimental_decide>[0]) => experimental_decide({ ...args, model })) as unknown as typeof experimental_decide;
+    const noted: RecentTip = { ...tip(20, "Corla Pine's new albums", "Corla Pine"), context_summary: `Said to be a tribute to Velvet Moth Records. ${"x".repeat(300)}` };
+    await pickTip(said, [noted], { model: "m", decideImpl });
+    const option = Object.entries(criteria).find(([k]) => k !== "none_fits")![1];
+    expect(option).toContain("Corla Pine's new albums by Corla Pine (album) — note: Said to be a tribute to Velvet Moth Records.");
+    expect(option).not.toContain("x".repeat(130)); // clipped
   });
 
   it("abstains: none_fits, or a pick below 0.8", async () => {
