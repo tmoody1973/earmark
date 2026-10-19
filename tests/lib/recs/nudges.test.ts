@@ -48,13 +48,13 @@ describe("handleLocationUpdate", () => {
     now: () => new Date("2026-10-18T19:00:00Z"),
     radiusM: 300,
   });
-  it("creates one Bee todo due now with the recommender's name", async () => {
+  it("creates one Bee todo, its alarm a minute ahead (Bee never fires an alarm already past), with the recommender's name", async () => {
     const d = base();
     expect(await handleLocationUpdate(HERE, d)).toBe("nudged");
     expect(d.createTodo).toHaveBeenCalledWith({
       entityType: "place_nudge", entityId: 41,
       text: "Earmark · You're near Ramen Kyuu — Ann recommended it",
-      alarmAt: "2026-10-18T19:00:00.000Z",
+      alarmAt: "2026-10-18T19:01:00.000Z",
     });
     expect(d.claim).toHaveBeenCalledWith(5, "2026-10-18");
     expect(d.setTodoId).toHaveBeenCalledWith(41, 99);

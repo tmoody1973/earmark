@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTodoText, MAX_OPEN_TODOS, slotsAvailable, TODO_PREFIX, withLink } from "../../../agent/lib/sync/todo-text";
+import { alarmSoon, formatTodoText, MAX_OPEN_TODOS, slotsAvailable, TODO_PREFIX, withLink } from "../../../agent/lib/sync/todo-text";
 
 const rec = {
   id: 7, type: "album" as const, canonical_name: "Promises", creator: "Floating Points",
@@ -46,5 +46,11 @@ describe("withLink", () => {
   });
   it("leaves the text alone without a base URL", () => {
     expect(withLink("Earmark · You're near Y", "tips", 149, "")).toBe("Earmark · You're near Y");
+  });
+});
+
+describe("alarmSoon", () => {
+  it("is one minute after now, so Bee (which never fires an alarm already past) notifies", () => {
+    expect(alarmSoon(new Date("2026-10-19T23:10:58.745Z"))).toBe("2026-10-19T23:11:58.745Z");
   });
 });
