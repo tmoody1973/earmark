@@ -107,6 +107,10 @@ Feed address to add in a podcast app (Follow a Show by URL): `https://<productio
 
 Approval: a new episode is saved unpublished. Once the gardeners screen lands (M5-T12) the episode appears there as a pending run; approving it sets `published_at` and it shows up in the feed. Until then nothing reaches the feed. Follow-up: FR-30 wiring is pending. `forgetPersonInEpisodes` (agent/lib/privacy/forget-m5.ts) deletes a person's episodes and audio but no forget script calls it yet. One episode per Chicago week: running it again for the same week does nothing and costs nothing.
 
+## Research an idea
+
+Say "Earmark that: <the idea>. Include research." (or "do research", "look into it", "find out more"), or press **Research this** on the idea's page. Earmark runs three TinyFish searches built from the idea's title and summary (never what was said), reads the best five pages with TinyFish Fetch, and has `WRITE_MODEL` write a short brief from those pages only: what already exists, who's doing it, the opening and open questions, every claim citing a numbered source. The brief appears on the idea's page, a Bee todo "Earmark · Research ready: …" links to it, and a later one-page draft can use it. Runs at the start of the 10-minute rec-lane schedule (2 ideas per run, 3 tries each) and right after the button. Needs `TINYFISH_API_KEY` (free search and page reads; off while unset) and migration 046; the todo follows `BEE_TODO_WRITES`. Forgetting an idea deletes its research. Decision 057.
+
 ## Earmark MCP server
 
 Lets an AI client (Claude Code, Claude Desktop, later Alexa+) ask Earmark questions over MCP (Model Context Protocol) at `POST /api/mcp`. Access uses service-level OAuth (decision 031): trade the client id and secret for a one-hour pass, then send it as a bearer token.
