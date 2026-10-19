@@ -26,8 +26,9 @@ never leaves the private app, and judges still click through every screen. Claud
   owner check lets everyone in. The schedules (sync, lookups, gardeners, nightly backfill) do nothing.
 - **The database is the real lock.** The demo app connects as a Postgres role that is only allowed to read. The switch
   is for a friendly message; the role is what makes a missed write impossible.
-- **It can't switch on by accident.** Demo mode also needs a second setting (`EARMARK_DEMO_DB_OK=1`), and refuses to run
-  against the production database's host when that host is named. A refused demo stays off and the server won't start.
+- **It can't switch on by accident.** Demo mode also needs a second setting (`EARMARK_DEMO_DB_OK=1`) and the production
+  database's host (`EARMARK_PROD_DB_HOST`), and refuses to run against that host. Without the host it refuses outright,
+  so the production check can't be skipped by leaving it out. A refused demo stays off and the server won't start.
 - **The sample data is invented, the works are real.** People, quotes, ideas and notes are made up; the albums,
   books, podcasts and Milwaukee places are real, so the cover art, maps and links work. A seed script refuses to write
   to production or TEST, and refuses any database that has tips but was never seeded as the demo.

@@ -29,6 +29,8 @@ const NAMES = ["bee-changes", "evaluate-spaces", "fact-proposals", "gardeners", 
 beforeEach(() => {
   vi.stubEnv("EARMARK_DEMO", "1");
   vi.stubEnv("EARMARK_DEMO_DB_OK", "1");
+  vi.stubEnv("EARMARK_PROD_DB_HOST", "ep-busy-prod-654321.us-east-2.aws.neon.tech");
+  vi.stubEnv("DATABASE_URL", "postgres://demo_reader:pw@ep-quiet-demo-123456-pooler.us-east-2.aws.neon.tech/neondb");
   vi.spyOn(console, "info").mockImplementation(() => {});
 });
 afterEach(() => vi.unstubAllEnvs());
