@@ -164,17 +164,20 @@ export async function releaseDraftClaim(clusterId: number): Promise<void> {
 
 // Every non-dismissed mention (needs_review too: unconfirmed clusters bloom and are drafted, decision 004) and the
 // stored timeline. Order is not guaranteed: callers sort by date.
+// research: the idea's done research brief (decision 057), when there is one; the draft may cite it.
 export interface ClusterForDraft {
-  id: number; title: string; timeline: TimelineEntry[]; mentions: Array<{ excerpt: string; spokenAt: Date }>;
+  id: number; title: string; timeline: TimelineEntry[]; mentions: Array<{ excerpt: string; spokenAt: Date }>; research?: string;
 }
 export async function getClusterForDraft(clusterId: number): Promise<ClusterForDraft | null> {
   const sql = db();
-  const [c] = await sql`select id, title, timeline from idea_clusters where id = ${clusterId}`;
+  const [c] = await sql`select c.id, c.title, c.timeline, r.brief_md from idea_clusters c
+    left join idea_research r on r.cluster_id = c.id and r.status = 'done' where c.id = ${clusterId}`;
   if (!c) return null;
   const ms = await sql`select excerpt, spoken_at from idea_mentions where cluster_id = ${clusterId} and review_status <> 'dismissed'`;
   return {
     id: Number(c.id), title: String(c.title), timeline: (c.timeline ?? []) as TimelineEntry[],
     mentions: ms.map((m) => ({ excerpt: String(m.excerpt), spokenAt: new Date(m.spoken_at) })),
+    ...(c.brief_md ? { research: String(c.brief_md) } : {}),
   };
 }
 

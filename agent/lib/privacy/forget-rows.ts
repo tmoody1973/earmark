@@ -78,8 +78,11 @@ const MERGES = `idea_merges where $1 = keep_id or $1 = merged_id`;
 const MERGES_OF_MENTION = `idea_merges where $2 = any(mention_ids) or $1 = keep_id or $1 = merged_id`;
 const mergedNote = (id: number, keep: number) => `idea ${id} was merged into ${keep}: undo the merge or forget ${keep}`;
 
+// An idea's research todo ("Research ready", decision 057) is its own bee_sync type, keyed by the idea's id.
+const SYNC_OF = `bee_sync where (entity_type = $1 or ($1 = 'idea' and entity_type = 'idea_research')) and entity_id = $2`;
+
 async function shared(c: PoolClient, type: "rec" | "idea", id: number) {
-  const sync = await rows(c, `select bee_object, bee_id from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
+  const sync = await rows(c, `select bee_object, bee_id from ${SYNC_OF}`, [type, id]);
   const proposals = await rows(c, `select id, bee_fact_id from ${PROPOSALS}`, proposalKey(type, id));
   const proposalSync = proposals.length ? await count(c, PROPOSAL_SYNC, [proposals.map((r) => Number(r.id))]) : 0;
   return {
@@ -143,6 +146,7 @@ async function planIdea(c: PoolClient, target: ForgetTarget, resolved: ForgetTar
       idea_clusters: 1, idea_merges: await count(c, MERGES, [resolved.id]),
       idea_mentions: await count(c, `idea_mentions where cluster_id = $1`, [resolved.id]),
       garden_events: await count(c, `garden_events where cluster_id = $1`, [resolved.id]),
+      idea_research: await count(c, `idea_research where cluster_id = $1`, [resolved.id]),
       links: s.links, space_items: s.space_items, bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
       resort_backup: await count(c, `resort_backup where (table_name = 'idea_clusters' and row_id = $1)
         or (table_name = 'idea_mentions' and row_id in (select id from idea_mentions where cluster_id = $1))`, [resolved.id]),
@@ -171,6 +175,7 @@ async function planMention(c: PoolClient, target: ForgetTarget, lock: string): P
     draftInFlight: k.drafting ? clusterId : undefined,
     deletes: {
       idea_mentions: 1, bee_sync: s.bee_sync, fact_proposals: s.fact_proposals,
+      idea_research: await count(c, `idea_research where cluster_id = $1`, [clusterId]),
       idea_merges: await count(c, MERGES_OF_MENTION, [clusterId, target.id]),
       resort_backup: await count(c, `resort_backup where table_name = 'idea_mentions' and row_id = $1`, [target.id]),
     },
@@ -195,12 +200,12 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
   if (type === "mention") return deleteMention(c, id, plan.retitle === true);
   await c.query(`delete from ${LINKS}`, [type, String(id)]);
   await c.query(`delete from space_items where item_type = $1 and item_id = $2`, [type, id]);
-  await c.query(`delete from bee_sync where entity_type = $1 and entity_id = $2`, [type, id]);
+  await c.query(`delete from ${SYNC_OF}`, [type, id]);
   await deleteProposals(c, type, id);
   if (type === "idea") {
     await c.query(`delete from resort_backup where (table_name = 'idea_clusters' and row_id = $1)
       or (table_name = 'idea_mentions' and row_id in (select id from idea_mentions where cluster_id = $1))`, [id]);
-    await c.query(`delete from idea_clusters where id = $1`, [id]); // mentions, garden events and merges cascade
+    await c.query(`delete from idea_clusters where id = $1`, [id]); // mentions, garden events, merges and research cascade
     return [];
   }
   await c.query(`delete from resort_backup where table_name = 'recommendations' and row_id = $1`, [id]);
@@ -222,8 +227,8 @@ export async function deleteRows(c: PoolClient, plan: ForgetPlan): Promise<strin
 
 // Drops the mention, its backup row and its timeline line (by mention_id; legacy lines by a unique spoken_at), then
 // recomputes the idea as the save path keeps it (count and centroid over non-dismissed mentions, decision 004) and
-// clears what was derived from all its mentions: summary, draft (a drafted idea re-drafts), Bee fact and Notion page
-// ids (deleted outside already), fact proposals. Titles are not stored per mention, so a title from this mention
+// clears what was derived from all its mentions: summary, draft (a drafted idea re-drafts), research brief (and its Bee
+// todo), Bee fact and Notion page ids (deleted outside already), fact proposals. Titles are not stored per mention, so a title from this mention
 // becomes a placeholder.
 async function deleteMention(c: PoolClient, id: number, retitle: boolean): Promise<string[]> {
   await c.query(`delete from resort_backup where table_name = 'idea_mentions' and row_id = $1`, [id]);
@@ -242,7 +247,8 @@ async function deleteMention(c: PoolClient, id: number, retitle: boolean): Promi
   }
   if (at === -1) throw new ForgetTimelineError(`idea ${clusterId} has no timeline line for mention ${id}; forget the whole idea instead`);
   const kept = [...timeline.slice(0, at), ...timeline.slice(at + 1)];
-  await c.query(`delete from bee_sync where entity_type = 'idea' and entity_id = $1`, [clusterId]);
+  await c.query(`delete from ${SYNC_OF}`, ["idea", clusterId]);
+  await c.query(`delete from idea_research where cluster_id = $1`, [clusterId]); // built from the title: derived, like the draft
   await deleteProposals(c, "idea", clusterId);
   await c.query(`
     update idea_clusters c set

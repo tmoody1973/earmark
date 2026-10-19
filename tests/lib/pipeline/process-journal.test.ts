@@ -145,6 +145,13 @@ describe("processJournal", () => {
     expect(ideas()[0]!.params).toEqual(expect.arrayContaining(["voice", "57", 1, "accepted"]));
   });
 
+  it("a voice idea that asks for research is planned with research (decision 057); one that doesn't, without", async () => {
+    await processJournal({ id: "60", text: "Earmark that, an agent for dealing with local government. Include research.", createdAt }, deps("idea_by_user", 0.9));
+    expect(vi.mocked(planIdeaClusters).mock.calls[0]![0]).toEqual([expect.objectContaining({ kind: "idea", research: true })]);
+    await processJournal({ id: "61", text: "Earmark that, newsletter idea about research funding", createdAt }, deps("idea_by_user", 0.9));
+    expect(vi.mocked(planIdeaClusters).mock.calls[1]![0][0]).not.toHaveProperty("research");
+  });
+
   it("hands its compost deps to cluster planning, so tests never reach the Gateway", async () => {
     const compost = { embedText: vi.fn(async () => [1]) };
     await processJournal({ id: "58", text: "Earmark that, newsletter idea about AI in public radio", createdAt }, { ...deps("idea_by_user", 0.9), compost });

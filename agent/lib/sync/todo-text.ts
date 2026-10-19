@@ -17,8 +17,9 @@ export const slotsAvailable = (open: number) => Math.max(0, MAX_OPEN_TODOS - ope
 // A Bee todo's link opens the tip's own page (/tips/<id>, owner-only): art, preview, credits and what was said.
 export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/tips/${recId}`;
 
-// A todo built outside the reconciler (place nudge, thank-you reminder) gets its page link too; no base URL, no link.
-export function withLink(text: string, page: "tips" | "receipts", recId: number, base = process.env.EARMARK_PUBLIC_BASE_URL?.trim()): string {
+// A todo built outside the reconciler (place nudge, thank-you reminder, research ready) gets its page link too; no base
+// URL, no link.
+export function withLink(text: string, page: "tips" | "receipts" | "ideas", recId: number, base = process.env.EARMARK_PUBLIC_BASE_URL?.trim()): string {
   return base && Number.isInteger(recId) && recId > 0 ? `${text} ${base.replace(/\/$/, "")}/${page}/${recId}` : text;
 }
 

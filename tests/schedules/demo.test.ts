@@ -8,7 +8,7 @@ const work = vi.hoisted(() => {
   return {
     runBeeChangesSync: vi.fn(fail), draftBlooms: vi.fn(fail), drainTodoQueue: vi.fn(fail), handleRecTodoChange: vi.fn(fail),
     evaluateSpaces: vi.fn(fail), proposeIdeaFacts: vi.fn(fail), proposeTasteFacts: vi.fn(fail), writePendingProposals: vi.fn(fail),
-    runDueGardeners: vi.fn(fail), runBackfill: vi.fn(fail), sweepRecLane: vi.fn(fail), refreshLinks: vi.fn(fail),
+    runDueGardeners: vi.fn(fail), runBackfill: vi.fn(fail), sweepRecLane: vi.fn(fail), refreshLinks: vi.fn(fail), runIdeaResearch: vi.fn(fail),
   };
 });
 vi.mock("../../agent/lib/sync/bee-changes", () => ({ runBeeChangesSync: work.runBeeChangesSync }));
@@ -22,6 +22,7 @@ vi.mock("../../agent/lib/facts/proposals", () => ({
 vi.mock("../../agent/lib/gardeners/run", () => ({ runDueGardeners: work.runDueGardeners }));
 vi.mock("../../agent/lib/pipeline/backfill", () => ({ runBackfill: work.runBackfill }));
 vi.mock("../../agent/lib/recs/lane", () => ({ sweepRecLane: work.sweepRecLane }));
+vi.mock("../../agent/lib/ideas/research", () => ({ runIdeaResearch: work.runIdeaResearch }));
 vi.mock("../../agent/lib/links/refresh", () => ({ refreshLinks: work.refreshLinks }));
 
 const NAMES = ["bee-changes", "evaluate-spaces", "fact-proposals", "gardeners", "nightly-backfill", "rec-lane", "refresh-links"];

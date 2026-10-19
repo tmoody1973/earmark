@@ -8,8 +8,9 @@ import { describeSweep, findSweep, forgetPlaceNudges, forgetRecReceipts, forgetS
 // rows are deleted and after the Bee/Notion/Blob deletes. Use `ctx.c` (a pg PoolClient: `ctx.c.query(text, values)`) for
 // every query so a throw rolls the whole forget back and a re-run retries. Return one line of ids/counts, never text.
 // bee_sync contract: forget-rows.ts deletes bee_sync rows (and their Bee todos/facts) of entity_type 'rec' and 'idea'
-// only (plus 'fact_proposal'). Every other entity type, e.g. M5's 'place_nudge' and 'rec_receipt' todos made with
-// createEarmarkTodo (sync/bee-todos.ts), is deleted, Bee todo included, by its owner's hook below (lane C).
+// only (plus 'fact_proposal', and 'idea_research': an idea's "Research ready" todo, decision 057). Every other entity
+// type, e.g. M5's 'place_nudge' and 'rec_receipt' todos made with createEarmarkTodo (sync/bee-todos.ts), is deleted, Bee
+// todo included, by its owner's hook below (lane C).
 
 // Lane C's functions take a tagged-template `sql`; this one runs it on the forget transaction's client.
 const sqlOver = (c: PoolClient): Sql => async (strings, ...values) =>
