@@ -1,4 +1,5 @@
 import { defineSchedule } from "eve/schedules";
+import { skipInDemo } from "../lib/demo";
 import { refreshLinks } from "../lib/links/refresh";
 
 // FR-38 backlinks: every hour at :07, judge the idea pairs and tip→idea fits that are new or changed since they were
@@ -8,6 +9,7 @@ import { refreshLinks } from "../lib/links/refresh";
 export default defineSchedule({
   cron: "7 * * * *",
   async run() {
+    if (skipInDemo("refresh-links")) return; // the judge demo is read-only (decision 053)
     try {
       await refreshLinks();
     } catch (err) {
