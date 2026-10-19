@@ -3,6 +3,7 @@
 // - None of these: final no_match (owner_none_at), the question goes away;
 // - Search again: the tip type's provider with the owner's words (music: MusicBrainz and Apple together, decision 050),
 //   new candidates stored, nothing picked.
+// Picking a page the lane found on the web (decision 051) is the owner's Link (tip-link.ts): its page is fetched then.
 // Only Search again calls a provider, and only when the owner asks: one search per tip per 10 s, refused when the
 // provider isn't configured, a 503/429 answered with "try again in a bit". The query is the owner's own words (2-120
 // characters); what was said is never sent. Logs: ids and err.name only.
@@ -12,9 +13,10 @@ import { biasFor } from "../enrich/bias";
 import { searchMusic } from "../enrich/music";
 import { providerFor, type NamedProvider } from "../enrich/registry";
 import { logEnrichError, runProvider, type EnrichQuery } from "../enrich/types";
-import { candidateKey, readCandidates, type StoredCandidate } from "../garden/which-one";
+import { candidateKey, readCandidates, WEB_PROVIDER, type StoredCandidate } from "../garden/which-one";
 import type { RecType } from "../types";
 import { applyReviewReason, isBackOffSignal, saveMatch, SWEEP_SKIPS_STATUSES } from "./lane";
+import { applyTipLink, type TipLinkDeps } from "./tip-link";
 
 export const SEARCH_EVERY_SECONDS = 10;
 
@@ -22,10 +24,15 @@ export const SEARCH_EVERY_SECONDS = 10;
  * The owner picks stored candidate `index`, which the page named `key` (candidateKey). changed false: the stored list
  * moved on (a second look or another tab's search replaced it), no such candidate, a cleared tip, or already settled.
  */
-export async function pickCandidate(id: number, index: number, key: string): Promise<{ changed: boolean }> {
+export async function pickCandidate(id: number, index: number, key: string, linkDeps: TipLinkDeps = {}): Promise<{ changed: boolean }> {
   const [row] = await db()`select match_candidates from recommendations where id = ${id} and match_source = 'auto'`;
   const c = row ? readCandidates(row.match_candidates)[index] : undefined;
   if (!c || candidateKey(c) !== key) return { changed: false };
+  // A page found on the web, no catalog's item (decision 051): the owner's Link path settles it, fetching the page now.
+  if (c.provider === WEB_PROVIDER && c.links.web) {
+    const r = await applyTipLink(id, c.links.web, linkDeps, { name: c.canonicalName, creator: c.creator });
+    return { changed: r.status === "saved" };
+  }
   // A music candidate's art arrives through the lane's art-only tail (Cover Art Archive), never from this request.
   const artRetry = c.imageUrl ? undefined : c.releaseGroupId;
   // ifCandidates: the write lands only while the list is still the one just read (no read-then-write race).
