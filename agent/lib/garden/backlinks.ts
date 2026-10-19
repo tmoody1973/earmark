@@ -41,7 +41,7 @@ export async function getBacklinks(ideaId: number): Promise<Backlinks> {
     from links l
     join idea_clusters c on c.id::text = case when l.from_id = ${id} then l.to_id else l.from_id end
     where l.from_type = 'idea' and l.to_type = 'idea' and (l.from_id = ${id} or l.to_id = ${id})
-      and l.status <> 'removed' and c.stage <> 'dismissed' and c.mention_count > 0
+      and l.status <> 'removed' and c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id)
       and ((l.kind = 'related' and (l.status = 'accepted' or l.confidence >= ${LINK_MIN}))
         or (l.kind = 'merge_suggestion' and l.status = 'suggested' and l.confidence >= ${MERGE_MIN}))
     order by l.status = 'accepted' desc, l.confidence desc, c.id

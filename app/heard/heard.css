@@ -4,4 +4,8 @@
 .heard-page .garden-head p { max-width: 36rem; }
 .heard-list { grid-template-columns: 1fr; margin-top: 1.25rem; }
 .heard-when { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--ink-2); }
+/* Heard once (/heard-once, decision 055) says what a tap did, with Undo after a dismissal: as .serendipity-said */
+.heard-said { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 1rem 0 0; }
+.heard-said p { margin: 0; font-size: 0.9375rem; color: var(--ink); }
+.heard-said .maybe-btn { flex: none; padding: 0 1.125rem; }
 .heard-quote { margin: 0.5rem 0 0; font-family: var(--serif); font-style: italic; font-size: 1rem; line-height: 1.5; color: var(--ink); hanging-punctuation: first; }

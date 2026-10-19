@@ -51,14 +51,15 @@ export async function ensureRecEmbeddings(limit: number): Promise<number> {
 
 // A pair or a tip→idea fit needs Jev when it was never judged, or one side changed after it was (updated_at moved
 // past judged_at, e.g. a new mention), and Tarik has not accepted or removed it (status still 'suggested').
-// Visible ideas only: growing (not dismissed) and with at least one counted mention (the garden's own rule).
+// Visible ideas only: growing (not dismissed), with at least one counted mention and not overheard once (the garden's
+// own rule, decision 055: a quiet idea costs no Jev calls until it recurs, when its updated_at moves).
 // ponytail: the `vis` CTE scans every visible idea per item (no HNSW); fine to a few thousand ideas, use per-item
 // index lookups (order by centroid <=> x limit k on idea_clusters) past that.
 export async function ideaPairCandidates(limit: number): Promise<IdeaPairCandidate[]> {
   const rows = (await db()`
     with vis as (
       select id, title, summary, timeline, centroid, updated_at from idea_clusters
-      where stage <> 'dismissed' and mention_count > 0 and centroid is not null
+      where stage <> 'dismissed' and mention_count > 0 and centroid is not null and not idea_is_quiet(id)
     ), near as (
       select least(a.id, n.id) as lo, greatest(a.id, n.id) as hi, n.dist
       from vis a cross join lateral (
@@ -88,7 +89,7 @@ export async function recIdeaCandidates(limit: number): Promise<RecIdeaCandidate
   const rows = (await db()`
     with vis as (
       select id, title, summary, timeline, centroid, updated_at from idea_clusters
-      where stage <> 'dismissed' and mention_count > 0 and centroid is not null
+      where stage <> 'dismissed' and mention_count > 0 and centroid is not null and not idea_is_quiet(id)
     ), near as (
       select r.id as rec_id, r.type, r.canonical_name, r.creator, r.context_summary, r.updated_at as rec_updated_at,
              n.id as idea_id, n.dist

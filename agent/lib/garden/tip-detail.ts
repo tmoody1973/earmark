@@ -77,7 +77,7 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     select c.id, c.title from links l join idea_clusters c on c.id::text = l.to_id
     where l.from_type = 'rec' and l.from_id = ${String(id)} and l.to_type = 'idea' and l.kind = 'fits'
       and l.status <> 'removed' and (l.status = 'accepted' or l.confidence >= ${LINK_MIN})
-      and c.stage <> 'dismissed' and c.mention_count > 0
+      and c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id)
     order by l.status = 'accepted' desc, l.confidence desc, c.id
     limit 12`) as Array<{ id: number | string; title: string }>;
   const card = toRecCard(r);

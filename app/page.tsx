@@ -115,8 +115,9 @@ export default async function Garden() {
             emptyFocusId="shelf-h"
           />
 
-          {/* Overheard tips nobody recommended wait here (decision 052): findable, never pushed. No count, no badge. */}
-          <p className="heard-door"><Link href="/heard">Heard nearby</Link></p>
+          {/* Overheard tips nobody recommended (decision 052) and ideas heard once (decision 055) wait here: findable,
+              never pushed. No count, no badge. */}
+          <p className="heard-door"><Link href="/heard">Heard nearby</Link><Link href="/heard-once">Heard once</Link></p>
 
           {/* Last and quiet: one thing that has gone unheard for a while (decision 029). Hidden when there is none. */}
           <Serendipity pick={pick} />

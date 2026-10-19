@@ -30,7 +30,8 @@ export interface DemoTip {
 export interface DemoIdea {
   title: string; stage: IdeaStage; pinned?: boolean;
   /** The timeline line for each mention after the first ("first heard" is written for the earliest). */
-  mentions: { daysAgo: number; note: string; excerpt: string; status?: "accepted" | "needs_review" | "dismissed" }[];
+  /** source "voice": a Bee voice note, a deliberate capture that always shows (decision 055); default ambient. */
+  mentions: { daysAgo: number; note: string; excerpt: string; status?: "accepted" | "needs_review" | "dismissed"; source?: "voice" }[];
   draft?: { format: "newsletter_pitch" | "radio_segment" | "product_brief"; md: string };
 }
 export interface DemoSpace { name: string; rule: string; tips: string[]; publishedToken?: string }
@@ -232,13 +233,13 @@ export const IDEAS: DemoIdea[] = [
     { daysAgo: 1, note: "added the lakefront", excerpt: "the lakefront ones first, those close earliest" },
   ] },
   { title: "A zine about the Riverwest 24", stage: "compost", mentions: [
-    { daysAgo: 11, note: "first heard", excerpt: "somebody should make a zine about the riverwest twenty four, the checkpoints are wild" },
+    { daysAgo: 11, note: "first heard", excerpt: "somebody should make a zine about the riverwest twenty four, the checkpoints are wild", source: "voice" },
   ] },
   { title: "The lake in winter, as an episode", stage: "compost", mentions: [
-    { daysAgo: 27, note: "first heard", excerpt: "an episode about the lake in winter, the ice shelves, the people who still swim" },
+    { daysAgo: 27, note: "first heard", excerpt: "an episode about the lake in winter, the ice shelves, the people who still swim", source: "voice" },
   ] },
   { title: "Neighborhood recipe swap", stage: "compost", mentions: [
-    { daysAgo: 34, note: "first heard", excerpt: "a recipe swap on our block, everyone brings the dish their family argues about" },
+    { daysAgo: 34, note: "first heard", excerpt: "a recipe swap on our block, everyone brings the dish their family argues about", source: "voice" },
   ] },
   { title: "One book, one record, one place: a weekly newsletter", stage: "used",
     draft: { format: "newsletter_pitch", md: "Mentioned 3 times\n\n# One, one, one\n\n## The pitch\nEvery Friday: one book, one record and one Milwaukee place a friend told me about, and why." },

@@ -29,10 +29,11 @@ test("Connected: keep and remove links, merge a duplicate idea, and undo the mer
 
   let conv = 8_100_000 + (width === 390 ? 0 : 50);
   const idea = async (title: string, mentions: number) => {
-    const [c] = await sql`insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, timeline)
+    // kept_at: an idea overheard once is otherwise quiet (decision 055) and would never show as a link
+    const [c] = await sql`insert into idea_clusters (title, stage, mention_count, first_mentioned_at, last_mentioned_at, timeline, kept_at)
       values (${`Sample link: ${title}`}, ${mentions >= 3 ? "ready" : mentions === 2 ? "sprouting" : "compost"}, ${mentions},
         now() - interval '9 days', now() - interval '1 day',
-        ${JSON.stringify([{ date: new Date(Date.now() - 9 * 864e5).toISOString(), line: "Oct 7: first heard" }])}::jsonb)
+        ${JSON.stringify([{ date: new Date(Date.now() - 9 * 864e5).toISOString(), line: "Oct 7: first heard" }])}::jsonb, now())
       returning id`;
     for (let i = 0; i < mentions; i++) {
       await sql`insert into idea_mentions (cluster_id, bee_conversation_id, excerpt, spoken_at, confidence, review_status, source)

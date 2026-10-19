@@ -107,7 +107,7 @@ export async function seedDemo(c: PoolClient, now: Date): Promise<SeededIds> {
     for (const m of idea.mentions) {
       const at = ago(m.daysAgo);
       const mid = await id(c, `insert into idea_mentions (cluster_id, excerpt, spoken_at, confidence, review_status, source)
-        values ($1, $2, $3, 0.9, $4, 'ambient') returning id`, [cid, m.excerpt, at, m.status ?? "accepted"]);
+        values ($1, $2, $3, 0.9, $4, $5) returning id`, [cid, m.excerpt, at, m.status ?? "accepted", m.source ?? "ambient"]);
       timeline.push({ date: at.toISOString(), line: `${formatTimelineDate(at)}: ${m.daysAgo === earliest ? NOTE_FIRST : m.note}`, mention_id: mid });
     }
     await c.query(`update idea_clusters set timeline = $2::jsonb where id = $1`, [cid, JSON.stringify(timeline)]);

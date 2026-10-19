@@ -11,6 +11,7 @@ import { fillNewSpace } from "@/agent/lib/spaces/evaluate";
 import { mergeClusters, undoMerge } from "@/agent/lib/garden/merge";
 import { TimelineAmbiguousError } from "@/agent/lib/ideas/timeline-match";
 import { setPinned, type PinResult } from "@/agent/lib/garden/top-of-mind";
+import { dismissIdea, keepIdea, undoDismissIdea, UNDO_STAGES, type DismissResult, type UndoStage } from "@/agent/lib/garden/quiet-ideas";
 import { getGardenVisit, saveGardenVisit, setTipChoice, setTipVerdict, type TipVerdict } from "@/agent/lib/garden/queries";
 import { TIP_CHOICES, type TipChoice } from "@/agent/lib/garden/tip";
 import { nextVisit } from "@/agent/lib/garden/visit";
@@ -138,6 +139,42 @@ export async function pinIdea(ideaId: number, pinned: boolean): Promise<PinResul
   const result = await setPinned(parsed.data[0], parsed.data[1]);
   revalidatePath("/", "layout"); // Home and Garden order pinned ideas first
   return result;
+}
+
+// ---- Quiet ideas (decision 055): Heard once's Keep, and Dismiss with Undo (Heard once and the idea page) ----
+
+function ideaId(raw: unknown): number {
+  const id = Id.safeParse(raw);
+  if (!id.success) throw new Error("invalid idea id");
+  return id.data;
+}
+
+/** Keep: an idea heard once shows in the garden now. A no-op unless it is still quiet. */
+export async function keepHeardOnce(id: number): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const changed = await keepIdea(ideaId(id));
+  revalidatePath("/", "layout"); // it joins Home and the Garden
+  return { changed };
+}
+
+/** Dismiss any idea that is not dismissed yet. `previous` goes back to undoDismiss. */
+export async function dismissIdeaAction(id: number): Promise<DismissResult> {
+  await requireOwner();
+  const result = await dismissIdea(ideaId(id));
+  revalidatePath("/", "layout");
+  return result;
+}
+
+const UndoDismissSchema = z.strictObject({ id: Id, previous: z.enum(UNDO_STAGES) });
+
+/** Undo a dismissal from the last hour. A no-op past the hour, or for a merge's dismissal (undo the merge instead). */
+export async function undoDismissIdeaAction(ref: { id: number; previous: UndoStage }): Promise<{ changed: boolean }> {
+  await requireOwner();
+  const parsed = UndoDismissSchema.safeParse(ref);
+  if (!parsed.success) throw new Error("invalid idea");
+  const changed = await undoDismissIdea(parsed.data.id, parsed.data.previous);
+  revalidatePath("/", "layout");
+  return { changed };
 }
 
 // ---- Smart Spaces (M4-T7, FR-32, decision 028) ----
