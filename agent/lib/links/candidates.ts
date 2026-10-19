@@ -44,7 +44,7 @@ export async function ensureRecEmbeddings(limit: number): Promise<number> {
   // why or name written mid-call is never paired with the old vector.
   await sql.transaction(rows.map((r, i) =>
     sql`update recommendations set embedding = ${toVectorLiteral(embeddings[i]!)}::vector
-      where id = ${r.id} and embedding is null and canonical_name = ${r.canonical_name}
+      where id = ${r.id} and embedding is null and type = ${r.type} and canonical_name = ${r.canonical_name}
         and creator is not distinct from ${r.creator} and context_summary is not distinct from ${r.context_summary}`));
   return rows.length;
 }

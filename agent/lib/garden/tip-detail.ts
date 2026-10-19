@@ -14,6 +14,8 @@ export interface TipDetail {
   card: RecCardData;
   /** What was said (<= 25 words, a DB check). Owner-only. */
   excerpt: string;
+  /** The whole why line (the card's is cut to 30 words): what "Fix this tip" starts from (decision 049). */
+  note: string | null;
   links: TipLink[];
   extras: RecExtras;
   /** Spaces Tarik kept it in (space_items 'accepted'). */
@@ -77,6 +79,7 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
   return {
     card,
     excerpt: r.excerpt,
+    note: r.context_summary,
     links: tipLinks(card.type, r.links),
     extras: readExtras(r.extras),
     spaces: spaces.map((s) => ({ id: Number(s.id), name: s.name })),

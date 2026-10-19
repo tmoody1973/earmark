@@ -13,6 +13,7 @@ import { cardSubline, TYPE_LABEL } from "@/app/garden/cards/RecCard";
 import { TipCard, TipMenu, TipTag } from "@/app/garden/cards/TipActions";
 import { TabBar } from "@/app/garden/TabBar";
 import { Credits } from "./Credits";
+import { FixTip } from "./FixTip";
 import { VideoPlayer } from "./VideoPlayer";
 import { WhichOne } from "./WhichOne";
 import "@/app/garden/shell.css";
@@ -117,6 +118,11 @@ export default async function TipPage({ params }: Props) {
               {note.text}{" "}
               <a href={note.url} rel="noopener noreferrer">Wikipedia</a>
             </p>
+          )}
+          {/* Decision 049: the owner corrects the words or the note; a cleared tip can't be fixed, and the quote never is */}
+          {card.status !== "dismissed" && card.status !== "composted" && (
+            <FixTip tipId={card.id} types={TYPE_LABEL}
+              was={{ name: card.name, creator: card.creator, type: card.type, note: tip.note }} />
           )}
         </section>
 

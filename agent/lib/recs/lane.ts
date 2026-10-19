@@ -124,14 +124,18 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
   const waitingForKeys = REC_TYPES.filter((t) => !types.includes(t));
   if (waitingForKeys.length) console.log(`[rec-lane] waiting for provider keys: ${waitingForKeys.join(",")}`);
 
+  // pendingKey: when this tip (re)entered the queue, as text (exact to the microsecond). Every write below for the tip
+  // lands only while it is unchanged, so an owner's fix made mid-lookup (decision 049 re-queues with new words) is never
+  // overwritten by what the old words found.
   const due = (await db()`
-    select id, type, canonical_name, creator, excerpt, lat, lng, said_lat as "saidLat", said_lng as "saidLng", links, enrich_attempts
+    select id, type, canonical_name, creator, excerpt, lat, lng, said_lat as "saidLat", said_lng as "saidLng", links, enrich_attempts,
+      pending_since::text as "pendingKey"
     from recommendations
     where enrichment_status = 'pending' and enrich_next_at <= now() and match_source = 'auto'
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${types}::text[])
       and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
     order by enrich_next_at, id
-    limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number })[];
+    limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number; pendingKey: string })[];
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
     summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
@@ -149,6 +153,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     if (r.jevCalls >= MAX_JEV_CALLS_PER_RUN || overBudget()) break;
     const id = Number(row.id); // bigserial arrives as a string
     const attempts = Number(row.enrich_attempts);
+    const pk = row.pendingKey;
     r.tried++;
     last.seen = null;
     try {
@@ -157,27 +162,27 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       // Before the outcome's write, so candidates_at <= enriched_at: a later candidates_at means the owner searched.
       const seen = last.seen as Seen | null; // set inside enrich, through countedPick
       if (seen && seen.candidates.length > 0) {
-        await saveCandidates(id, providerFor(row.type, d.env)?.name ?? row.type, seen.candidates, seen.picked);
+        await saveCandidates(id, providerFor(row.type, d.env)?.name ?? row.type, seen.candidates, seen.picked, pk);
       }
       if (match && match.matchConfidence >= MATCH_ACCEPT) {
-        await saveMatch(id, match);
+        await saveMatch(id, match, { ifPendingSince: pk });
         r.matched++;
       } else if (match) {
         // A link only (a video tip's search link, or a URL oEmbed couldn't confirm): never 'matched' below 0.8. It's
         // no_match, so it reaches review (M3-T9), and the link is kept so the card still opens somewhere.
-        await saveLinkOnly(id, match.links);
+        await saveLinkOnly(id, match.links, pk);
         r.noMatch++;
       } else if (r.jevCalls > jevBefore && attempts === 0) {
         // Jev saw candidates and said none fits: one more look later (a flaky near-0.8 call, rec 160). The second
         // no_match is final. ponytail: "first look" = no attempts yet, so a tip that errored earlier gets no second look.
         await db()`update recommendations set enrich_attempts = 1, pending_since = now(),
             enrich_next_at = now() + make_interval(mins => ${SECOND_LOOK_MINUTES})
-          where id = ${id} and enrichment_status = 'pending'`;
+          where id = ${id} and enrichment_status = 'pending' and pending_since = ${pk}::timestamptz`;
         r.secondLook++;
         continue;
       } else {
         await db()`update recommendations set enrichment_status = 'no_match', enriched_at = now()
-          where id = ${id} and enrichment_status = 'pending'`;
+          where id = ${id} and enrichment_status = 'pending' and pending_since = ${pk}::timestamptz`;
         r.noMatch++;
       }
       // Seams, in this order, inside this lease and these caps (the why and the embedding run after this loop):
@@ -186,11 +191,11 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       logEnrichError("rec-lane", { rec: id }, err);
       if (isBackOffSignal(err)) {
         r.stoppedOn = `${(err as ProviderHttpError).host} ${(err as ProviderHttpError).status}`;
-        await saveBusy(id);
+        await saveBusy(id, pk);
         await applyReviewReason(id);
         break;
       }
-      const gaveUp = await saveFailure(id, attempts + 1);
+      const gaveUp = await saveFailure(id, attempts + 1, pk);
       r[gaveUp ? "gaveUp" : "retry"]++;
     }
     await applyReviewReason(id);
@@ -231,12 +236,12 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
 // excerpt is the source; Bee's conversation summary is context, and Bee being down only drops that context. A changed
 // why drops the embedding, so the embed step above writes it again from the new text (recEmbedText includes the why).
 // Least-tried first, so a tip whose call keeps failing goes to the back and never blocks the rest; after
-// MAX_SUMMARY_ATTEMPTS failures it is done with no why.
+// MAX_SUMMARY_ATTEMPTS failures it is done with no why. A why the owner wrote (why_source 'owner', decision 049) is final.
 async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
   const rows = await db()`
     select r.id, r.canonical_name, r.excerpt, r.bee_conversation_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.summarized_at is null and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+    where r.summarized_at is null and r.why_source = 'auto' and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
     order by r.summary_attempts, r.status = 'needs_review', r.id desc
     limit ${MAX_SUMMARIES_PER_RUN}`;
@@ -254,7 +259,7 @@ async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Prom
       await db()`update recommendations set
           embedding = case when context_summary is distinct from ${why} then null else embedding end,
           context_summary = ${why}, summarized_at = now(), updated_at = now()
-        where id = ${id} and summarized_at is null`;
+        where id = ${id} and summarized_at is null and why_source = 'auto'`;
       r.summarized++;
       failuresInARow = 0;
     } catch (err) {
@@ -330,11 +335,11 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 }
 
 // Which links a provider supplied (types.ts RecLinks), as opposed to a capture's own (url, urls, youtube, primary).
-const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
+export const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
   "openstreetmap", "podcast_index", "apple_podcasts"];
 // What each capture brought itself, which a correction keeps: a shared song its Apple Music id and link (capture/songs.ts),
 // a photo its picture (photos.ts). An email capture (email.ts) and a heard tip bring neither.
-const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
+export const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
 
 // The one save path for a match, the lane's and the owner's ("Which one?", decision 048). Never a cleared tip, never one
 // the owner already settled (match_source 'owner' is final).
@@ -347,9 +352,9 @@ const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music"
 // item; auto_pick is kept, so "did Jev agree?" stays answerable. enriched_at moves, which the lane's tail writes check.
 // recEmbedText reads name and creator, so a change drops the embedding and the sweep's embed step writes it again.
 // A match whose art lookup errored (or a music pick with no art yet) and that has no picture is marked for the art-only
-// retry tail. Returns whether the row changed.
+// retry tail. ifPendingSince: the lane's read token (see sweepLeased). Returns whether the row changed.
 export async function saveMatch(
-  id: number, m: EnrichmentMatch, opts: { ownerPick?: string; ifCandidates?: string } = {},
+  id: number, m: EnrichmentMatch, opts: { ownerPick?: string; ifCandidates?: string; ifPendingSince?: string } = {},
 ): Promise<boolean> {
   const owner = opts.ownerPick !== undefined;
   const lat = m.lat ?? null;
@@ -386,39 +391,43 @@ export async function saveMatch(
     where r.id = f.id and r.match_source = 'auto' and (f.owner or r.enrichment_status = 'pending')
       and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${opts.ifCandidates ?? null}::jsonb is null or r.match_candidates = ${opts.ifCandidates ?? null}::jsonb)
+      and (${opts.ifPendingSince ?? null}::timestamptz is null or r.pending_since = ${opts.ifPendingSince ?? null}::timestamptz)
     returning r.id`;
   return rows.length > 0;
 }
 
 // Every lookup that came back with candidates keeps them, and what Jev chose ('none' = abstained, or under 0.8).
-async function saveCandidates(id: number, provider: string, candidates: readonly Candidate[], picked: EnrichmentMatch | null): Promise<void> {
+async function saveCandidates(
+  id: number, provider: string, candidates: readonly Candidate[], picked: EnrichmentMatch | null, pk: string,
+): Promise<void> {
   const stored = candidates.map((c) => ({ provider, ...c }));
   await db()`update recommendations set match_candidates = ${JSON.stringify(stored)}::jsonb, candidates_at = now(),
       auto_pick = ${picked ? describeCandidate(picked) : "none"}
-    where id = ${id} and match_source = 'auto' and enrichment_status = 'pending'`; // never over the owner's search results
+    where id = ${id} and match_source = 'auto' and enrichment_status = 'pending' and pending_since = ${pk}::timestamptz`; // never over the owner's search results
 }
 
-async function saveLinkOnly(id: number, links: EnrichmentMatch["links"]): Promise<void> {
+async function saveLinkOnly(id: number, links: EnrichmentMatch["links"], pk: string): Promise<void> {
   await db()`update recommendations set links = ${JSON.stringify(links)}::jsonb || links,
       enrichment_status = 'no_match', enriched_at = now(), updated_at = now()
-    where id = ${id} and enrichment_status = 'pending' and match_source = 'auto' and status <> all(${SWEEP_SKIPS_STATUSES}::text[])`;
+    where id = ${id} and enrichment_status = 'pending' and match_source = 'auto' and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+      and pending_since = ${pk}::timestamptz`;
 }
 
 // 503/429: to the back of the line without an attempt, so one busy service never pins the queue; a tip pending for
 // over a week gives up.
-async function saveBusy(id: number): Promise<void> {
+async function saveBusy(id: number, pk: string): Promise<void> {
   await db()`update recommendations set enrich_next_at = now() + make_interval(mins => ${BUSY_RETRY_MINUTES}),
       enrichment_status = case when pending_since < now() - make_interval(days => ${BUSY_GIVE_UP_DAYS}) then 'failed' else 'pending' end
-    where id = ${id} and enrichment_status = 'pending'`;
+    where id = ${id} and enrichment_status = 'pending' and pending_since = ${pk}::timestamptz`;
 }
 
 /** Returns true when this was the last allowed attempt. */
-async function saveFailure(id: number, attempts: number): Promise<boolean> {
+async function saveFailure(id: number, attempts: number, pk: string): Promise<boolean> {
   const gaveUp = attempts >= MAX_ATTEMPTS;
   await db()`update recommendations set enrich_attempts = ${attempts},
       enrichment_status = ${gaveUp ? "failed" : "pending"},
       enrich_next_at = now() + make_interval(mins => ${gaveUp ? 0 : retryDelayMinutes(attempts)})
-    where id = ${id} and enrichment_status = 'pending'`;
+    where id = ${id} and enrichment_status = 'pending' and pending_since = ${pk}::timestamptz`;
   return gaveUp;
 }
 
