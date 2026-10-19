@@ -44,6 +44,10 @@ export type ClusterPlan =
   | { action: "create"; embedding: number[] | null; timelineNote?: string }
   | { action: "join"; clusterId: number; embedding: number[]; timelineNote?: string };
 
+// Research is asked again (voice here, Research again on the page: ideas/research.ts re-exports it) at most this often
+// per idea, and only after a done or failed brief (decision 057). Kept here so the save path stays light to import.
+export const RESEARCH_AGAIN_MINUTES = 10;
+
 // Ids of what one transaction saved, for the lanes that hook on new items (M2 clustering, M3 rec lane).
 // bloomedClusterIds: clusters this save moved to 'ready' (M2-T7 drafts their one-pager).
 export interface SavedIds { recIds: number[]; ideaClusterIds: number[]; mentionIds: number[]; bloomedClusterIds: number[] }
@@ -134,11 +138,11 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
               from c
             ), r as (
               -- "…include research" (decision 057): asked again only after a done/failed brief, at most every 10
-              -- minutes (RESEARCH_AGAIN_MINUTES, ideas/research.ts requestResearch)
+              -- minutes (RESEARCH_AGAIN_MINUTES, the same rule as Research again: ideas/research.ts requestResearch)
               insert into idea_research (cluster_id, status, requested_at)
               select m.cluster_id, 'requested', now() from m where ${item.research === true}::boolean
               on conflict (cluster_id) do update set status = 'requested', requested_at = now(), started_at = null, attempts = 0
-                where idea_research.status in ('done', 'failed') and idea_research.requested_at < now() - interval '10 minutes'
+                where idea_research.status in ('done', 'failed') and idea_research.requested_at < now() - make_interval(mins => ${RESEARCH_AGAIN_MINUTES}::int)
             )
             select m.id, m.cluster_id, c.prev_stage, c.next_stage from m, c`,
       ];

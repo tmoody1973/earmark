@@ -105,6 +105,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("idea research on the Neon test 
     expect(await row(plain)).toBeUndefined();
   });
 
+  it("a deliberate idea asking for research is not quiet (decision 055): it lists in the garden and its page has a Research panel", async () => {
+    expect((await one(`select idea_is_quiet($1) as q`, [researched]))!.q).toBe(false);
+    const { getPlants, getIdeaDetail } = await import("../../agent/lib/garden/queries");
+    expect((await getPlants()).some((p) => p.id === researched)).toBe(true);
+    expect(await getIdeaDetail(researched)).not.toBeNull();
+    expect(await (await research()).getIdeaResearch(researched)).toMatchObject({ status: "requested", briefMd: null });
+  });
+
   it("a run (fake TinyFish + model) writes a sourced brief from the title only, and makes one Bee todo", async () => {
     const fetchImpl = net();
     const prompts: string[] = [];

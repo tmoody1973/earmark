@@ -10,6 +10,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { getEnv } from "../env";
 import { PROVIDER_TIMEOUT_MS, ProviderHttpError } from "../enrich/types";
+import { RESEARCH_AGAIN_MINUTES } from "../pipeline/save-item";
 import { searchWeb, type WebResult } from "../recs/web-find";
 import type { createEarmarkTodo } from "../sync/bee-todos";
 import { TODO_PREFIX, withLink } from "../sync/todo-text";
@@ -18,7 +19,7 @@ export const TINYFISH_FETCH = "https://api.fetch.tinyfish.ai";
 export const RESEARCH_PER_RUN = 2;
 export const RESEARCH_MAX_ATTEMPTS = 3;
 export const RESEARCH_LEASE_MINUTES = 15; // a running claim older than this is re-claimable (a crashed run)
-export const RESEARCH_AGAIN_MINUTES = 10; // "Research again" at most this often per idea (save-item.ts repeats it in SQL)
+export { RESEARCH_AGAIN_MINUTES }; // one rule for the button and the voice save (pipeline/save-item.ts)
 export const PAGES_READ = 5;
 export const PAGE_CHARS = 8_000;
 const QUERY_MAX = 120;
