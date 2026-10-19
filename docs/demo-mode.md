@@ -35,12 +35,14 @@ Demo mode opens the owner pages to everyone, so it must never switch on in produ
 enough:
 
 - It also needs `EARMARK_DEMO_DB_OK=1`, a second, deliberate setting.
-- If `EARMARK_PROD_DB_HOST` is set and `DATABASE_URL` points at that host (pooled or direct), demo mode is refused.
+- It also needs `EARMARK_PROD_DB_HOST`, the production database's host. Without it, demo mode is refused, so the
+  production check can never be skipped by leaving it out.
+- If `DATABASE_URL` points at that host (pooled or direct), demo mode is refused.
 - A refused demo stays **off** (the normal owner gate applies), and the server refuses to start:
   `instrumentation.ts` throws `demo mode refused: …`.
 
-Set `EARMARK_PROD_DB_HOST` to the production database's host in the demo project. Setting it in the production
-project too costs nothing, and means that `EARMARK_DEMO=1` pasted there by mistake is refused.
+`EARMARK_PROD_DB_HOST` is **required** in the demo project. Setting it in the production project too costs nothing,
+and means that `EARMARK_DEMO=1` and `EARMARK_DEMO_DB_OK=1` pasted there by mistake are still refused.
 
 ## Deploying it (the controller does this, with Tarik's OK)
 
@@ -109,7 +111,7 @@ A new Vercel project (e.g. `earmark-demo`) built from the same repo and branch. 
 |---|---|
 | `EARMARK_DEMO` | `1` |
 | `EARMARK_DEMO_DB_OK` | `1` |
-| `EARMARK_PROD_DB_HOST` | the **production** database host, e.g. `ep-…-pooler.….aws.neon.tech` |
+| `EARMARK_PROD_DB_HOST` | **required**: the **production** database host, e.g. `ep-…-pooler.….aws.neon.tech`. Without it the demo refuses to start. |
 | `DATABASE_URL` | the demo database, as `demo_reader` (pooled URL) |
 | `EARMARK_OWNER_FIRST_NAME` | `Sam` (the owner is never credited as a recommender) |
 | `EARMARK_OWNER_DISPLAY_NAME` | `Sam` ("Collected by Sam" on the published Space) |

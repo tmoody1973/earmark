@@ -6,7 +6,7 @@ import { gate, isOwner } from "../../agent/lib/owner";
 // The judge demo (decision 053): read-only Earmark on invented sample data at its own URL.
 const DEMO_DB = "postgres://demo_reader:pw@ep-quiet-demo-123456-pooler.us-east-2.aws.neon.tech/neondb";
 const PROD_HOST = "ep-busy-prod-654321.us-east-2.aws.neon.tech";
-const ON = { EARMARK_DEMO: "1", EARMARK_DEMO_DB_OK: "1", DATABASE_URL: DEMO_DB };
+const ON = { EARMARK_DEMO: "1", EARMARK_DEMO_DB_OK: "1", EARMARK_PROD_DB_HOST: PROD_HOST, DATABASE_URL: DEMO_DB };
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -18,7 +18,17 @@ describe("isDemo / demoProblem (the switch, and the startup refusal in instrumen
     expect(() => assertDemoSafe({})).not.toThrow();
   });
 
-  it("is on with EARMARK_DEMO=1 and EARMARK_DEMO_DB_OK=1", () => {
+  it("refuses demo mode without EARMARK_PROD_DB_HOST (the production check must run), and stays off", () => {
+    for (const prod of [undefined, "", "  "]) {
+      const env = { ...ON, EARMARK_PROD_DB_HOST: prod };
+      expect(demoProblem(env)).toMatch(/needs EARMARK_PROD_DB_HOST/);
+      expect(isDemo(env)).toBe(false);
+      expect(() => assertDemoSafe(env)).toThrow(/demo mode refused/);
+      expect(demoWriteRefusal("POST", env)).toBeNull();
+    }
+  });
+
+  it("is on with EARMARK_DEMO=1, EARMARK_DEMO_DB_OK=1 and a production host that isn't DATABASE_URL's", () => {
     expect(isDemo(ON)).toBe(true);
     expect(demoProblem(ON)).toBeNull();
     expect(() => assertDemoSafe(ON)).not.toThrow();
@@ -84,6 +94,8 @@ describe("the owner gate opens only in demo mode", () => {
   it("everyone views the owner's pages in demo mode, signed in or not", () => {
     vi.stubEnv("EARMARK_DEMO", "1");
     vi.stubEnv("EARMARK_DEMO_DB_OK", "1");
+    vi.stubEnv("EARMARK_PROD_DB_HOST", PROD_HOST);
+    vi.stubEnv("DATABASE_URL", DEMO_DB);
     expect(isOwner(null, "user_abc")).toBe(true);
     expect(isOwner("user_xyz", undefined)).toBe(true);
     expect(gate("/", null, "user_abc")).toBe("allow");
@@ -93,6 +105,8 @@ describe("the owner gate opens only in demo mode", () => {
   it("stays shut when the demo switch is on but refused", () => {
     vi.stubEnv("EARMARK_DEMO", "1");
     vi.stubEnv("EARMARK_DEMO_DB_OK", "");
+    vi.stubEnv("EARMARK_PROD_DB_HOST", PROD_HOST);
+    vi.stubEnv("DATABASE_URL", DEMO_DB);
     expect(isOwner(null, "user_abc")).toBe(false);
     expect(gate("/", null, "user_abc")).toBe("sign-in");
     expect(gate("/", "user_xyz", "user_abc")).toBe("forbid");

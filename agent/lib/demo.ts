@@ -3,8 +3,8 @@
 // turns background work into no-ops (skipInDemo). The demo database's SELECT-only role is the real guarantee; this
 // switch is for a friendly message and quiet logs.
 //
-// Never on by accident: the switch also needs EARMARK_DEMO_DB_OK=1, and refuses DATABASE_URL on the production host
-// when EARMARK_PROD_DB_HOST names it. A refused switch stays off (the real owner gate) and instrumentation.ts throws.
+// Never on by accident: the switch also needs EARMARK_DEMO_DB_OK=1 and EARMARK_PROD_DB_HOST (the production database's
+// host), and refuses DATABASE_URL on that host. A refused switch stays off (the real owner gate) and instrumentation.ts throws.
 
 type Env = Record<string, string | undefined>;
 
@@ -24,7 +24,7 @@ export function demoProblem(env: Env = process.env): string | null {
   if (env.EARMARK_DEMO !== "1") return null;
   if (env.EARMARK_DEMO_DB_OK !== "1") return "EARMARK_DEMO=1 needs EARMARK_DEMO_DB_OK=1 (the demo database, with a SELECT-only role)";
   const prod = env.EARMARK_PROD_DB_HOST?.trim();
-  if (!prod) return null;
+  if (!prod) return "EARMARK_DEMO=1 needs EARMARK_PROD_DB_HOST so it can refuse the production database";
   const db = env.DATABASE_URL && URL.canParse(env.DATABASE_URL) ? hostOf(env.DATABASE_URL) : null;
   if (!db) return "DATABASE_URL is missing or unreadable";
   return db === hostOf(prod) ? "DATABASE_URL is the production database (EARMARK_PROD_DB_HOST)" : null;
