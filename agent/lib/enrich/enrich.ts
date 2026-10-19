@@ -39,5 +39,5 @@ export async function enrichRec(rec: RecToEnrich, deps: EnrichDeps = {}): Promis
   if (rec.type === "video") return enrichVideo({ ...query, url: youtubeVideoUrl(rec.links) }, rec.excerpt, fetchImpl);
   const provider = providerFor(rec.type, env);
   if (!provider) throw new Error(`enrich: no provider configured for ${rec.type}`);
-  return pick({ described, excerpt: rec.excerpt }, await runProvider(provider.def, query, fetchImpl));
+  return pick({ described, excerpt: rec.excerpt, name: rec.canonical_name, creator: rec.creator }, await runProvider(provider.def, query, fetchImpl));
 }

@@ -76,6 +76,26 @@ describe("ambiguous titles", () => {
   });
 });
 
+describe("the tip's own words name exactly one candidate", () => {
+  // An owner's fix ("Glass Harbor" by Mara Vell) must not be outvoted by what Bee misheard ("a tribute to Velvet Moth").
+  const fixed = { described: "Glass Harbor by Mara Vell", excerpt: "her new albums as a tribute to Velvet Moth Records", name: "Glass Harbor", creator: "Mara Vell" };
+  const list = [c("Light Lantern", "Mara Vell"), c("GLASS HARBOR", "Mara Vell"), c("Glass Harbor", "The Vell Tribute Band")];
+
+  it("is the match, without asking Jev, ignoring case and accents", async () => {
+    const decide = decideReturning(NONE_FITS, { [NONE_FITS]: 0.95 });
+    const m = await pickMatch({ ...fixed, creator: "Mára Vell" }, list, { model: "m", decideImpl: decide as never });
+    expect(m).toMatchObject({ canonicalName: "GLASS HARBOR", creator: "Mara Vell", matchConfidence: 1 });
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it("still asks Jev when two candidates are exact twins, or the tip has no creator", async () => {
+    const decide = decideReturning(NONE_FITS, { [NONE_FITS]: 0.95 });
+    expect(await pickMatch(fixed, [...list, c("Glass Harbor", "Mara Vell")], { model: "m", decideImpl: decide as never })).toBeNull();
+    expect(await pickMatch({ ...fixed, creator: null }, list, { model: "m", decideImpl: decide as never })).toBeNull();
+    expect(decide).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("describeCandidate", () => {
   it("joins the known parts", () => {
     expect(describeCandidate(c("Night Garden", "Mara Vell", "Album"))).toBe("Night Garden — Mara Vell — 2021 — Album");

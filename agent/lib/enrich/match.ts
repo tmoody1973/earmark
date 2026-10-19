@@ -1,6 +1,7 @@
 import { experimental_decide } from "ai";
 import { getEnv } from "../env";
 import { ordered } from "../pipeline/triage";
+import { norm } from "./apple-music";
 import { describeCandidate, type Candidate, type EnrichmentMatch } from "./types";
 
 export const MATCH_ACCEPT = 0.8; // below this the rec stays unmatched (no_match → review), never a guess
@@ -37,12 +38,19 @@ export function buildMatchCriteria(candidates: readonly Candidate[]): Record<str
 }
 
 // One choice question with an explicit abstain option, options shuffled (Jev leans toward the first option).
+// name/creator: the tip's own words. When exactly one candidate has that same name and creator (normalised), it is the
+// item, with no Jev call: what Bee misheard must not outvote the owner's fix (tip 150: "MettaSun" by Jimetta Rose, said
+// as "…new albums as a tribute to Sun Raw Records"). A creator is required: a bare title is too common to settle alone.
 export async function pickMatch(
-  input: { described: string; excerpt: string },
+  input: { described: string; excerpt: string; name?: string; creator?: string | null },
   candidates: readonly Candidate[],
   opts: { model?: string; decideImpl?: typeof experimental_decide; random?: () => number } = {},
 ): Promise<EnrichmentMatch | null> {
   if (candidates.length === 0) return null;
+  const exact = input.name && input.creator
+    ? candidates.filter((c) => norm(c.canonicalName) === norm(input.name) && norm(c.creator) === norm(input.creator))
+    : [];
+  if (exact.length === 1) return { ...exact[0]!, matchConfidence: 1 };
   const decide = opts.decideImpl ?? experimental_decide;
   const result = await decide({
     model: opts.model ?? getEnv().TRIAGE_MODEL,
