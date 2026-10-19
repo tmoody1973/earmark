@@ -79,6 +79,10 @@ export default function AboutPage() {
             </li>
           ))}
         </ol>
+        <p>
+          Gardeners are helpers that tend the garden on a schedule —{" "}
+          <Ext href="https://github.com/tmoody1973/earmark/blob/main/docs/gardener-guide.md">how they work, with examples</Ext>.
+        </p>
       </section>
 
       <section className="zone" aria-labelledby="privacy-h">
