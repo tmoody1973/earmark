@@ -92,6 +92,10 @@ export const BROADCAST_INSTRUCTIONS =
   "Answer true for: a sponsor read or ad ('brought to you by', 'use code', 'visit … dot com', '$1 down', a price or promo offer, " +
   "a free trial), a radio station ID or promo (a station name with its frequency, a frequency like '88.9', call letters, " +
   "'you're listening to', 'stay tuned', 'coming up after the break', 'play 889'), or a scripted podcast, radio or TV segment. " +
+  "Also true for an online video or stream playing (YouTube, TikTok, Instagram, a livestream), an audiobook, or song lyrics: " +
+  "one voice talking to an audience rather than to someone in the room ('hey guys', 'welcome back to the channel', " +
+  "'smash that like button', 'link in the description', 'in today's video', 'let me know in the comments'), " +
+  "a product demo or review, or a recipe or how-to walkthrough. " +
   "A host reading an ad counts as true. " +
   "A person repeating or quoting a broadcast in conversation is false. " +
   "Answer false when people in the room talk to each other, including when they talk about an ad or something they heard on the radio.";
