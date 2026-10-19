@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEnv, ownerDisplayName, ownerFirstName } from "../../agent/lib/env";
+import { DEFAULT_BEE_API_BASE, DEFAULT_TRIAGE_MODEL } from "../../packages/eve-bee/src/index.ts";
 
 const base = {
   BEE_TOKEN: "bee-token",
@@ -16,6 +17,12 @@ describe("getEnv", () => {
     expect(env.EXTRACT_MODEL).toBe("anthropic/claude-haiku-5.5");
     expect(env.WRITE_MODEL).toBe("anthropic/claude-sonnet-5.5");
     expect(env.EMBED_MODEL).toBe("openai/text-embedding-3-small");
+  });
+
+  it("uses the same Bee URL and triage model defaults as the eve-bee package", () => {
+    const env = getEnv(base);
+    expect(env.BEE_API_BASE).toBe(DEFAULT_BEE_API_BASE);
+    expect(env.TRIAGE_MODEL).toBe(DEFAULT_TRIAGE_MODEL);
   });
 
   it("throws when BEE_TOKEN is missing", () => {

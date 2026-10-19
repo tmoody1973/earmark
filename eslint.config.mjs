@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // eve's generated dev artifacts
     ".eve/**",
     ".output/**", // eve build output
+    "packages/*/dist/**", // eve-bee build output
   ]),
 ]);
 
