@@ -2,12 +2,13 @@
 import { useState, useTransition, type FormEvent } from "react";
 import type { TipFix } from "@/agent/lib/recs/fix-tip";
 import type { RecType } from "@/agent/lib/types";
-import { fixTip } from "./actions";
+import { fixTip, linkTip } from "./actions";
 
-// "Fix this tip" (decision 049): the owner's words for the name, maker, type and note. Only the fields changed here are
-// sent, so an untouched field never starts a new lookup. What Bee heard (the quote) is not a field: it stays as said.
+// "Fix this tip" (decision 049): the owner's words for the name, maker, type and note, and a link to where the thing
+// lives. Only the fields changed here are sent, so an untouched field never starts a new lookup (or clears the link).
+// The words save first, then the link, which settles the tip as the owner's. What Bee heard (the quote) stays as said.
 
-export interface FixTipValues { name: string; creator: string | null; type: RecType; note: string | null }
+export interface FixTipValues { name: string; creator: string | null; type: RecType; note: string | null; link: string | null }
 
 const blankIsNull = (v: FormDataEntryValue | null) => String(v ?? "").trim() || null;
 
@@ -22,13 +23,24 @@ export function FixTip({ tipId, was, types }: { tipId: number; was: FixTipValues
       note: blankIsNull(form.get("note")) };
     const before = { ...was, creator: was.creator?.trim() || null, note: was.note?.trim() || null };
     const fix = Object.fromEntries(Object.entries(now).filter(([k, v]) => v !== before[k as keyof FixTipValues])) as TipFix;
+    const link = blankIsNull(form.get("link"));
+    const linkChanged = link !== (was.link?.trim() || null);
     setSaid(""); // clear first, so the same message twice is announced again
-    if (Object.keys(fix).length === 0) return setSaid("Nothing to change.");
+    if (Object.keys(fix).length === 0 && !linkChanged) return setSaid("Nothing to change.");
     startTransition(async () => {
       try {
-        const r = await fixTip(tipId, fix);
-        if ("refused" in r) return setSaid(r.refused);
-        setSaid(r.requeued ? "Saved. Looking it up again — check back in about 10 minutes." : "Saved.");
+        let done = "Saved.";
+        if (Object.keys(fix).length > 0) {
+          const r = await fixTip(tipId, fix);
+          if ("refused" in r) return setSaid(r.refused);
+          if (r.requeued) done = "Saved. Looking it up again — check back in about 10 minutes.";
+        }
+        if (linkChanged) {
+          const l = await linkTip(tipId, link);
+          if ("refused" in l) return setSaid(l.refused);
+          done = l.saved === "cleared" ? "Saved. The link is gone." : l.art ? "Saved." : "Saved. That page has no picture to show.";
+        }
+        setSaid(done);
       } catch (err) {
         console.error("fix-tip failed", (err as Error).name);
         setSaid("That didn’t save. Try again.");
@@ -52,6 +64,11 @@ export function FixTip({ tipId, was, types }: { tipId: number; was: FixTipValues
         </select>
         <label htmlFor={id("note")}>Note</label>
         <textarea id={id("note")} name="note" maxLength={280} rows={3} defaultValue={was.note ?? ""} />
+        <label htmlFor={id("link")}>Link</label>
+        <input id={id("link")} name="link" type="url" inputMode="url" maxLength={500} pattern="https://.*" placeholder="https://"
+          defaultValue={was.link ?? ""} autoComplete="off" aria-describedby={id("link-hint")} />
+        <p id={id("link-hint")} className="idea-quiet">Where it lives: Bandcamp, Apple Music, YouTube or its own website.
+          Earmark shows its picture and a button to open it.</p>
         <button type="submit" className="idea-action" disabled={pending}>Save</button>
       </form>
       <p role="status" className="idea-action-status which-status">{pending ? "Working…" : said}</p>

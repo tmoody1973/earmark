@@ -122,7 +122,7 @@ export default async function TipPage({ params }: Props) {
           {/* Decision 049: the owner corrects the words or the note; a cleared tip can't be fixed, and the quote never is */}
           {card.status !== "dismissed" && card.status !== "composted" && (
             <FixTip tipId={card.id} types={TYPE_LABEL}
-              was={{ name: card.name, creator: card.creator, type: card.type, note: tip.note }} />
+              was={{ name: card.name, creator: card.creator, type: card.type, note: tip.note, link: tip.ownerLink }} />
           )}
         </section>
 

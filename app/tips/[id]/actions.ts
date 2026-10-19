@@ -5,6 +5,7 @@ import { z } from "zod";
 import { MAX_CANDIDATES } from "@/agent/lib/enrich/types";
 import { isOwner } from "@/agent/lib/owner";
 import { applyTipFix, TipFixSchema, type TipFix } from "@/agent/lib/recs/fix-tip";
+import { applyTipLink, TipLinkSchema, type TipLinkResult } from "@/agent/lib/recs/tip-link";
 import { noneOfThese, pickCandidate, searchAgain, type SearchResult } from "@/agent/lib/recs/which-one";
 
 // "Which one?" (decision 048) and "Fix this tip" (decision 049). Server actions are public endpoints: the owner first, then every input, before any read.
@@ -74,4 +75,21 @@ export async function fixTip(id: number, fix: TipFix): Promise<{ changed: boolea
   if (!r.changed) return { refused: "This tip changed, or was cleared. Reload to see it." };
   refresh();
   return r;
+}
+
+const LINK_REFUSED: Record<Extract<TipLinkResult, { status: "refused" }>["reason"], string> = {
+  private: "That link can’t be opened from here. Try the page’s public address.",
+  gone: "This tip changed, or was cleared. Reload to see it.",
+};
+
+/**
+ * "Link" on Fix this tip (decision 049): where the thing lives; it settles the tip as the owner's. An empty link clears
+ * the one the owner added. art: the link brought a picture.
+ */
+export async function linkTip(id: number, url: string | null): Promise<{ saved: "link" | "cleared"; art: boolean } | { refused: string }> {
+  await requireOwner();
+  const r = await applyTipLink(parse(Id, id, "tip id"), parse(TipLinkSchema, url, "link"));
+  if (r.status === "refused") return { refused: LINK_REFUSED[r.reason] };
+  refresh();
+  return r.status === "saved" ? { saved: "link", art: r.art } : { saved: "cleared", art: false };
 }
