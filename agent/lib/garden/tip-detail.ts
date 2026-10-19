@@ -18,6 +18,8 @@ export interface TipDetail {
   note: string | null;
   /** The link the owner pasted in "Fix this tip" (links.bandcamp / links.web), what its Link field starts from. */
   ownerLink: string | null;
+  /** What the Link box starts with: the owner's link, else the one a lookup found (the card's own, e.g. Apple Music). */
+  knownLink: string | null;
   links: TipLink[];
   extras: RecExtras;
   /** Spaces Tarik kept it in (space_items 'accepted'). */
@@ -79,11 +81,13 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     order by l.status = 'accepted' desc, l.confidence desc, c.id
     limit 12`) as Array<{ id: number | string; title: string }>;
   const card = toRecCard(r);
+  const ownerLink = https((r.links as Record<string, unknown> | null)?.bandcamp) ?? https((r.links as Record<string, unknown> | null)?.web);
   return {
     card,
     excerpt: r.excerpt,
     note: r.context_summary,
-    ownerLink: https((r.links as Record<string, unknown> | null)?.bandcamp) ?? https((r.links as Record<string, unknown> | null)?.web),
+    ownerLink,
+    knownLink: ownerLink ?? cardLink(r.links),
     links: tipLinks(card.type, r.links),
     extras: readExtras(r.extras),
     spaces: spaces.map((s) => ({ id: Number(s.id), name: s.name })),
