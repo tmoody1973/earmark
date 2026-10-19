@@ -112,7 +112,7 @@ describe("enrichMusic with Apple alongside MusicBrainz", () => {
       links: { apple_music: "https://music.apple.com/us/album/1700" }, imageUrl: "https://is1/1700/600x600.jpg", matchConfidence: 0.9 });
     expect(m!.mbid).toBeUndefined();
     expect(pick).toHaveBeenCalledTimes(1);
-    expect(pick.mock.calls[0]![0]).toEqual({ described: "MettaSun by Jimetta Rose", excerpt: EXCERPT });
+    expect(pick.mock.calls[0]![0]).toEqual({ described: "MettaSun by Jimetta Rose", excerpt: EXCERPT, name: "MettaSun", creator: "Jimetta Rose" });
     expect(calls(fetchImpl, "https://api.music.apple.com/")).toHaveLength(1);
     expect(calls(fetchImpl, "https://coverartarchive.org/")).toHaveLength(0);
   });

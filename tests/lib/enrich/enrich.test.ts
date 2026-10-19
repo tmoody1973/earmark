@@ -20,7 +20,7 @@ describe("enrichRec", () => {
     const fetchImpl = vi.fn<(u: string) => Promise<Response>>(async () => json({ docs: [{ key: "/works/OL1W", title: "Night Garden", author_name: ["Mara Vell"] }] }));
     const m = await enrichRec(rec({}), { env: {}, pick: pickFirst, fetchImpl: fetchImpl as never });
     expect(String(fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/openlibrary\.org\/search\.json\?/);
-    expect(pickFirst).toHaveBeenCalledWith({ described: "Night Garden by Mara Vell", excerpt: "you should read Night Garden" }, expect.any(Array));
+    expect(pickFirst).toHaveBeenCalledWith({ described: "Night Garden by Mara Vell", excerpt: "you should read Night Garden", name: "Night Garden", creator: "Mara Vell" }, expect.any(Array));
     expect(m).toMatchObject({ canonicalName: "Night Garden", links: { openlibrary: "https://openlibrary.org/works/OL1W" } });
   });
 
