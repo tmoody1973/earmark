@@ -3,7 +3,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: { alias: { "@": import.meta.dirname } }, // tsconfig "@/*" → repo root (app/ imports use it)
   test: {
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "packages/*/test/**/*.test.ts"], // packages/: eve-bee keeps its own tests (M6-T2)
     // Real-database tests run only through `pnpm test:int` (vitest.int.config.ts), never by default,
     // so a DATABASE_URL in the shell can never point them at production.
     exclude: [...configDefaults.exclude, "tests/integration/**"],

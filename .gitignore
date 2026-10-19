@@ -35,3 +35,6 @@ evals/triage/data/
 
 # M5-T15 detector dumps, local only
 .impeccable/detect-*.txt
+
+# eve-bee build output (published, never committed)
+packages/*/dist/
