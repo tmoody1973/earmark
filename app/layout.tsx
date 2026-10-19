@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Figtree, Literata } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { isDemo } from "@/agent/lib/demo";
+import { DemoBanner } from "./DemoBanner";
 import "./globals.css";
 
 // Literata: a text serif drawn for long-form screen reading (optical sizes 7–72), so titles and the "why" share one
@@ -21,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${literata.variable} ${figtree.variable}`}>
       <body>
+        {isDemo() && <DemoBanner />}
         <ClerkProvider>{children}</ClerkProvider>
         {/* The shelf cards' one polite region (app/garden/cards/TipActions.tsx): it outlives a dismissed card. */}
         <p id="tip-announcer" role="status" className="visually-hidden" />

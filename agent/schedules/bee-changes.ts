@@ -1,4 +1,5 @@
 import { defineSchedule } from "eve/schedules";
+import { skipInDemo } from "../lib/demo";
 import { draftBlooms } from "../lib/ideas/one-pager";
 import { runBeeChangesSync } from "../lib/sync/bee-changes";
 import { drainTodoQueue } from "../lib/sync/bee-todos";
@@ -13,6 +14,7 @@ import { handleRecTodoChange } from "../lib/sync/todo-handlers";
 export default defineSchedule({
   cron: "*/10 * * * *",
   async run() {
+    if (skipInDemo("bee-changes")) return; // the judge demo is read-only (decision 053)
     try {
       console.log("[bee-changes] done", await runBeeChangesSync());
     } catch (err) {

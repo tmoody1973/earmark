@@ -1,4 +1,5 @@
 import { defineSchedule } from "eve/schedules";
+import { skipInDemo } from "../lib/demo";
 import { evaluateSpaces } from "../lib/spaces/evaluate";
 
 // FR-32 Smart Spaces: every hour at :37 (away from the backlinks run at :07), judge the items new or changed since
@@ -8,6 +9,7 @@ import { evaluateSpaces } from "../lib/spaces/evaluate";
 export default defineSchedule({
   cron: "37 * * * *",
   async run() {
+    if (skipInDemo("evaluate-spaces")) return; // the judge demo is read-only (decision 053)
     try {
       await evaluateSpaces();
     } catch (err) {

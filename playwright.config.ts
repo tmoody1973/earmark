@@ -18,10 +18,15 @@ if (process.env.E2E_REAL) {
 }
 const TEST_DB = process.env.TEST_DATABASE_URL;
 if (!TEST_DB) throw new Error("TEST_DATABASE_URL is not set: e2e runs on the Neon test branch.");
+// E2E_DEMO=1: the judge demo (decision 053), still on the TEST branch. EARMARK_DEMO is on, nobody signs in, and only
+// e2e/demo.spec.ts runs (every other spec signs in and writes). The production host is named so the startup check runs.
+const DEMO = process.env.E2E_DEMO === "1";
+const prodHost = process.env.DATABASE_URL && URL.canParse(process.env.DATABASE_URL) ? new URL(process.env.DATABASE_URL).hostname : "";
 const serverEnv: Record<string, string> = {
   ...(Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)) as Record<string, string>),
   EARMARK_E2E: "1",
   DATABASE_URL: TEST_DB,
+  ...(DEMO && { EARMARK_DEMO: "1", EARMARK_DEMO_DB_OK: "1", EARMARK_PROD_DB_HOST: prodHost }),
 };
 
 // E2E_PORT: pick a free port per checkout. Never reuse a running server: one started by hand may read production.
@@ -29,6 +34,7 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "e2e",
+  ...(DEMO ? { testMatch: "demo.spec.ts" } : { testIgnore: "demo.spec.ts" }),
   globalSetup: "./e2e/global-setup.ts",
   workers: 1,
   reporter: "list",

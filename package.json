@@ -25,6 +25,7 @@
     "requeue:unmatched": "tsx --env-file=.env.local scripts/requeue-unmatched.ts",
     "move:heard": "tsx --env-file=.env.local scripts/move-to-heard-nearby.ts",
     "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test",
+    "seed:demo": "tsx scripts/seed-demo.ts",
     "eval:sample": "tsx --env-file=.env.local scripts/eval-sample.ts",
     "label": "tsx --env-file=.env.local scripts/label.ts",
     "eval:triage": "tsx --env-file=.env.local evals/triage/run.ts",
