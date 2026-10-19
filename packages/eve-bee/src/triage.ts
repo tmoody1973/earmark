@@ -1,9 +1,11 @@
 import { experimental_decide } from "ai";
-import { getEnv } from "../env";
-import type { ItemKind, RecType, TriageResult } from "../types";
+import type { ItemKind, RecType, TriageResult } from "./types.ts";
 import {
   BROADCAST_INSTRUCTIONS, CORRECTION_INSTRUCTIONS, JOKING_INSTRUCTIONS, KIND_CRITERIA, KIND_INSTRUCTIONS, REC_TYPE_CRITERIA, REC_TYPE_INSTRUCTIONS,
-} from "./criteria";
+} from "./criteria.ts";
+
+// Jev via Vercel AI Gateway. Override per call with { model } or for the process with TRIAGE_MODEL.
+export const DEFAULT_TRIAGE_MODEL = "typesafe-ai/jev-1.13.0";
 
 // The triage model failed for a whole conversation or voice note (gateway down, bad key, no probabilities):
 // callers release the claim so the backfill retries later, instead of burning the item as "nothing found".
@@ -30,7 +32,7 @@ export async function triageWindow(
   text: string,
   opts: { model?: string; optionOrder?: "fixed" | "shuffled"; random?: () => number; decideImpl?: typeof experimental_decide; correction?: boolean } = {},
 ): Promise<TriageResult> {
-  const model = opts.model ?? getEnv().TRIAGE_MODEL;
+  const model = opts.model ?? process.env.TRIAGE_MODEL ?? DEFAULT_TRIAGE_MODEL;
   const decide = opts.decideImpl ?? experimental_decide;
   const order = opts.optionOrder ?? "fixed";
   const result = await decide({

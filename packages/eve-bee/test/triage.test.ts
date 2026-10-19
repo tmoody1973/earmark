@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { experimental_decide } from "ai";
 import { Experimental_DecisionMockModelV4 as MockDecisionModel } from "ai/test";
-import { KIND_CRITERIA, REC_TYPE_CRITERIA } from "../../../agent/lib/pipeline/criteria";
-import { triageWindow } from "../../../agent/lib/pipeline/triage";
+import { KIND_CRITERIA, REC_TYPE_CRITERIA } from "../src/criteria.ts";
+import { triageWindow } from "../src/triage.ts";
 
 function dist(options: string[], chosen: string, p: number): Record<string, number> {
   const rest = (1 - p) / (options.length - 1);

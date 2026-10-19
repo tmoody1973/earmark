@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { getEnv } from "../env";
+
+export const DEFAULT_BEE_API_BASE = "https://api.developer.bee.amazon.dev";
 
 export class BeeApiError extends Error {
   readonly status: number;
@@ -142,9 +143,11 @@ function query(params: Record<string, string | number | boolean | undefined>): s
   return s ? `?${s}` : "";
 }
 
+// Explicit options win; otherwise BEE_TOKEN (from `bee login`) and BEE_API_BASE from the environment.
 export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchImpl?: typeof fetch } = {}) {
-  const token = opts.token ?? getEnv().BEE_TOKEN;
-  const baseUrl = opts.baseUrl ?? getEnv().BEE_API_BASE;
+  const token = opts.token ?? process.env.BEE_TOKEN;
+  if (!token) throw new Error("BEE_TOKEN is not set: pass { token } or set the BEE_TOKEN env var");
+  const baseUrl = opts.baseUrl ?? process.env.BEE_API_BASE ?? DEFAULT_BEE_API_BASE;
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   async function call<S extends z.ZodType>(path: string, schema: S, init: RequestInit = {}): Promise<z.infer<S>> {

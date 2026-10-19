@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectEarmarkTrigger, parseEarmarkTrigger } from "../../../agent/lib/bee/trigger";
+import { detectEarmarkTrigger, parseEarmarkTrigger } from "../src/trigger.ts";
 
 describe("parseEarmarkTrigger", () => {
   it.each([
@@ -16,11 +16,11 @@ describe("parseEarmarkTrigger", () => {
     ["Please earmark that Ann's ramen spot", "Ann's ramen spot"],
     ["Earmark, that Ann's ramen spot", "Ann's ramen spot"],
     ["Ear mark. That Ann's ramen spot", "Ann's ramen spot"],
-    // The four real utterances from Tarik's conversation 11333494 (Bee misheard #3 as "Remark").
-    ["Earmark that spot as known for Omakase called 1033 here in Walker's Point.", "spot as known for Omakase called 1033 here in Walker's Point"],
-    ["Earmark that I should listen to Jemetta Rose's new albums as a tribute to Sun Raw Records.", "I should listen to Jemetta Rose's new albums as a tribute to Sun Raw Records"],
-    ["Remark that Chris says to try that Notion calendar app.", "Chris says to try that Notion calendar app"],
-    ["Earmark that the syntax guys told me to check out this new repo called PyPI Durable.", "the syntax guys told me to check out this new repo called PyPI Durable"],
+    // Shaped like real voice notes, with invented names: long bodies, and Bee's real mishearing of "earmark" as "Remark" (#3).
+    ["Earmark that spot as known for omakase called Nine Tides here on the east side.", "spot as known for omakase called Nine Tides here on the east side"],
+    ["Earmark that I should listen to Lena Quill's new albums as a tribute to Brass Lantern Records.", "I should listen to Lena Quill's new albums as a tribute to Brass Lantern Records"],
+    ["Remark that Dev says to try that Pocket Ledger calendar app.", "Dev says to try that Pocket Ledger calendar app"],
+    ["Earmark that the podcast hosts told me to check out this new repo called tidy-queue.", "the podcast hosts told me to check out this new repo called tidy-queue"],
     ["Earmark this one for later: a podcast", "one for later: a podcast"],
     ["Uh, okay, remark that Ann's ramen spot", "Ann's ramen spot"],
     ["Hey, earmark that Ann's ramen spot", "Ann's ramen spot"],
