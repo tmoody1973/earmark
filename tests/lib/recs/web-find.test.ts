@@ -41,6 +41,13 @@ describe("webQuery", () => {
     expect(long.endsWith(" ")).toBe(false);
     expect(long).toMatch(/word$/);
   });
+
+  it("drops the recommender's and the owner's first names from the why note (names never leave Earmark)", () => {
+    const q = webQuery({ ...tip, context_summary: "Zoë says it's a tribute to Sun Ra; Ravi agreed", names: ["Zoë", null, "ravi"] });
+    expect(q).not.toMatch(/Zoë|Ravi/i);
+    expect(q).toContain("tribute to Sun Ra");
+    expect(webQuery({ ...tip, context_summary: "Ravioli night", names: ["Ravi"] })).toContain("Ravioli night"); // whole words only
+  });
 });
 
 describe("searchWeb", () => {

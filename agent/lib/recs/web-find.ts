@@ -34,14 +34,25 @@ const TYPE_WORD: Partial<Record<RecType, string>> = {
 };
 export const WEB_FIND_TYPES = Object.keys(TYPE_WORD) as RecType[];
 
-export interface WebTip { id: number; type: RecType; canonical_name: string; creator: string | null; context_summary: string | null }
+// names: first names that must never leave Earmark (the recommender's, the owner's); the why note may say "Ravi said…".
+export interface WebTip {
+  id: number; type: RecType; canonical_name: string; creator: string | null; context_summary: string | null;
+  names?: readonly (string | null | undefined)[];
+}
 export interface WebResult { title: string; snippet: string; site_name: string; url: string }
 export interface WebOption { title: string; creator: string | null; url: string | null }
 export type WebFound = { kind: "match"; match: EnrichmentMatch } | { kind: "options"; candidates: StoredCandidate[] } | { kind: "nothing" };
 
-/** The search words: name, creator, the kind of thing, the why note, clipped to 120 at a word. Never the excerpt. Pure. */
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The why note without the given first names, whole words only (letters of any script). Pure. */
+const withoutNames = (note: string | null, names: WebTip["names"] = []) =>
+  names.reduce<string | null>((s, n) => (s && n?.trim()
+    ? s.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(n.trim())}(?![\\p{L}\\p{N}])`, "giu"), " ") : s), note);
+
+/** The search words: name, creator, the kind of thing, the why note (minus first names), clipped to 120 at a word. Never the excerpt. Pure. */
 export function webQuery(tip: WebTip): string {
-  const words = [tip.canonical_name, tip.creator, TYPE_WORD[tip.type], tip.context_summary].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const words = [tip.canonical_name, tip.creator, TYPE_WORD[tip.type], withoutNames(tip.context_summary, tip.names)]
+    .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
   if (words.length <= WEB_QUERY_MAX) return words;
   const cut = words.slice(0, WEB_QUERY_MAX + 1);
   return cut.slice(0, cut.lastIndexOf(" ")).trim() || words.slice(0, WEB_QUERY_MAX);
