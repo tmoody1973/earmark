@@ -110,3 +110,13 @@ a { color: var(--ink); text-decoration-line: underline; text-underline-offset: 0
 .demo-banner p { margin: 0; }
 .demo-said:not(:empty) { margin-top: 0.125rem; font-weight: 650; }
 @media (min-width: 64rem) { .demo-banner { padding-left: 6.5rem; } }
+
+/* app/error.tsx: one calm message and one way back. */
+.error-page { text-align: center; gap: 0.75rem; }
+.error-page h1 { margin: 0; font-family: var(--serif); font-size: 1.75rem; }
+.error-page p { margin: 0; color: var(--ink-2); max-width: 30rem; }
+.error-page button {
+  min-height: 44px; padding: 0 1.25rem; border: 1px solid var(--hairline-strong); border-radius: 999px;
+  background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
+}
+.error-page button:hover { background: var(--surface-hover); }

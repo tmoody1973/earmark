@@ -20,6 +20,7 @@ One switch, `EARMARK_DEMO=1`, read by `agent/lib/demo.ts`. It is checked in a ha
 | `agent/lib/owner.ts` (`isOwner`, `gate`) | Everyone counts as the viewer of the owner pages; nobody is sent to sign in. |
 | `agent/lib/e2e-guard.ts` (`gardenReadOnly`) | The garden's render-time writes (marking an idea viewed) become no-ops, as in a read-only e2e run. |
 | `app/layout.tsx` + `app/DemoBanner.tsx` | The banner. It watches responses for the proxy's `x-earmark-demo: read-only` mark and shows the read-only line. |
+| `app/error.tsx` | Forms that throw on a refused write (new Space, gardeners, a thank-you, publishing) land on a calm "Something didn't work" page that says it may be the read-only demo, instead of Next's default. |
 | `app/page.tsx` → `GardenLive` | Home stops recording "visits" (a write). |
 | `app/search/page.tsx` | Look back searches only the saved words; it never calls Bee (the demo has no Bee account). |
 | `agent/schedules/*.ts` (`skipInDemo`) | Every schedule (Bee sync, rec lane, backlinks, Spaces, gardeners, facts, nightly backfill) returns at once and logs `[name] skipped: read-only demo`. |
