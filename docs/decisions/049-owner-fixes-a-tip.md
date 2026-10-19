@@ -92,7 +92,7 @@ select status, count(*) from tip_fix_proposals group by 1 order by 1;
 
 ## Link: when it only lives on one page
 
-**What it does:** "Fix this tip" has a **Link** field. Tarik pastes where the thing lives, for example `https://jimettarose.bandcamp.com/album/mettasun`, and the tip gets that page's picture and a button to open it ("Listen on Bandcamp", or "Open link" for any other website). Some things exist only on Bandcamp or on their own website, so no lookup service will ever find them. Before this, those tips stayed as a blank card with a "no match" flag forever.
+**What it does:** "Fix this tip" has a **Link** field. Tarik pastes where the thing lives, for example `https://jimettarose.bandcamp.com/album/mettasun`, and the tip gets that page's picture and a button to open it ("Listen · Bandcamp", or the site's name, such as "mamasdiner.com", for any other website). Some things exist only on Bandcamp or on their own website, so no lookup service will ever find them. Before this, those tips stayed as a blank card with a "no match" flag forever.
 
 **Why a link settles the tip:** Earmark's lookups exist to answer "which thing did he mean?". A pasted link *is* the answer, from the one person who knows. So saving a link marks the tip as the owner's, the same way picking an option in "Which one?" does: Earmark stops looking it up, "Which one?" stops asking, and a later lookup can never write over it. If Tarik later changes the name or creator, that is new words, and the tip is looked up again as usual.
 
@@ -109,7 +109,7 @@ select status, count(*) from tip_fix_proposals group by 1 order by 1;
 **Choices Claude made:**
 - *Where to read the page.* Options: (a) a full HTML parser library, (b) a few pattern matches for the two tags we need, like the podcast feed reader already does. Claude chose (b): no new dependency, and the tags are short and standard.
 - *Whether the tip stays the owner's when the link is cleared.* Options: (a) hand it back to the automatic lookup, (b) keep it as the owner's. Claude chose (b): clearing the link doesn't say "I was wrong about what this is". To get a fresh lookup, change the name.
-- *The Bandcamp player.* The brief offered, as a stretch, a tap-to-play Bandcamp player on the tip page. Claude skipped it: the player's size and layout would need checking on a phone, and the "Listen on Bandcamp" button already opens it.
+- *The Bandcamp player.* The brief offered, as a stretch, a tap-to-play Bandcamp player on the tip page. Claude skipped it: the player's size and layout would need checking on a phone, and the "Listen · Bandcamp" button already opens it.
 
 **What we gave up:**
 - Only one pasted link per tip. A new link replaces the old one.
@@ -118,7 +118,7 @@ select status, count(*) from tip_fix_proposals group by 1 order by 1;
 - Some sites block automated visitors or build their pages with scripts. Those links save without a picture.
 - An Apple Music link only works when Earmark's Apple Music keys are set; without them it saves the link alone.
 
-**How we'll know if this was right:** Pasting the MettaSun Bandcamp link on its tip shows the cover and a "Listen on Bandcamp" button on the next page load, and the tip no longer appears as a "no match". Over time, tips the owner settled with a link should never show up in the lookup queue again:
+**How we'll know if this was right:** Pasting the MettaSun Bandcamp link on its tip shows the cover and a "Listen · Bandcamp" button on the next page load, and the tip no longer appears as a "no match". Over time, tips the owner settled with a link should never show up in the lookup queue again:
 
 ```sql
 select count(*) from recommendations
