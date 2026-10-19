@@ -25,7 +25,8 @@ export interface BackfillResult {
 }
 
 // Re-queue = a fresh lookup: same columns a new tip starts with (011_rec_enrichment.sql), plus clearing a stale "no match" flag.
-const REQUEUE_WHERE = `type = 'place' and lat is null and status not in ('dismissed', 'composted')`;
+// match_source 'auto': never a tip the owner settled ("Which one?", decision 048).
+const REQUEUE_WHERE = `type = 'place' and lat is null and match_source = 'auto' and status not in ('dismissed', 'composted')`;
 
 export async function backfillSaidLocation(
   c: Pick<PoolClient, "query">, opts: { yes: boolean; requeuePlaces: boolean }, deps: BackfillDeps,

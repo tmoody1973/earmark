@@ -32,7 +32,7 @@ export function WhichOne({ tipId, type, heading, view }: { tipId: number; type: 
       }
     });
   };
-  const pick = (index: number) => run(async () => ((await chooseWhichOne(tipId, index)).changed ? "Saved." : "Those options changed. Here are the latest."));
+  const pick = (o: WhichOneOption) => run(async () => ((await chooseWhichOne(tipId, o.index, o.key)).changed ? "Saved." : "Those options changed. Here are the latest."));
   const none = () => run(async () => ((await noneOfTheseTip(tipId)).changed ? "Got it. Earmark won’t ask again." : "This tip changed. Reload to see it."));
   const search = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -53,7 +53,7 @@ export function WhichOne({ tipId, type, heading, view }: { tipId: number; type: 
             <p className="which-name">{o.name}</p>
             {subline(o) && <p className="which-sub">{subline(o)}</p>}
           </div>
-          <button type="button" className="idea-action which-pick" disabled={pending} onClick={() => pick(o.index)}
+          <button type="button" className="idea-action which-pick" disabled={pending} onClick={() => pick(o)}
             aria-label={`This one: ${[o.name, subline(o)].filter(Boolean).join(", ")}`}>
             This one
           </button>

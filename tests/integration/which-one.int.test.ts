@@ -20,6 +20,7 @@ const C = cand("The Night Gardener", { creator: null, yearOrAddress: null, image
 // A fake enrich that asks the (counted) Jev pick once with these candidates, then returns what Jev returned.
 const viaPick = (cands: Candidate[]): Enrich =>
   (async (r, deps) => deps!.pick!({ described: r.canonical_name, excerpt: r.excerpt }, cands)) as Enrich;
+const key = describeCandidate;
 const picks = (c: Candidate | null) => vi.fn(async () => (c ? ({ ...c, matchConfidence: 0.92 } as EnrichmentMatch) : null));
 
 // An Open Library search answer (the book provider, keyless): only fields its parse() reads.
@@ -106,8 +107,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
       match_candidates = '${stored([A, B])}'::jsonb, candidates_at = now(), extras = '{"wiki":{"text":"x"}}'::jsonb,
       extras_at = now(), extras_tries = 2, about = 'old note', about_url = 'https://en.wikipedia.org/wiki/Old', about_at = now()` });
 
-    expect(await pickCandidate(id, 2)).toEqual({ changed: false }); // outside the stored list
-    expect(await pickCandidate(id, 1)).toEqual({ changed: true });
+    expect(await pickCandidate(id, 2, key(B))).toEqual({ changed: false }); // outside the stored list
+    expect(await pickCandidate(id, 1, key(A))).toEqual({ changed: false }); // the page showed another list: refused
+    expect(await pickCandidate(id, 1, key(B))).toEqual({ changed: true });
     const r = await row(id);
     expect(r).toMatchObject({ canonical_name: B.canonicalName, creator: "Ola Brandt", year_or_address: "1980", image_url: B.imageUrl,
       enrichment_status: "matched", match_source: "owner", auto_pick: "none", owner_pick: describeCandidate(B),
@@ -115,7 +117,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     expect(r.links).toEqual(B.links);
     expect(r.review_reason).not.toBe("no_match");
 
-    expect(await pickCandidate(id, 0)).toEqual({ changed: false }); // the owner's choice is final
+    expect(await pickCandidate(id, 0, key(A))).toEqual({ changed: false }); // the owner's choice is final
     await c.query(`update recommendations set enrichment_status = 'pending', enrich_next_at = now() where id = $1`, [id]);
     expect(await sweep({ enrich: viaPick([A]), pick: picks(A), onlyIds: [id] })).toMatchObject({ tried: 0 });
     expect((await row(id)).canonical_name).toBe(B.canonicalName);
@@ -123,20 +125,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
 
   it("correcting a confident wrong guess replaces the old match's art, links, year and place", async () => {
     const { pickCandidate } = await whichOne();
-    const wrong = cand("Shogun", { yearOrAddress: "1980", links: { tmdb: "https://www.themoviedb.org/tv/1980" } });
-    const right = cand("Shogun", { yearOrAddress: "2024", imageUrl: null, links: { tmdb: "https://www.themoviedb.org/tv/2024" } });
-    const id = await addRec({ type: "film_tv", set: `enrichment_status = 'matched', canonical_name = 'Shogun', year_or_address = '1980',
+    const wrong = cand("Shogun", { creator: "Old Studio", yearOrAddress: "1980", links: { tmdb: "https://www.themoviedb.org/tv/1980" } });
+    const right = cand("Shogun", { creator: null, yearOrAddress: "2024", imageUrl: null, links: { tmdb: "https://www.themoviedb.org/tv/2024" } });
+    const id = await addRec({ type: "film_tv", set: `enrichment_status = 'matched', canonical_name = 'Shogun', creator = 'Old Studio', year_or_address = '1980',
       image_url = 'https://image.tmdb.org/t/p/w500/old.jpg', links = '{"tmdb":"https://www.themoviedb.org/tv/1980","url":"https://mine.example"}'::jsonb,
       match_candidates = '${stored([wrong, right])}'::jsonb, auto_pick = '${describeCandidate(wrong)}'` });
-    expect(await pickCandidate(id, 1)).toEqual({ changed: true });
+    expect(await pickCandidate(id, 1, key(right))).toEqual({ changed: true });
     const r = await row(id);
-    expect(r).toMatchObject({ year_or_address: "2024", image_url: null, match_source: "owner", auto_pick: describeCandidate(wrong) });
+    expect(r).toMatchObject({ creator: null, year_or_address: "2024", image_url: null, match_source: "owner", auto_pick: describeCandidate(wrong) });
     expect(r.links).toEqual({ tmdb: "https://www.themoviedb.org/tv/2024", url: "https://mine.example" }); // the capture's own link stays
 
     // a music pick with no art: the lane's art-only tail fetches it (no provider call from the request)
-    const album = await addRec({ type: "album", set: `enrichment_status = 'no_match',
-      match_candidates = '${stored([cand("Blue", { imageUrl: null, releaseGroupId: "rg-1", mbid: "rg-1" })])}'::jsonb` });
-    expect(await pickCandidate(album, 0)).toEqual({ changed: true });
+    const blue = cand("Blue", { imageUrl: null, releaseGroupId: "rg-1", mbid: "rg-1" });
+    const album = await addRec({ type: "album", set: `enrichment_status = 'no_match', match_candidates = '${stored([blue])}'::jsonb` });
+    expect(await pickCandidate(album, 0, key(blue))).toEqual({ changed: true });
     expect(await row(album)).toMatchObject({ art_retry_mbid: "rg-1", enrichment_status: "matched" });
   });
 
@@ -183,6 +185,55 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await searchAgain(book, "Night Garden", { env: {}, fetchImpl: fetchImpl as unknown as typeof fetch })).toEqual({ status: "refused", reason: "busy" });
     expect((await row(book)).match_candidates.map((x: Candidate) => x.canonicalName)).toEqual([C.canonicalName]); // untouched
+  });
+
+  it("a captured song keeps its own Apple identity through a correction unless the pick brings its own", async () => {
+    const { pickCandidate } = await whichOne();
+    const right = cand("Blue", { creator: "Joni Mitchell", imageUrl: null, links: { musicbrainz: "https://musicbrainz.org/release-group/r" } });
+    const id = await addRec({ type: "song", set: `source = 'song', enrichment_status = 'matched', apple_music_id = '123',
+      image_url = 'https://is1-ssl.mzstatic.com/a.jpg', links = '{"apple_music":"https://music.apple.com/us/song/x/123","musicbrainz":"https://musicbrainz.org/release-group/w"}'::jsonb,
+      match_candidates = '${stored([cand("Blew"), right])}'::jsonb, auto_pick = '${key(cand("Blew"))}'` });
+    expect(await pickCandidate(id, 1, key(right))).toEqual({ changed: true });
+    const r = (await c.query(`select apple_music_id, image_url, links from recommendations where id = $1`, [id])).rows[0];
+    expect(r).toMatchObject({ apple_music_id: "123", image_url: "https://is1-ssl.mzstatic.com/a.jpg" });
+    expect(r.links).toEqual({ apple_music: "https://music.apple.com/us/song/x/123", musicbrainz: "https://musicbrainz.org/release-group/r" });
+  });
+
+  it("the lane never overwrites candidates the owner searched for while it was looking", async () => {
+    const { searchAgain } = await whichOne();
+    const id = await addRec(); // pending: the sweep picks it up
+    const fetchImpl = vi.fn(async () => olAnswer(["Owner Found"]));
+    const enrich = (async (r, deps) => {
+      await searchAgain(r.id, "Owner Found", { env: {}, fetchImpl: fetchImpl as unknown as typeof fetch }); // the owner, mid-sweep
+      return deps!.pick!({ described: r.canonical_name, excerpt: r.excerpt }, [A]);
+    }) as Enrich;
+    await sweep({ enrich, pick: picks(null), onlyIds: [id] });
+    const r = await row(id);
+    expect(r.match_candidates.map((x: Candidate) => x.canonicalName)).toEqual(["Owner Found"]);
+    expect(r).toMatchObject({ enrichment_status: "no_match", enrich_attempts: 0 });
+  });
+
+  it("a correction while the lane fetches art, the note or extras for the old item: those writes don't land", async () => {
+    const { pickCandidate } = await whichOne();
+    const setup = (extra = "") => addRec({ set: `enrichment_status = 'matched', enriched_at = now() - interval '1 hour',
+      match_candidates = '${stored([A, B])}'::jsonb, auto_pick = '${key(A)}'${extra}` });
+    const correct = (id: number) => pickCandidate(id, 1, key(B));
+
+    const art = await setup(", image_url = null, art_retry_mbid = 'rg-old', about_at = now(), extras_at = now()");
+    await sweep({ coverArt: async () => { await correct(art); return "https://coverartarchive.org/old.jpg"; }, onlyIds: [art] });
+    expect(await row(art)).toMatchObject({ canonical_name: B.canonicalName, image_url: B.imageUrl, art_retry_mbid: null });
+
+    const about = await setup();
+    await sweep({ about: async () => { await correct(about); return { text: "about the old item", url: "https://en.wikipedia.org/wiki/Old" }; },
+      onlyIds: [about] });
+    expect(await row(about)).toMatchObject({ canonical_name: B.canonicalName, about: null, about_at: null });
+
+    const extras = await setup(", about_at = now()");
+    await sweep({ extras: async () => { await correct(extras); return { discogs: { url: "https://www.discogs.com/master/1" } } as never; },
+      onlyIds: [extras] });
+    const e = await row(extras);
+    expect(e).toMatchObject({ canonical_name: B.canonicalName, extras: null, extras_at: null });
+    expect(e.links).toEqual(B.links); // no links.discogs for the old item
   });
 
   it("requeue: a dry run only lists; --yes sends the automatic no-matches back to the lane", async () => {

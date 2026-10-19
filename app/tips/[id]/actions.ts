@@ -16,6 +16,7 @@ async function requireOwner(): Promise<void> {
 const Id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const Index = z.number().int().min(0).max(MAX_CANDIDATES - 1);
 const Query = z.string().trim().min(2).max(120);
+const Key = z.string().min(1).max(1000); // candidateKey: compared, never stored from here
 
 function parse<T>(schema: z.ZodType<T>, v: unknown, what: string): T {
   const p = schema.safeParse(v);
@@ -26,10 +27,13 @@ function parse<T>(schema: z.ZodType<T>, v: unknown, what: string): T {
 // Home, Shelf, People and the tip page all show the tip (and its chip).
 const refresh = () => revalidatePath("/", "layout");
 
-/** "This one": the owner's pick, final. changed false: the options moved on (the page refreshes to show them). */
-export async function chooseWhichOne(id: number, index: number): Promise<{ changed: boolean }> {
+/**
+ * "This one": the owner's pick, final. `key` names the option the page showed; changed false when the stored options
+ * moved on since (the page refreshes to show them).
+ */
+export async function chooseWhichOne(id: number, index: number, key: string): Promise<{ changed: boolean }> {
   await requireOwner();
-  const r = await pickCandidate(parse(Id, id, "tip id"), parse(Index, index, "candidate"));
+  const r = await pickCandidate(parse(Id, id, "tip id"), parse(Index, index, "candidate"), parse(Key, key, "candidate"));
   refresh();
   return r;
 }

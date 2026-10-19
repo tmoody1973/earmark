@@ -31,8 +31,8 @@ describe("whichOneView (the tip page section)", () => {
     expect(v.mode).toBe("ask");
     expect(v.query).toBe("Shogun");
     expect(v.options).toEqual([
-      { index: 0, name: "Shogun", creator: null, yearOrAddress: "1980", detail: null, imageUrl: "https://image.tmdb.org/a.jpg", lat: null, lng: null },
-      { index: 1, name: "Shogun", creator: null, yearOrAddress: "2024", detail: "TV series", imageUrl: null, lat: null, lng: null },
+      { index: 0, key: "Shogun — 1980", name: "Shogun", creator: null, yearOrAddress: "1980", detail: null, imageUrl: "https://image.tmdb.org/a.jpg", lat: null, lng: null },
+      { index: 1, key: "Shogun — 2024 — TV series", name: "Shogun", creator: null, yearOrAddress: "2024", detail: "TV series", imageUrl: null, lat: null, lng: null },
     ]);
   });
   it("still asks after a search that found nothing, so Search again stays reachable", () => {
