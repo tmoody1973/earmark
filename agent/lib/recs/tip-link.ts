@@ -126,8 +126,12 @@ async function find(link: LinkKind, url: string, now: Now, id: number, deps: Tip
 /**
  * The owner's link for tip `id` (null clears it). gone: a cleared (dismissed, composted) or missing tip, or one whose
  * words changed between the read and the write. private: the host isn't public. Throws on a bad id or link.
+ * words: the name and creator the link is for, when the owner picked it as a "Which one?" option found on the web
+ * (decision 051); they stand in for the tip's own words (Apple's, or Bandcamp's "X, by Y", still win).
  */
-export async function applyTipLink(id: number, url: string | null, deps: TipLinkDeps = {}): Promise<TipLinkResult> {
+export async function applyTipLink(
+  id: number, url: string | null, deps: TipLinkDeps = {}, words?: { name: string; creator: string | null },
+): Promise<TipLinkResult> {
   if (!Number.isSafeInteger(id) || id <= 0) throw new RangeError("invalid tip id");
   const link = TipLinkSchema.parse(url);
   const [now] = (await db()`select type, canonical_name, creator from recommendations
@@ -138,10 +142,11 @@ export async function applyTipLink(id: number, url: string | null, deps: TipLink
       where id = ${id} and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) returning id`;
     return rows.length > 0 ? { status: "cleared" } : { status: "refused", reason: "gone" };
   }
-  const f = await find(classifyLink(link)!, link, now, id, deps);
+  const base = words ? { ...now, canonical_name: words.name, creator: words.creator } : now;
+  const f = await find(classifyLink(link)!, link, base, id, deps);
   if (f === "private") return { status: "refused", reason: "private" };
-  const name = f.name ?? now.canonical_name;
-  const creator = f.creator === undefined ? now.creator : f.creator;
+  const name = f.name ?? base.canonical_name;
+  const creator = f.creator === undefined ? base.creator : f.creator;
   const renamed = name !== now.canonical_name || creator !== now.creator;
   const img = f.imageUrl;
   // A capture's own picture (a photo) and Apple id and link (a shared song) stay through new words, as in saveMatch.

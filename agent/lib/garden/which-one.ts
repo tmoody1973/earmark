@@ -5,6 +5,8 @@ import { describeCandidate, MAX_CANDIDATES, type Candidate } from "../enrich/typ
 import { cardArtworkUrl } from "./cards";
 
 export interface StoredCandidate extends Candidate { provider: string }
+/** A page found on the web, no catalog's item (decision 051): links.web, settled through the Link path when picked. */
+export const WEB_PROVIDER = "web";
 
 const Stored = z.object({
   provider: z.string(), canonicalName: z.string().min(1), creator: z.string().nullable(), yearOrAddress: z.string().nullable(),
