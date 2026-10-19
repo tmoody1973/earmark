@@ -24,7 +24,7 @@ beforeEach(() => {
 describe("Which one? actions", () => {
   it("refuse anyone but the owner, touching nothing", async () => {
     signedInAs("user_stranger");
-    await expect(chooseWhichOne(7, 0)).rejects.toThrow(/not found/i);
+    await expect(chooseWhichOne(7, 0, "Night Garden")).rejects.toThrow(/not found/i);
     await expect(noneOfTheseTip(7)).rejects.toThrow(/not found/i);
     await expect(searchWhichOne(7, "Night Garden")).rejects.toThrow(/not found/i);
     expect(pickCandidate).not.toHaveBeenCalled();
@@ -32,10 +32,11 @@ describe("Which one? actions", () => {
     expect(searchAgain).not.toHaveBeenCalled();
   });
 
-  it.each([[0, 0], [-1, 0], [1.5, 0], ["7", 0], [7, -1], [7, 3], [7, 0.5], [7, "1"]])(
-    "reject a bad tip id or candidate index (%s, %s)", async (id, index) => {
+  it.each([[0, 0, "k"], [-1, 0, "k"], [1.5, 0, "k"], ["7", 0, "k"], [7, -1, "k"], [7, 3, "k"], [7, 0.5, "k"], [7, "1", "k"],
+    [7, 0, ""], [7, 0, 4], [7, 0, "k".repeat(1001)]])(
+    "reject a bad tip id, candidate index or candidate key (%s, %s, %s)", async (id, index, key) => {
       signedInAs("user_owner");
-      await expect(chooseWhichOne(id as number, index as number)).rejects.toThrow(/invalid/i);
+      await expect(chooseWhichOne(id as number, index as number, key as string)).rejects.toThrow(/invalid/i);
       expect(pickCandidate).not.toHaveBeenCalled();
     });
 
@@ -47,8 +48,8 @@ describe("Which one? actions", () => {
 
   it("pick, none and search go through, trimmed, and refresh the tip page and the shelf", async () => {
     signedInAs("user_owner");
-    expect(await chooseWhichOne(7, 2)).toEqual({ changed: true });
-    expect(pickCandidate).toHaveBeenCalledWith(7, 2);
+    expect(await chooseWhichOne(7, 2, "Night Garden — Mara Vell")).toEqual({ changed: true });
+    expect(pickCandidate).toHaveBeenCalledWith(7, 2, "Night Garden — Mara Vell");
     expect(await noneOfTheseTip(7)).toEqual({ changed: true });
     expect(noneOfThese).toHaveBeenCalledWith(7);
     expect(await searchWhichOne(7, "  Night Garden ")).toEqual({ found: 2 });

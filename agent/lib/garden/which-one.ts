@@ -39,6 +39,7 @@ export interface WhichOneRow {
 }
 export interface WhichOneOption {
   index: number; // position in match_candidates: what the pick action sends back
+  key: string; // candidateKey: sent with the index, so a pick from a page showing an older list is refused
   name: string; creator: string | null; yearOrAddress: string | null; detail: string | null;
   imageUrl: string | null; lat: number | null; lng: number | null;
 }
@@ -58,7 +59,7 @@ export function whichOneView(r: WhichOneRow): WhichOneView | null {
   if (!Array.isArray(r.match_candidates)) return null; // the lane kept nothing (no lookup yet, or nothing found)
   const cands = readCandidates(r.match_candidates);
   const all = cands.map((c, index): WhichOneOption => ({
-    index, name: c.canonicalName, creator: c.creator, yearOrAddress: c.yearOrAddress, detail: c.detail ?? null,
+    index, key: candidateKey(c), name: c.canonicalName, creator: c.creator, yearOrAddress: c.yearOrAddress, detail: c.detail ?? null,
     imageUrl: optionArt(c), lat: c.lat ?? null, lng: c.lng ?? null,
   }));
   if (asksWhichOne({ ...r, has_candidates: true })) return { mode: "ask", options: all, query: r.canonical_name };
@@ -66,5 +67,5 @@ export function whichOneView(r: WhichOneRow): WhichOneView | null {
   // The owner searched after the match (candidates_at moved past enriched_at): keep the disclosure even if few came back.
   const searched = (time(r.candidates_at) ?? 0) > (time(r.enriched_at) ?? 0);
   if (all.length < 2 && !searched) return null;
-  return { mode: "correct", options: all.filter((o) => candidateKey(cands[o.index]!) !== r.auto_pick), query: r.canonical_name };
+  return { mode: "correct", options: all.filter((o) => o.key !== r.auto_pick), query: r.canonical_name };
 }

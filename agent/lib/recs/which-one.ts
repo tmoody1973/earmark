@@ -15,16 +15,19 @@ import { applyReviewReason, isBackOffSignal, saveMatch, SWEEP_SKIPS_STATUSES } f
 
 export const SEARCH_EVERY_SECONDS = 10;
 
-/** The owner picks stored candidate `index`. changed false: no such candidate, a cleared tip, or already settled. */
-export async function pickCandidate(id: number, index: number): Promise<{ changed: boolean }> {
+/**
+ * The owner picks stored candidate `index`, which the page named `key` (candidateKey). changed false: the stored list
+ * moved on (a second look or another tab's search replaced it), no such candidate, a cleared tip, or already settled.
+ */
+export async function pickCandidate(id: number, index: number, key: string): Promise<{ changed: boolean }> {
   const [row] = await db()`select match_candidates from recommendations where id = ${id} and match_source = 'auto'`;
-  // ponytail: read-then-write; a Search again landing between the two would make `index` point into the new list.
-  // Add a candidates_at check to the action if two open tabs ever race.
   const c = row ? readCandidates(row.match_candidates)[index] : undefined;
-  if (!c) return { changed: false };
+  if (!c || candidateKey(c) !== key) return { changed: false };
   // A music candidate's art arrives through the lane's art-only tail (Cover Art Archive), never from this request.
   const artRetry = c.imageUrl ? undefined : c.releaseGroupId;
-  const changed = await saveMatch(id, { ...c, matchConfidence: 1, artRetry }, { ownerPick: candidateKey(c) });
+  // ifCandidates: the write lands only while the list is still the one just read (no read-then-write race).
+  const changed = await saveMatch(id, { ...c, matchConfidence: 1, artRetry },
+    { ownerPick: candidateKey(c), ifCandidates: JSON.stringify(row!.match_candidates) });
   if (changed) await applyReviewReason(id);
   return { changed };
 }
