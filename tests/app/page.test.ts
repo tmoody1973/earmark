@@ -15,12 +15,14 @@ vi.mock("../../agent/lib/garden/queries", () => ({
   getMaybeTips: vi.fn(async () => ({ tips: [], more: 0 })),
 }));
 vi.mock("../../agent/lib/garden/serendipity", () => ({ getSerendipity: vi.fn(async () => null) }));
+vi.mock("../../agent/lib/recs/spoken-fix", () => ({ pendingTipFixes: vi.fn(async () => []) }));
 
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
 import { getGardenView, getGardenVisit, saveGardenVisit } from "../../agent/lib/garden/queries";
 import { getSerendipity } from "../../agent/lib/garden/serendipity";
+import { pendingTipFixes } from "../../agent/lib/recs/spoken-fix";
 import Garden from "../../app/page";
 
 const signedInAs = (userId: string | null) => vi.mocked(auth).mockResolvedValue({ userId } as never);
@@ -53,6 +55,7 @@ describe("garden page owner guard", () => {
       expect(getGardenView).not.toHaveBeenCalled();
       expect(getGardenVisit).not.toHaveBeenCalled();
       expect(getSerendipity).not.toHaveBeenCalled();
+      expect(pendingTipFixes).not.toHaveBeenCalled();
     },
   );
 
@@ -97,5 +100,12 @@ describe("garden page owner guard", () => {
     expect(find(await Garden(), "Serendipity")?.props.pick).toBe(pick);
     // never a card already on Home
     expect(getSerendipity).toHaveBeenCalledWith(expect.any(Date), [{ type: "idea", id: 5 }, { type: "rec", id: 9 }]);
+  });
+
+  it("hands the fixes said out loud to the Fix row (decision 049); Earmark applies none by itself", async () => {
+    signedInAs("user_owner");
+    const fixes = [{ id: 3, recId: 9, type: "album" as const, from: "Velvet Moth", to: "Velvet Mouth", toType: null }];
+    vi.mocked(pendingTipFixes).mockResolvedValueOnce(fixes);
+    expect(find(await Garden(), "FixRow")?.props.fixes).toBe(fixes);
   });
 });

@@ -1,12 +1,14 @@
 import { APICallError, RetryError } from "ai";
 import { detectEarmarkTrigger } from "../bee/trigger";
 import { ownerFirstName } from "../env";
+import { planSpokenFix, type SpokenFix } from "../recs/spoken-fix";
 import type { TriageResult, Utterance } from "../types";
 import { chooseRecommender } from "./attribution";
 import { clampExcerpt, wordCount } from "./excerpt";
 import type { PipelineDeps } from "./process-conversation";
 import type { SaveItem } from "./save-item";
 import { TITLE_MAX_WORDS } from "./extract";
+import { CORRECTION_ACCEPT } from "./thresholds";
 import { SystemicTriageError } from "./triage";
 
 // A deliberate "Earmark that" said inside a conversation: the triggered utterance plus, when it does not end the
@@ -85,7 +87,7 @@ async function triageDeliberate(label: string, body: string, d: PipelineDeps): P
   };
   let t: TriageResult;
   try {
-    t = await d.triage(`Unknown: ${body}`); // same one-line shape Jev sees for ambient windows
+    t = await d.triage(`Unknown: ${body}`, { correction: true }); // same one-line shape Jev sees for ambient windows
   } catch (err) {
     throw systemic("all_failed", err);
   }
@@ -109,10 +111,14 @@ export const isOutage = (err: unknown): boolean =>
   (err instanceof Error && (/^(?:CompostUnavailableError|AbortError|FetchError)$|Gateway|Timeout/.test(err.name) ||
     (err instanceof TypeError && /fetch failed/i.test(err.message))));
 
+// A spoken correction to a saved tip (decision 049, piece 3): a proposed fix, never a new tip. fix null: Earmark couldn't
+// tell which tip (or the tip already says it), so nothing is stored.
+export type DeliberatePlan = SaveItem | { kind: "fix"; fix: SpokenFix | null };
+
 // Voice notes and conversations both land here. An outage throws (the caller releases its claim and retries). Any other
 // failure on this one item (bad model output, schema error) keeps what the person said: a raw rec, the spoken words as
 // title and excerpt, nobody credited, in needs_review so it is seen rather than lost. Logs carry ids + err.name only.
-export async function planDeliberateItem(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<SaveItem> {
+export async function planDeliberateItem(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<DeliberatePlan> {
   try {
     return await planDeliberateModel(body, ctx, d);
   } catch (err) {
@@ -127,8 +133,13 @@ export async function planDeliberateItem(body: string, ctx: DeliberateContext, d
   }
 }
 
-async function planDeliberateModel(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<SaveItem> {
+async function planDeliberateModel(body: string, ctx: DeliberateContext, d: PipelineDeps): Promise<DeliberatePlan> {
   const t = await triageDeliberate(ctx.label, body, d);
+  if ((t.correctionProbability ?? 0) >= CORRECTION_ACCEPT) {
+    const fix = await planSpokenFix(body, { beeConversationId: ctx.beeConversationId, beeJournalId: ctx.beeJournalId }, d.fix);
+    console.log(`[pipeline] spoken fix ${ctx.label} key=${ctx.deliberateKey ?? "-"} rec=${fix?.recId ?? "none"}`);
+    return { kind: "fix", fix };
+  }
   const common = {
     route: "accept", beeConversationId: ctx.beeConversationId, beeJournalId: ctx.beeJournalId, deliberateKey: ctx.deliberateKey ?? null,
     spokenAt: ctx.spokenAt, confidence: 1, source: "voice",
