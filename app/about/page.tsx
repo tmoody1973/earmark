@@ -132,6 +132,7 @@ export default function AboutPage() {
               otherwise approved by TMDB.
             </span>
           </li>
+          <li>Where to watch data by <Ext href="https://www.justwatch.com">JustWatch</Ext>, through TMDB.</li>
         </ul>
       </section>
 

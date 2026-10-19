@@ -106,7 +106,8 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
   const d: SweepDeps = { enrich: enrichRec, pick: pickMatch, coverArt: (rg) => coverArtUrl(rg), env: process.env,
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
-    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env)),
+    embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec),
+    extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env), (deps.env ?? process.env).TMDB_API_KEY?.trim() || null),
     webFind: (tip) => findOnWeb(tip, { env: deps.env ?? process.env, fetchImpl: fetch }),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or

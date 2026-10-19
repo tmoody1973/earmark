@@ -34,7 +34,8 @@ describe("About page", () => {
     expect(html).toContain("This website uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.");
     expect(html).toContain('src="/tmdb-alt-short-blue.svg"');
     expect(existsSync(`${root}/public/tmdb-alt-short-blue.svg`)).toBe(true);
-    for (const site of ["musicbrainz.org", "coverartarchive.org", "nominatim.org", "openlibrary.org", "wikipedia.org", "youtube.com", "themoviedb.org"]) {
+    expect(html).toContain("Where to watch data by <a"); // TMDB's terms for its watch providers: credit JustWatch
+    for (const site of ["musicbrainz.org", "coverartarchive.org", "nominatim.org", "openlibrary.org", "wikipedia.org", "youtube.com", "themoviedb.org", "justwatch.com"]) {
       expect(html).toContain(site);
     }
   });
