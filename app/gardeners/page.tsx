@@ -31,6 +31,7 @@ export default async function GardenersPage() {
       <p><Link className="g-back" href="/garden">Back to the garden</Link></p>
       <h1>Gardeners</h1>
       <p className="lede">Helpers that tend the garden on a schedule. Nothing leaves Earmark; every result waits here as a draft until you approve it.</p>
+      <p className="lede">New to gardeners? <a href="https://github.com/tmoody1973/earmark/blob/main/docs/gardener-guide.md" rel="noopener noreferrer" target="_blank">Read the guide, with examples</a>.</p>
 
       <section aria-labelledby="g-list">
         <h2 id="g-list">Planted</h2>
