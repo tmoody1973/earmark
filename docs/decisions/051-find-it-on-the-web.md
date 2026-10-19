@@ -27,7 +27,7 @@
 
 **What we gave up:**
 - A new outside service and key. When TinyFish is down or out of free searches, unmatched tips simply stay unmatched until it's back.
-- The why line can name the person who recommended the tip ("Ann says…"), and it is part of the query. A first name goes to a search engine. The quote never does.
+- The why line is part of the query, so it can carry more of what was said than the name alone (a reason, a place). It can also name the person who recommended the tip ("Ann says…"): that first name, and Tarik's, are taken out before the search, whole words only. The quote never goes.
 - An item with no creator never settles automatically (an artist tip, or a title the model gave without a creator). It always becomes a choice for Tarik. A bare title is too common to trust on its own.
 - If the model gives a wrong title that happens to match a real catalog item by the same creator exactly, the tip is matched to it without Jev's second opinion. That needs the web and the model to be wrong in a very specific way, which we judged rare. "Not the right one?" (decision 048) still lets Tarik correct it.
 - A timeout from TinyFish or the model uses up the tip's one look; it is not retried.
