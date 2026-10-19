@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { MAX_CANDIDATES } from "@/agent/lib/enrich/types";
 import { isOwner } from "@/agent/lib/owner";
+import { applyTipFix, TipFixSchema, type TipFix } from "@/agent/lib/recs/fix-tip";
 import { noneOfThese, pickCandidate, searchAgain, type SearchResult } from "@/agent/lib/recs/which-one";
 
-// "Which one?" (decision 048). Server actions are public endpoints: the owner first, then every input, before any read.
+// "Which one?" (decision 048) and "Fix this tip" (decision 049). Server actions are public endpoints: the owner first, then every input, before any read.
 
 async function requireOwner(): Promise<void> {
   const { userId } = await auth();
@@ -61,4 +62,16 @@ export async function searchWhichOne(id: number, query: string): Promise<{ found
   if (r.status === "refused") return { refused: REFUSED[r.reason] };
   refresh();
   return { found: r.found };
+}
+
+/**
+ * "Fix this tip" (decision 049): the owner's words for the name, creator, type or note; only the fields sent change.
+ * requeued: Earmark looks it up again. refused: the tip was cleared or changed since the page loaded.
+ */
+export async function fixTip(id: number, fix: TipFix): Promise<{ changed: boolean; requeued: boolean } | { refused: string }> {
+  await requireOwner();
+  const r = await applyTipFix(parse(Id, id, "tip id"), parse(TipFixSchema, fix, "fix"));
+  if (!r.changed) return { refused: "This tip changed, or was cleared. Reload to see it." };
+  refresh();
+  return r;
 }
