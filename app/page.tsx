@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
+import { isDemo } from "@/agent/lib/demo";
 import { isOwner } from "@/agent/lib/owner";
 import { getGardenView, getGardenVisit, getMaybeTips } from "@/agent/lib/garden/queries";
 import { getSerendipity } from "@/agent/lib/garden/serendipity";
@@ -60,7 +61,7 @@ export default async function Garden() {
     <>
       <TabBar />
       <main className="garden garden--home" id="garden">
-        <GardenLive initialSince={view.serverTime} onPage={onPage}>
+        <GardenLive initialSince={view.serverTime} onPage={onPage} recordsVisits={!isDemo()}>
           <header className="garden-head">
             <div>
               <h1>Earmark</h1>

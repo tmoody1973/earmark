@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
+import { isDemo } from "@/agent/lib/demo";
 import { isOwner } from "@/agent/lib/owner";
 import { searchEarmarks, type MemoryCue } from "@/agent/lib/search/memory-cue";
 import { parseWhen } from "@/agent/lib/search/when";
@@ -70,7 +71,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 }
 
 async function Results({ cue }: { cue: MemoryCue }) {
-  const { recs, ideas, neuralFailed } = await searchEarmarks(cue, { useNeural: true });
+  // The judge demo (decision 053) has no Bee account: its search reads only the sample garden's saved words.
+  const { recs, ideas, neuralFailed } = await searchEarmarks(cue, { useNeural: !isDemo() });
   return (
     <div>
       {neuralFailed && <p className="search-note">Bee&rsquo;s search did not answer, so these are only words Earmark saved.</p>}

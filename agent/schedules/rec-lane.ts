@@ -1,4 +1,5 @@
 import { defineSchedule } from "eve/schedules";
+import { skipInDemo } from "../lib/demo";
 import { sweepRecLane } from "../lib/recs/lane";
 
 // The rec lane (M3-T4, decision 013): look up pending tips (MusicBrainz, Open Library, Wikipedia, iTunes podcasts; TMDB,
@@ -7,6 +8,7 @@ import { sweepRecLane } from "../lib/recs/lane";
 export default defineSchedule({
   cron: "*/10 * * * *",
   async run() {
+    if (skipInDemo("rec-lane")) return; // the judge demo is read-only (decision 053)
     try {
       console.log("[rec-lane] done", JSON.stringify(await sweepRecLane()));
     } catch (err) {

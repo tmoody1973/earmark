@@ -41,10 +41,12 @@ export interface GardenLiveProps {
   initialSince: string;
   /** Plants drawn on the page, in the server's order, and how each is drawn. */
   onPage: ReadonlyArray<readonly [number, DrawnPlant]>;
+  /** false in the judge demo (decision 053): a look is a write, and the demo refuses writes. */
+  recordsVisits?: boolean;
   children: React.ReactNode;
 }
 
-export function GardenLive({ initialSince, onPage, children }: GardenLiveProps) {
+export function GardenLive({ initialSince, onPage, recordsVisits = true, children }: GardenLiveProps) {
   const router = useRouter();
   const [live, setLive] = useState(emptyLive);
   const [query, setQuery] = useState("");
@@ -81,6 +83,7 @@ export function GardenLive({ initialSince, onPage, children }: GardenLiveProps) 
   // A look is recorded when the page mounts and when he comes back to the tab, never by a render or refresh.
   // Back after the 30-minute gap is a new visit: a fresh page (new baseline, new order, clean live state).
   useEffect(() => {
+    if (!recordsVisits) return;
     const record = (onReturn: boolean) =>
       recordGardenVisit()
         .then(({ started }) => { if (started && onReturn) window.location.reload(); })
@@ -89,7 +92,7 @@ export function GardenLive({ initialSince, onPage, children }: GardenLiveProps) 
     const onVisibility = () => { if (document.visibilityState === "visible") void record(true); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
+  }, [recordsVisits]);
 
   useEffect(() => {
     const poller = startPoller({

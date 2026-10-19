@@ -1,4 +1,5 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { demoWriteRefusal } from "./agent/lib/demo";
 import { gate } from "./agent/lib/owner";
 
 const NOT_YOURS = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Not your garden · Earmark</title>
@@ -6,7 +7,10 @@ const NOT_YOURS = `<!doctype html><html lang="en"><head><meta charset="utf-8"><m
 <body><main><h1>This isn't your garden</h1><p>Earmark is private to one person, and this account isn't them. Nothing here was shown to you.</p><p><a href="/sign-out">Sign out and try a different account</a></p></main></body></html>`;
 
 // M1 scaffold: the whole app is private except sign-in, the Bee webhook and the eve channel (see isPublicPath).
+// The judge demo (decision 053): every write, server actions included, is refused here before any code runs.
 export default clerkMiddleware(async (auth, req) => {
+  const refused = demoWriteRefusal(req.method);
+  if (refused) return refused;
   const { userId } = await auth();
   const decision = gate(req.nextUrl.pathname, userId);
   if (decision === "sign-in") await auth.protect();

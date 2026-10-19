@@ -1,4 +1,5 @@
 import { defineSchedule } from "eve/schedules";
+import { skipInDemo } from "../lib/demo";
 import { proposeIdeaFacts, proposeTasteFacts, writePendingProposals } from "../lib/facts/proposals";
 
 // FR-19, weekly. Mondays 14:00 UTC = 9:00 Central (CDT). Logs counts, ids and error names only (never fact text:
@@ -16,6 +17,7 @@ async function step<T>(name: string, fallback: T, fn: () => Promise<T>, failed: 
 export default defineSchedule({
   cron: "0 14 * * 1",
   async run() {
+    if (skipInDemo("fact-proposals")) return; // the judge demo is read-only (decision 053)
     const failed: string[] = [];
     const tastes = await step("tastes", [] as string[], proposeTasteFacts, failed);
     const ideas = await step("ideas", 0, proposeIdeaFacts, failed);
