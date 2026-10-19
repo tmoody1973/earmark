@@ -4,7 +4,8 @@
 // does, and clear everything the old words matched, so the art, the Wikipedia note, the preview and the credits come from
 // the corrected words. The lane may then replace the owner's typing with the provider's own name ("sun ra" → "Sun Ra");
 // if it finds nothing, the owner's words stay. A note alone is written with no lookup, and it is final (why_source
-// 'owner'): the lane's why step never writes over it. What Bee heard (excerpt, raw_text) is never edited.
+// 'owner'): the lane's why step never writes over it. Clearing the note hands it back: the why step writes a fresh one.
+// What Bee heard (excerpt, raw_text) is never edited.
 // Logs: none here; the callers log ids and err.name only.
 import { z } from "zod";
 import { db } from "../db";
@@ -56,6 +57,8 @@ export async function applyTipFix(id: number, fix: TipFix): Promise<{ changed: b
     update recommendations r set
       type = ${p.type}, canonical_name = ${p.name}, creator = ${p.creator}, context_summary = ${p.note},
       why_source = case when not f.renote then r.why_source when ${p.note}::text is null then 'auto' else 'owner' end,
+      summarized_at = case when f.renote and ${p.note}::text is null then null else r.summarized_at end,
+      summary_attempts = case when f.renote and ${p.note}::text is null then 0 else r.summary_attempts end,
       embedding = null, updated_at = now(),
       enrichment_status = case when f.relook then 'pending' else r.enrichment_status end,
       enrich_attempts = case when f.relook then 0 else r.enrich_attempts end,

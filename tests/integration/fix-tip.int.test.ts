@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 import type { enrichRec } from "../../agent/lib/enrich/enrich";
-import type { EnrichmentMatch } from "../../agent/lib/enrich/types";
+import { ProviderHttpError, type EnrichmentMatch } from "../../agent/lib/enrich/types";
 
 // "Fix this tip" (decision 049) on the Neon `test` branch (TEST_DATABASE_URL, never production); skipped when absent.
 // Providers, Jev and the why model are fakes: no real network. Sweeps are scoped to this file's rows (onlyIds).
@@ -42,7 +42,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Fix this tip on the Neon test b
     `select type, canonical_name, creator, year_or_address, image_url, apple_music_id, links, lat, lng, enrichment_status,
             enrich_attempts, enriched_at, review_reason, match_source, owner_none_at, owner_pick, auto_pick, match_candidates,
             candidates_at, about, about_url, about_at, about_tries, extras, extras_at, extras_tries, art_retry_mbid, art_retries,
-            embedding is null as no_embedding, context_summary, why_source, excerpt, raw_text, enrich_next_at <= now() as due
+            embedding is null as no_embedding, context_summary, why_source, summarized_at, summary_attempts, excerpt, raw_text, enrich_next_at <= now() as due
      from recommendations where id = $1`, [id])).rows[0];
 
   beforeAll(async () => {
@@ -82,6 +82,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Fix this tip on the Neon test b
     expect(await row(id)).toMatchObject({ canonical_name: "The Magic City", creator: "Sun Ra", enrichment_status: "matched" });
   });
 
+  // The lane reads a pending tip, then spends seconds on the provider and Jev. A fix in that window re-queues the tip with
+  // new words: whatever the lane then writes for the OLD words (match, candidates, no_match, retry, back-off) must not land.
+  it.each([
+    ["a match and its candidates", null],
+    ["no match", null],
+    ["second look (candidates, none picked)", null],
+    ["an error (retry later)", new Error("boom")],
+    ["a 503 (back off)", new ProviderHttpError("musicbrainz.org", 503)],
+  ] as const)("a fix made while the lane is looking the old words up wins over the lane's %s", async (outcome, err) => {
+    const id = await addRec({ set: "enrichment_status = 'pending', enrich_next_at = now(), enrich_attempts = 0" });
+    const old: EnrichmentMatch = { canonicalName: "Jemetta Rose", creator: null, yearOrAddress: "2019", imageUrl: "https://example.com/old.jpg",
+      links: { musicbrainz: "https://musicbrainz.org/old" }, matchConfidence: 0.95 };
+    const enrich = (async (_r, deps) => {
+      expect(await fix(id, { name: "Sun Ra" })).toEqual({ changed: true, requeued: true }); // the owner, mid-lookup
+      if (err) throw err;
+      if (outcome === "no match") return null;
+      return deps!.pick!({ described: "old words", excerpt: "it fix" }, [old]); // stores candidates, then the match (or none)
+    }) as typeof enrichRec;
+    await sweep({ enrich, pick: vi.fn(async () => (outcome.startsWith("second look") ? null : old)), onlyIds: [id] });
+    expect(await row(id)).toMatchObject({
+      canonical_name: "Sun Ra", enrichment_status: "pending", enrich_attempts: 0, due: true,
+      match_candidates: null, auto_pick: null, image_url: null, year_or_address: null,
+    });
+  });
+
   it("a capture keeps what it brought itself: a photo its picture, a shared song its Apple Music id and link", async () => {
     const photo = await addRec({ source: "photo", set: MATCHED });
     expect(await fix(photo, { creator: "Sun Ra" })).toEqual({ changed: true, requeued: true });
@@ -113,9 +138,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Fix this tip on the Neon test b
     expect(summarize).not.toHaveBeenCalled();
     expect(await row(id)).toMatchObject({ context_summary: "On Sun Ra's own label, Saturn.", why_source: "owner" });
 
-    // Clearing the note hands the why back to the lane.
+    // Clearing the note hands the why back to the lane, even on a tip it had already summarized (once, or 3 failed tries).
+    await c.query(`update recommendations set summarized_at = now(), summary_attempts = 3 where id = $1`, [id]);
     expect(await fix(id, { note: null })).toEqual({ changed: true, requeued: false });
-    expect(await row(id)).toMatchObject({ context_summary: null, why_source: "auto" });
+    expect(await row(id)).toMatchObject({ context_summary: null, why_source: "auto", summarized_at: null, summary_attempts: 0 });
     await sweep({ summarize, onlyIds: [id] });
     expect(await row(id)).toMatchObject({ context_summary: "The lane's own why.", why_source: "auto" });
   });
