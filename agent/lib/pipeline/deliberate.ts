@@ -1,6 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { detectEarmarkTrigger } from "../bee/trigger";
 import { ownerFirstName } from "../env";
+import { asksForResearch } from "../ideas/research";
 import { planSpokenFix, type SpokenFix } from "../recs/spoken-fix";
 import type { TriageResult, Utterance } from "../types";
 import { chooseRecommender } from "./attribution";
@@ -144,7 +145,8 @@ async function planDeliberateModel(body: string, ctx: DeliberateContext, d: Pipe
     route: "accept", beeConversationId: ctx.beeConversationId, beeJournalId: ctx.beeJournalId, deliberateKey: ctx.deliberateKey ?? null,
     spokenAt: ctx.spokenAt, confidence: 1, source: "voice",
   } as const;
-  if (t.kind === "idea_by_user") return { ...common, kind: "idea", extraction: await d.extractIdea(body) };
+  // "…include research" in the earmark's own words (decision 057): the save marks the idea's research requested.
+  if (t.kind === "idea_by_user") return { ...common, kind: "idea", extraction: await d.extractIdea(body), ...(asksForResearch(body) ? { research: true } : {}) };
   const extraction = await d.extractRecommendation({ text: body, summary: null });
   // Only a name that really appears in the spoken text is credited (and never the owner); otherwise null + 'none'.
   const attribution = chooseRecommender({

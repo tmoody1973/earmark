@@ -205,6 +205,16 @@ describe("writeOnePager", () => {
     }
   });
 
+  it("a done research brief (decision 057) reaches the writer as citable context; none, no section", async () => {
+    const generateImpl = vi.fn(async (_o: unknown) => ({ text: words(400) }));
+    await writeOnePager({ ...input, research: "## What already exists\nMari exists [1].\n\n## Sources\n1. Mari — maricopa.gov" }, { generateImpl: generateImpl as never });
+    const prompt = (generateImpl.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt;
+    expect(prompt).toContain("Research brief (from the web; a fact used from it names its source's site in parentheses; never quote it as said)");
+    expect(prompt).toContain("Mari exists [1].");
+    await writeOnePager(input, { generateImpl: generateImpl as never });
+    expect((generateImpl.mock.calls[1] as unknown as [{ prompt: string }])[0].prompt).not.toContain("Research brief");
+  });
+
   it("throws DraftLengthError outside 300–700 words", async () => {
     for (const n of [299, 701]) {
       const generateImpl = vi.fn(async () => ({ text: words(n) }));
@@ -288,6 +298,15 @@ describe("draftBlooms", () => {
     expect(store.releaseDraftClaim).not.toHaveBeenCalled();
     expect(JSON.stringify(log.mock.calls)).toContain("format=newsletter_pitch p=0.80");
     log.mockRestore();
+  });
+
+  it("passes the idea's done research brief to the writer (decision 057)", async () => {
+    store.claimDraftableClusters.mockResolvedValueOnce(claimed(12));
+    store.getClusterForDraft.mockResolvedValueOnce({ ...cluster, research: "## What already exists\nMari [1]." });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = deps();
+    await draftBlooms({ clusterIds: [12], deps: d as never });
+    expect(d.writeOnePager).toHaveBeenCalledWith(expect.objectContaining({ research: "## What already exists\nMari [1]." }));
   });
 
   it("an off-topic note that Jev scores different_idea never reaches the writer", async () => {

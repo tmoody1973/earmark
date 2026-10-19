@@ -32,7 +32,8 @@ export type SaveItem =
       // From chooseRecommender; firstName null means nobody qualified (never guessed).
       attribution: { firstName: string | null; source: AttributionSource };
     })
-  | (Common & { kind: "idea"; extraction: IdeaExtraction; cluster?: ClusterPlan });
+  // research: the owner asked for research when he said it (decision 057); the save requests it in the same statement.
+  | (Common & { kind: "idea"; extraction: IdeaExtraction; cluster?: ClusterPlan; research?: boolean });
 
 // Where an idea mention goes (accepted or needs_review alike), decided before the transaction by planIdeaClusters.
 // create: a new cluster (embedding null when embedding failed: no centroid, so never a nearest candidate).
@@ -42,6 +43,10 @@ export type SaveItem =
 export type ClusterPlan =
   | { action: "create"; embedding: number[] | null; timelineNote?: string }
   | { action: "join"; clusterId: number; embedding: number[]; timelineNote?: string };
+
+// Research is asked again (voice here, Research again on the page: ideas/research.ts re-exports it) at most this often
+// per idea, and only after a done or failed brief (decision 057). Kept here so the save path stays light to import.
+export const RESEARCH_AGAIN_MINUTES = 10;
 
 // Ids of what one transaction saved, for the lanes that hook on new items (M2 clustering, M3 rec lane).
 // bloomedClusterIds: clusters this save moved to 'ready' (M2-T7 drafts their one-pager).
@@ -131,6 +136,13 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
               insert into garden_events (kind, cluster_id)
               select case when c.prev_stage <> 'ready' and c.next_stage = 'ready' then 'bloom' else 'mention' end, ${plan.clusterId}::bigint
               from c
+            ), r as (
+              -- "…include research" (decision 057): asked again only after a done/failed brief, at most every 10
+              -- minutes (RESEARCH_AGAIN_MINUTES, the same rule as Research again: ideas/research.ts requestResearch)
+              insert into idea_research (cluster_id, status, requested_at)
+              select m.cluster_id, 'requested', now() from m where ${item.research === true}::boolean
+              on conflict (cluster_id) do update set status = 'requested', requested_at = now(), started_at = null, attempts = 0
+                where idea_research.status in ('done', 'failed') and idea_research.requested_at < now() - make_interval(mins => ${RESEARCH_AGAIN_MINUTES}::int)
             )
             select m.id, m.cluster_id, c.prev_stage, c.next_stage from m, c`,
       ];
@@ -156,6 +168,9 @@ export function buildSaveQueries(txn: Txn, item: SaveItem) {
             returning id, cluster_id
           ), g as (
             insert into garden_events (kind, cluster_id) select 'mention', id from c
+          ), r as (
+            insert into idea_research (cluster_id, status, requested_at)
+            select m.cluster_id, 'requested', now() from m where ${item.research === true}::boolean
           )
           select id, cluster_id, null::text as prev_stage, 'compost'::text as next_stage from m`,
     ];

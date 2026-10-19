@@ -16,10 +16,13 @@ import { CopyButton } from "./CopyButton";
 import { DismissIdea } from "./DismissIdea";
 import { Draft } from "./Draft";
 import { PinToggle } from "./PinToggle";
+import { Research } from "./Research";
+import { getIdeaResearch } from "@/agent/lib/ideas/research";
 import "@/app/garden/cards/cards.css";
 import "@/app/garden/ideas.css";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // Research this runs one idea's research (searches, page reads, one write) after the response
 export const metadata: Metadata = { title: "Idea · Earmark" };
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -37,7 +40,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const n = Number(id);
   if (!Number.isSafeInteger(n) || n <= 0) notFound();
-  const [idea, links] = await Promise.all([getIdeaDetail(n), getBacklinks(n)]);
+  const [idea, links, research] = await Promise.all([getIdeaDetail(n), getBacklinks(n), getIdeaResearch(n)]);
   if (!idea) notFound();
   after(() => markIdeaViewed(n));
 
@@ -131,6 +134,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
           </section>
         )
       )}
+      {/* Research (decision 057): a dismissed idea keeps a brief it has, but offers no new research */}
+      <Research ideaId={n} research={research} enabled={!dismissed && !!process.env.TINYFISH_API_KEY?.trim()} />
       {/* Backlinks (M4-T6, FR-38): nothing shows until Earmark has found a connection. A dismissed idea offers none. */}
       {!dismissed && <Backlinks ideaId={n} idea={{ mentionCount: plant.mentionCount, bloomed: plant.bloomed }} links={links} />}
     </main>

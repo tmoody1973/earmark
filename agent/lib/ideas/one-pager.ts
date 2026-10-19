@@ -179,6 +179,7 @@ export class DraftLengthError extends Error {
 
 export interface OnePagerInput {
   title: string; format: DraftFormat; timelineLines: string[]; excerpts: string[]; related: string[]; facts: string[];
+  research?: string; // the idea's done research brief (decision 057): web facts with numbered sources
 }
 
 const list = (label: string, items: string[]) => (items.length ? `${label}:\n${bullets(items)}` : `${label}: none.`);
@@ -196,6 +197,7 @@ export async function writeOnePager(input: OnePagerInput, opts: { generateImpl?:
       list("Mention excerpts (oldest first; the only text you may quote)", input.excerpts),
       list("Related conversation notes (paraphrase only)", input.related),
       list("Facts about the author (paraphrase only)", input.facts),
+      ...(input.research ? [`Research brief (from the web; a fact used from it names its source's site in parentheses; never quote it as said):\n${input.research}`] : []),
     ].join("\n\n"),
   });
   const body = text.trim();
@@ -257,6 +259,7 @@ async function draftClaimed(clusterId: number, claim: string, d: OnePagerDeps): 
   const body = await d.writeOnePager({
     title: c.title, format, timelineLines, related, facts,
     excerpts: mentions.map((m, i) => `${formatTimelineDate(m.spokenAt)}: "${excerpts[i]}"`),
+    ...(c.research ? { research: c.research } : {}),
   });
   const draft = `${mentionDatesLine(mentions.map((m) => m.spokenAt))}\n\n${enforceQuoteLimit(body, 25, excerpts)}`;
   const [saved] = await db().transaction((txn) => [saveDraft(txn, clusterId, draft, format, claim)]);

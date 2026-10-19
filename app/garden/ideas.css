@@ -389,3 +389,12 @@ a.link-main:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; 
   .idea-card, .idea-action, .growth-src svg, .link-btn { transition: none; }
   .idea-card:hover { transform: none; }
 }
+
+/* Research (decision 057): the brief reads like the one-pager; its Sources list is set quieter and its links wrap */
+.research-brief .g-md > :first-child { margin-top: 0; }
+.research-brief a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+.research-brief .g-md > ol:last-child { font-family: var(--sans); font-size: 0.875rem; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.research-date { margin: 0; font-size: 0.875rem; color: var(--ink-2); }
+.research-actions:not(:has(button)) { margin-top: 0; padding-top: 0; border-top: 0; }
+.research-actions .idea-action-status:empty { display: none; }
+.research-actions .idea-action:disabled { opacity: 0.6; cursor: default; }

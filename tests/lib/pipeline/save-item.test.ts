@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildSaveQueries, recStatusAtSave, savedIds, type SaveItem } from "../../../agent/lib/pipeline/save-item";
+import { buildSaveQueries, recStatusAtSave, savedIds, type ClusterPlan, type SaveItem } from "../../../agent/lib/pipeline/save-item";
 import type { Txn } from "../../../agent/lib/store/conversations";
+import { RESEARCH_AGAIN_MINUTES } from "../../../agent/lib/ideas/research";
 
 const txn = ((strings: TemplateStringsArray, ...params: unknown[]) => ({ sql: strings.join("?"), params })) as unknown as Txn;
 const one = (item: SaveItem) => {
@@ -102,6 +103,23 @@ describe("buildSaveQueries for ideas", () => {
     const q = one(idea({ cluster: { action: "join", clusterId: 12, embedding: [1] } }));
     expect(q.sql).toMatch(/review_status <> 'dismissed'/);
     expect(q.sql).not.toMatch(/review_status = 'accepted'/);
+  });
+
+  // Decision 057: "…include research" marks the idea's research requested in the same statement (create and join alike).
+  it.each<[string, ClusterPlan]>([
+    ["create", { action: "create", embedding: [1] }],
+    ["join", { action: "join", clusterId: 12, embedding: [1] }],
+  ])("%s: research is requested in the same statement only when asked", (_n, cluster) => {
+    const asked = one(idea({ cluster, research: true }));
+    expect(asked.sql).toMatch(/insert into idea_research \(cluster_id, status, requested_at\)/);
+    // joining an idea already researched asks again only after a done/failed brief, at most every RESEARCH_AGAIN_MINUTES
+    // (one source with the page's Research again)
+    if (cluster.action === "join") {
+      expect(asked.sql).toMatch(/where idea_research\.status in \('done', 'failed'\) and idea_research\.requested_at < now\(\) - make_interval\(mins => \?::int\)/);
+      expect(asked.params).toContain(RESEARCH_AGAIN_MINUTES);
+    }
+    expect(asked.params).toContain(true);
+    expect(one(idea({ cluster })).params).not.toContain(true);
   });
 });
 
