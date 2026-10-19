@@ -31,6 +31,7 @@ const EnvSchema = z.object({
   NOMINATIM_EMAIL: blankIsUnset(z.string().email().optional()), // optional contact sent to OSM Nominatim (keyless place lookup, decision 044)
   DISCOGS_KEY: blankIsUnset(z.string().min(1).optional()), // Discogs consumer key + secret (both): credits/label add-on, skipped when unset (decision 047)
   DISCOGS_SECRET: blankIsUnset(z.string().min(1).optional()),
+  TINYFISH_API_KEY: blankIsUnset(z.string().min(1).optional()), // TinyFish Search: find a tip on the web when no catalog can, off when unset (decision 051)
   EARMARK_HOME_LAT: blankIsUnset(z.coerce.number().min(-90).max(90).optional()), // place-lookup bias when a tip has no location (decision 046)
   EARMARK_HOME_LNG: blankIsUnset(z.coerce.number().min(-180).max(180).optional()),
   EARMARK_MCP_CLIENT_ID: blankIsUnset(z.string().min(8).optional()),
