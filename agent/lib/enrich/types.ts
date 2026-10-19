@@ -3,7 +3,8 @@ import type { RecType } from "../types";
 // recommendations.links (jsonb): service name → https URL. cardLink() prefers apple_music, then any https value.
 export type RecLinks = Partial<Record<
   "apple_music" | "musicbrainz" | "discogs" | "url" | "openlibrary" | "wikipedia" | "tmdb" | "google_maps" | "openstreetmap" | "podcast_index" | "apple_podcasts"
-  | "youtube" | "primary", // primary: a video tip's YouTube search link when no video URL is known (youtube.ts)
+  | "youtube" | "primary" // primary: a video tip's YouTube search link when no video URL is known (youtube.ts)
+  | "bandcamp" | "web", // the owner's pasted link (recs/tip-link.ts)
   string
 >>;
 
