@@ -176,15 +176,19 @@ export async function getMaybeTips(): Promise<MaybePile> {
 export type TipVerdict = "kept" | "not_a_tip";
 const VERDICT_STATUS: Record<TipVerdict, RecStatus> = { kept: "new", not_a_tip: "dismissed" };
 
+// Where a verdict is given: the Maybe? row, or Heard nearby (decision 052). Keep and clear mean the same in both.
+const PILE_STATUS = { maybe: "needs_review", heard: "overheard" } as const satisfies Record<string, RecStatus>;
+
 /**
- * Tarik's verdict on a maybe. Acts only while the tip is still needs_review; false means nothing changed. Goes through
- * the status core (M3-T2) so the change gets its side effects; status and verdict are still one statement.
+ * Tarik's verdict on a maybe (or, with pile "heard", an overheard tip). Acts only while the tip is still in that pile;
+ * false means nothing changed. Goes through the status core (M3-T2) so the change gets its side effects; status and
+ * verdict are still one statement.
  */
 export async function setTipVerdict(
-  id: number, verdict: TipVerdict, opts: Pick<SetStatusOptions, "defer"> = {},
+  id: number, verdict: TipVerdict, { pile = "maybe", ...opts }: Pick<SetStatusOptions, "defer"> & { pile?: keyof typeof PILE_STATUS } = {},
 ): Promise<boolean> {
   if (gardenReadOnly()) return false; // a real-data e2e run browses read-only (e2e-guard.ts)
-  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: ["needs_review"], verdict, ...opts });
+  const { changed } = await setRecStatus(id, VERDICT_STATUS[verdict], "garden", { from: [PILE_STATUS[pile]], verdict, ...opts });
   return changed;
 }
 
