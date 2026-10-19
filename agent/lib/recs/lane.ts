@@ -332,9 +332,9 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 // Which links a provider supplied (types.ts RecLinks), as opposed to a capture's own (url, urls, youtube, primary).
 const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
   "openstreetmap", "podcast_index", "apple_podcasts"];
-// A capture (a shared song, a photo, an email) brings its own Apple Music identity and picture: a correction keeps them.
-const CAPTURE_KEEPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
-const CAPTURE_SOURCES = ["song", "photo", "email"];
+// What each capture brought itself, which a correction keeps: a shared song its Apple Music id and link (capture/songs.ts),
+// a photo its picture (photos.ts). An email capture (email.ts) and a heard tip bring neither.
+const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
 
 // The one save path for a match, the lane's and the owner's ("Which one?", decision 048). Never a cleared tip, never one
 // the owner already settled (match_source 'owner' is final).
@@ -342,8 +342,8 @@ const CAPTURE_SOURCES = ["song", "photo", "email"];
 // replace what Bee heard (mishearing correction, decision 012); a capture's own photo and links win over the provider's.
 // The owner's pick (ownerPick = its candidateKey; ifCandidates = the list it was picked from, so a list replaced since
 // refuses the write): any state. When it corrects an earlier match ("fix"), that match's creator, art, provider links,
-// Apple id, year/address and (for a place) location go with it, except a capture's own Apple identity and picture,
-// kept unless the pick brings its own. The Wikipedia note and the extras are reset so the lane refills them for the new
+// Apple id, year/address and (for a place) location go with it, except what the capture itself brought (a song's Apple
+// id and link, a photo's picture), kept unless the pick brings its own. The Wikipedia note and the extras are reset so the lane refills them for the new
 // item; auto_pick is kept, so "did Jev agree?" stays answerable. enriched_at moves, which the lane's tail writes check.
 // recEmbedText reads name and creator, so a change drops the embedding and the sweep's embed step writes it again.
 // A match whose art lookup errored (or a music pick with no art yet) and that has no picture is marked for the art-only
@@ -363,14 +363,14 @@ export async function saveMatch(
       canonical_name = ${m.canonicalName},
       creator = case when f.fix then ${m.creator} else coalesce(${m.creator}, r.creator) end,
       year_or_address = case when f.fix then ${m.yearOrAddress} else coalesce(${m.yearOrAddress}, r.year_or_address) end,
-      image_url = case when f.fix and f.cap then coalesce(${img}, r.image_url) when f.fix then ${img} else coalesce(r.image_url, ${img}) end,
-      links = case when f.fix then (r.links - (case when f.cap then ${CAPTURE_KEEPS} else ${PROVIDER_LINK_KEYS} end)::text[]) || ${JSON.stringify(m.links)}::jsonb
+      image_url = case when f.fix and f.photo then coalesce(${img}, r.image_url) when f.fix then ${img} else coalesce(r.image_url, ${img}) end,
+      links = case when f.fix then (r.links - (case when f.song then ${SONG_CAPTURE_STRIPS} else ${PROVIDER_LINK_KEYS} end)::text[]) || ${JSON.stringify(m.links)}::jsonb
         else ${JSON.stringify(m.links)}::jsonb || r.links end,
-      apple_music_id = case when f.fix and f.cap then coalesce(${apple}, r.apple_music_id) when f.fix then ${apple}
+      apple_music_id = case when f.fix and f.song then coalesce(${apple}, r.apple_music_id) when f.fix then ${apple}
         else coalesce(r.apple_music_id, ${apple}) end,
       lat = case when f.fix and r.type = 'place' then ${lat}::float8 else coalesce(${lat}::float8, r.lat) end,
       lng = case when f.fix and r.type = 'place' then ${lng}::float8 else coalesce(${lng}::float8, r.lng) end,
-      art_retry_mbid = case when (case when f.fix and f.cap then coalesce(${img}, r.image_url) when f.fix then ${img}
+      art_retry_mbid = case when (case when f.fix and f.photo then coalesce(${img}, r.image_url) when f.fix then ${img}
         else coalesce(r.image_url, ${img}) end) is null then ${m.artRetry ?? null} end,
       art_retries = case when f.owner then 0 else r.art_retries end,
       match_source = case when f.owner then 'owner' else r.match_source end,
@@ -381,7 +381,7 @@ export async function saveMatch(
       extras_tries = case when f.owner then 0 else r.extras_tries end,
       enrichment_status = 'matched', enriched_at = now(), updated_at = now()
     from (select id, ${owner}::boolean as owner, ${owner}::boolean and enrichment_status = 'matched' as fix,
-            source = any(${CAPTURE_SOURCES}::text[]) as cap
+            source = 'song' as song, source = 'photo' as photo
           from recommendations where id = ${id}) f
     where r.id = f.id and r.match_source = 'auto' and (f.owner or r.enrichment_status = 'pending')
       and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
