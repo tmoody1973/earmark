@@ -89,3 +89,40 @@ select status, count(*) from tip_fix_proposals group by 1 order by 1;
 ```
 
 **What actually happened:**
+
+## Link: when it only lives on one page
+
+**What it does:** "Fix this tip" has a **Link** field. Tarik pastes where the thing lives, for example `https://jimettarose.bandcamp.com/album/mettasun`, and the tip gets that page's picture and a button to open it ("Listen on Bandcamp", or "Open link" for any other website). Some things exist only on Bandcamp or on their own website, so no lookup service will ever find them. Before this, those tips stayed as a blank card with a "no match" flag forever.
+
+**Why a link settles the tip:** Earmark's lookups exist to answer "which thing did he mean?". A pasted link *is* the answer, from the one person who knows. So saving a link marks the tip as the owner's, the same way picking an option in "Which one?" does: Earmark stops looking it up, "Which one?" stops asking, and a later lookup can never write over it. If Tarik later changes the name or creator, that is new words, and the tip is looked up again as usual.
+
+**How it works, in order:**
+1. The link must start with `https://` and be at most 500 characters. Anything else (an `http://` link, a `javascript:` link, an address on Tarik's own network) is refused before anything is fetched.
+2. Earmark looks at the host (the site part of the link) and picks one of three paths:
+   - **Apple Music** (an album, song or artist link): Earmark asks Apple's catalog for that exact item by its id, the number at the end of the link. It gets the real name, the artist, the cover and the Apple Music link. No model guesses anything.
+   - **YouTube**: Earmark asks YouTube for the video's thumbnail, the same way video tips already work. The tip keeps Tarik's words.
+   - **Anything else** (Bandcamp, SoundCloud, a diner's website): Earmark opens the page and reads its share tags, the hidden lines a page carries so that link previews in messages show a title and a picture. The picture becomes the tip's art. If the title is Bandcamp's "MettaSun, by Jimetta Rose" and the tip has no "by" yet, Earmark fills in the name and the artist from it. Otherwise page text never replaces Tarik's words.
+3. Opening a page someone pasted is a known risk called SSRF (server-side request forgery: tricking a server into fetching an address inside its own private network). Earmark reuses the guard it already had for podcast feeds and adds one check: it only opens https pages whose host, once looked up, points to public internet addresses, re-checks every redirect the same way, stops after 5 seconds and reads at most 1 MB.
+4. If Apple, YouTube or the page doesn't answer, the link is still saved, just without a picture, and the page says so.
+5. Emptying the Link field removes the link Tarik added. It never removes links a lookup service found.
+
+**Choices Claude made:**
+- *Where to read the page.* Options: (a) a full HTML parser library, (b) a few pattern matches for the two tags we need, like the podcast feed reader already does. Claude chose (b): no new dependency, and the tags are short and standard.
+- *Whether the tip stays the owner's when the link is cleared.* Options: (a) hand it back to the automatic lookup, (b) keep it as the owner's. Claude chose (b): clearing the link doesn't say "I was wrong about what this is". To get a fresh lookup, change the name.
+- *The Bandcamp player.* The brief offered, as a stretch, a tap-to-play Bandcamp player on the tip page. Claude skipped it: the player's size and layout would need checking on a phone, and the "Listen on Bandcamp" button already opens it.
+
+**What we gave up:**
+- Only one pasted link per tip. A new link replaces the old one.
+- Clearing the link keeps the picture that link brought, until the name changes or a new link replaces it.
+- The address check looks the host up once, and the fetch looks it up again a moment later. A site that deliberately changes its answer in between (called DNS rebinding) could slip past. Only Tarik can paste links, so this is acceptable for now; the fix, if links ever come from anyone else, is to make the fetch use the address that was checked.
+- Some sites block automated visitors or build their pages with scripts. Those links save without a picture.
+- An Apple Music link only works when Earmark's Apple Music keys are set; without them it saves the link alone.
+
+**How we'll know if this was right:** Pasting the MettaSun Bandcamp link on its tip shows the cover and a "Listen on Bandcamp" button on the next page load, and the tip no longer appears as a "no match". Over time, tips the owner settled with a link should never show up in the lookup queue again:
+
+```sql
+select count(*) from recommendations
+where match_source = 'owner' and (links ? 'bandcamp' or links ? 'web') and enrichment_status <> 'matched';
+```
+
+**What actually happened:**
