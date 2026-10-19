@@ -69,6 +69,15 @@ test("phone: a stranger browses the sample garden without signing in, and a Keep
     await expect(row).toBeVisible(); // the optimistic removal is undone
     expect((await c.query(`select status from recommendations where id = $1`, [hardFork])).rows[0].status).toBe("overheard");
     await page.screenshot({ path: "test-results/demo-refused-phone.png", fullPage: true });
+
+    // A form that throws on the refusal (useActionState) lands on app/error.tsx, not Next's default page.
+    await page.goto("/spaces");
+    await page.getByLabel("Describe a new Space").fill("Records to buy at the next fair");
+    await page.getByRole("button", { name: "Create Space" }).click();
+    await expect(page.locator("h1")).toHaveText("Something didn’t work");
+    await expect(page.locator("main")).toContainText("This may be the read-only demo");
+    expect(Number((await c.query(`select count(*) as n from spaces where rule_sentence = $1`, ["Records to buy at the next fair"])).rows[0].n)).toBe(0);
+    await page.screenshot({ path: "test-results/demo-form-refused-phone.png", fullPage: true });
   } finally {
     if (ids) await removeDemoSeed(c, ids);
     c.release();
