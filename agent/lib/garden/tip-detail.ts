@@ -16,6 +16,8 @@ export interface TipDetail {
   excerpt: string;
   /** The whole why line (the card's is cut to 30 words): what "Fix this tip" starts from (decision 049). */
   note: string | null;
+  /** The link the owner pasted in "Fix this tip" (links.bandcamp / links.web), what its Link field starts from. */
+  ownerLink: string | null;
   links: TipLink[];
   extras: RecExtras;
   /** Spaces Tarik kept it in (space_items 'accepted'). */
@@ -29,6 +31,7 @@ export interface TipDetail {
 const SERVICE: Record<string, string> = {
   apple_music: "Apple Music", apple_podcasts: "Apple Podcasts", podcast_index: "Podcast Index", musicbrainz: "MusicBrainz",
   discogs: "Discogs", openlibrary: "Open Library", wikipedia: "Wikipedia", tmdb: "TMDB", google_maps: "Google Maps", youtube: "YouTube",
+  bandcamp: "Bandcamp", // links.web (an owner-pasted page, decision 049) is labelled by its site
 };
 const VERB: Record<RecType, string> = {
   album: "Listen", song: "Listen", artist: "Listen", podcast: "Listen", book: "Read", film_tv: "Watch", video: "Watch", place: "Map", other: "Open",
@@ -50,7 +53,7 @@ export function tipLinks(type: RecType, links: unknown): TipLink[] {
     if (seen.has(url)) return [];
     seen.add(url);
     const service = SERVICE[key] ?? host(url);
-    return [{ label: url === primary ? `${VERB[type] ?? "Open"} · ${service}` : service, url }];
+    return [{ label: url === primary && key !== "web" ? `${VERB[type] ?? "Open"} · ${service}` : service, url }];
   });
 }
 
@@ -80,6 +83,7 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     card,
     excerpt: r.excerpt,
     note: r.context_summary,
+    ownerLink: https((r.links as Record<string, unknown> | null)?.bandcamp) ?? https((r.links as Record<string, unknown> | null)?.web),
     links: tipLinks(card.type, r.links),
     extras: readExtras(r.extras),
     spaces: spaces.map((s) => ({ id: Number(s.id), name: s.name })),

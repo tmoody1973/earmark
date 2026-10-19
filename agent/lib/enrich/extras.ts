@@ -13,6 +13,8 @@
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
 //  - anything with a Wikipedia about_url (lane.ts about step): the page summary's extract, up to 600 characters.
 //  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
 import { fetchDiscogsSoft, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
@@ -87,7 +89,7 @@ export function pickItunesPreview(json: unknown, rec: Pick<ExtrasRec, "canonical
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+export const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
   if (e[0] !== "#") return ENTITIES[e.toLowerCase()] ?? m;
   const n = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
   return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m;
@@ -98,7 +100,11 @@ const tagText = (item: string, tag: string) => {
   const raw = m.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
   return trimText(decode(raw.replace(/<[^>]*>/g, " ")).replace(/<[^>]*>/g, " "), 200);
 };
-const attr = (tag: string, name: string) => decode(new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`).exec(tag)?.[1] ?? "");
+/** One attribute of one tag, decoded ("" when absent). Either quote; the other quote may sit inside ("Sun Ra's"). Pure. */
+export const attr = (tag: string, name: string) => {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(tag);
+  return decode(m?.[1] ?? m?.[2] ?? "");
+};
 
 /**
  * A podcast feed → its newest audio episodes. Regex, not a parser (no new dependency): complete <item> blocks only, so a
@@ -180,7 +186,7 @@ export function readExtras(raw: unknown): RecExtras {
 /**
  * A feed URL we may fetch: https to a public-looking host name. No IP literals at all (v4 in any spelling, since URL
  * normalises "2130706433" to "127.0.0.1"; v6 in brackets), no localhost, *.local or dotless intranet names. Pure.
- * ponytail: checks the name, not where DNS sends it; resolve and check the address if feeds ever come from users.
+ * Feeds come from Apple, so the name is enough; a URL a person pasted also goes through resolvesToPublic.
  */
 export function isPublicHttpsUrl(url: string): boolean {
   if (!URL.canParse(url)) return false;
@@ -201,13 +207,52 @@ export class FeedError extends Error {
   }
 }
 
-// A feed's text, at most `max` bytes (the newest items come first, so a cut is fine), 10 s in all. Redirects are
-// followed by hand, at most 3, each hop re-checked (isPublicHttpsUrl); a refused hop or 404/410 is "no feed".
-async function getCappedText(url: string, fetchImpl: typeof fetch, max = RSS_MAX_BYTES): Promise<string | null> {
-  const signal = AbortSignal.timeout(RSS_TIMEOUT_MS);
+// Not a public address: private, loopback, link-local, carrier NAT, multicast/reserved; v6 loopback, unspecified,
+// NAT64, unique-local, link-local, multicast. BlockList checks a v4-mapped v6 address ("::ffff:127.0.0.1") against the
+// v4 rules itself (and a v4 address against v6 rules as mapped, so "::ffff:0:0/96" here would refuse every v4 address).
+const NOT_PUBLIC = new BlockList();
+for (const [net, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16],
+  ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 3]] as const) NOT_PUBLIC.addSubnet(net, prefix, "ipv4");
+for (const [net, prefix] of [["::", 127], ["64:ff9b::", 96], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8]] as const) {
+  NOT_PUBLIC.addSubnet(net, prefix, "ipv6");
+}
+
+/** An IP address on the public internet (not a name: a name is never "public" here). Pure. */
+export function addressIsPublic(ip: string): boolean {
+  const v = isIP(ip);
+  return v !== 0 && !NOT_PUBLIC.check(ip, v === 4 ? "ipv4" : "ipv6");
+}
+
+export type LookupAddresses = (host: string) => Promise<string[]>;
+const dnsAddresses: LookupAddresses = async (host) => (await lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+
+/**
+ * A URL a person pasted, which we may fetch: isPublicHttpsUrl, and every address its host resolves to is public. A name
+ * that doesn't resolve is refused. ponytail: the fetch resolves the name again, so a host that changes its answer in
+ * between (DNS rebinding) slips past; pin the checked address in the fetch's own lookup if links ever come from anyone
+ * but the owner.
+ */
+export async function resolvesToPublic(url: string, lookupAddresses: LookupAddresses = dnsAddresses): Promise<boolean> {
+  if (!isPublicHttpsUrl(url)) return false;
+  try {
+    const ips = await lookupAddresses(new URL(url).hostname);
+    return ips.length > 0 && ips.every(addressIsPublic);
+  } catch {
+    return false;
+  }
+}
+
+// A page's text, at most `max` bytes (a feed's newest items and a page's <head> come first, so a cut is fine), within
+// `timeoutMs` in all. Redirects are followed by hand, at most 3, each hop re-checked (`allowed`, by default
+// isPublicHttpsUrl); a refused hop or 404/410 is "nothing". Another failing answer is a FeedError.
+export async function getCappedText(url: string, fetchImpl: typeof fetch, opts: {
+  max?: number; timeoutMs?: number; allowed?: (url: string) => boolean | Promise<boolean>;
+} = {}): Promise<string | null> {
+  const { max = RSS_MAX_BYTES, timeoutMs = RSS_TIMEOUT_MS, allowed = isPublicHttpsUrl } = opts;
+  const signal = AbortSignal.timeout(timeoutMs);
   let res: Response | null = null;
   for (let hop = 0, at = url; hop <= MAX_FEED_REDIRECTS; hop++) {
-    if (!isPublicHttpsUrl(at)) return null;
+    if (!(await allowed(at))) return null;
     res = await fetchImpl(at, { headers: { "User-Agent": USER_AGENT }, redirect: "manual", signal });
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!location) break;

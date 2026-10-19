@@ -25,6 +25,12 @@ describe("tipLinks (the tip page's link buttons)", () => {
     expect(tipLinks("album", { url: "https://music.apple.com/x]" })).toEqual([{ label: "Listen · music.apple.com", url: "https://music.apple.com/x]" }]);
     expect(tipLinks("album", { urls: ["https://foo.com]", "https://ok.example/a"] })).toEqual([{ label: "ok.example", url: "https://ok.example/a" }]);
   });
+  it("the owner's pasted link (decision 049): labelled like every other link, by verb and site", () => {
+    expect(tipLinks("album", { bandcamp: "https://jimettarose.bandcamp.com/album/mettasun", musicbrainz: "https://musicbrainz.org/x" })).toEqual([
+      { label: "Listen · Bandcamp", url: "https://jimettarose.bandcamp.com/album/mettasun" }, { label: "MusicBrainz", url: "https://musicbrainz.org/x" },
+    ]);
+    expect(tipLinks("place", { web: "https://www.mamasdiner.com/" })).toEqual([{ label: "mamasdiner.com", url: "https://www.mamasdiner.com/" }]);
+  });
   it("never a non-web link", () => {
     expect(tipLinks("other", { url: "javascript:alert(1)", n: 4 })).toEqual([]);
     expect(tipLinks("other", null)).toEqual([]);

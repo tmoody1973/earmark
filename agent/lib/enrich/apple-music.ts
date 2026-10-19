@@ -65,3 +65,17 @@ export function logAppleSkippedOnce(): void {
 export function resetAppleSkipLog(): void {
   skipLogged = false;
 }
+
+// One catalog item by id, for an Apple Music link the owner pasted (recs/tip-link.ts): exact, no Jev.
+// GET /v1/catalog/{storefront}/{albums|songs|artists}/{id} answers { data: [the item] }, the shape a search lists under
+// results.{type}, so parseAppleSearch reads it. Source: https://developer.apple.com/documentation/applemusicapi/get-a-catalog-album
+// (and get-a-catalog-song, get-a-catalog-artist). The caller checks id (digits) and storefront (two letters).
+export function appleMusicById(access: AppleAccess, id: string, storefront = access.storefront): ProviderDef {
+  return {
+    async build(q) {
+      const url = `${APPLE_BASE}/catalog/${storefront}/${KEY[q.type as MusicType]}/${id}`;
+      return { url, init: { headers: { Authorization: `Bearer ${await access.token()}` } } };
+    },
+    parse: (json, q) => parseAppleSearch({ results: { [KEY[q.type as MusicType]]: json } }, q),
+  };
+}
