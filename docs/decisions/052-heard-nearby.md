@@ -53,4 +53,6 @@ where source = 'ambient' and deliberate_key is null and bee_journal_id is null
   and recommender_id is null and created_at >= '<launch date>';
 ```
 
+**The broadcast filter, tightened the same day.** The filter (a yes/no question Jev answers for every overheard window: is this an ad or a broadcast playing from a speaker?) named ads, station IDs and scripted radio/TV/podcast segments, but not online video. It now also names YouTube, TikTok, Instagram, livestreams, audiobooks and song lyrics, and the tells of one voice talking to an audience ("welcome back to the channel", "link in the description"). Measured by Claude on the stored quotes (25 words or fewer each, counts only, no text printed), with Earmark's real triage call: the tips Tarik cleared that the filter catches went from 6 of 42 to 9 and then 10 of 42 on two runs, while the overheard tips he kept stayed at 1 of 10 flagged and deliberate captures at 1 of 9. The labeled eval (48 windows, which scores tip/idea sorting, not the broadcast question) did not get worse: accuracy 66.0% → 66.7%, tip precision 10.7% → 11.5%, idea precision 53.6% unchanged. *What we gave up:* a 25-word quote is less context than the real window, so the real effect may differ; the filter still misses most person-less ads, which is why the person rule, not the filter, does the heavy lifting.
+
 **What actually happened:**
