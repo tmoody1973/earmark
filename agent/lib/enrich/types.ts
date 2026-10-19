@@ -17,6 +17,7 @@ export interface Candidate {
   mbid?: string; // MusicBrainz id of the matched entity: release group (album), recording (song) or artist
   releaseGroupId?: string; // where cover art comes from (album: itself; song: its first release's group)
   appleMusicId?: string;
+  provider?: string; // the search that found it, when not the type's own (music's Apple fallback, decision 050)
   lat?: number;
   lng?: number;
 }
