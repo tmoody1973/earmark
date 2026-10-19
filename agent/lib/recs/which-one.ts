@@ -1,15 +1,15 @@
 // "Which one?" (decision 048): the owner confirms or corrects which real-world item a tip is. Three answers:
 // - pick a stored candidate: applied through the lane's own saveMatch, and final (match_source 'owner');
 // - None of these: final no_match (owner_none_at), the question goes away;
-// - Search again: the tip type's provider with the owner's words (music: then Apple if MusicBrainz finds nothing, decision
-//   050), new candidates stored, nothing picked.
+// - Search again: the tip type's provider with the owner's words (music: MusicBrainz and Apple together, decision 050),
+//   new candidates stored, nothing picked.
 // Only Search again calls a provider, and only when the owner asks: one search per tip per 10 s, refused when the
 // provider isn't configured, a 503/429 answered with "try again in a bit". The query is the owner's own words (2-120
 // characters); what was said is never sent. Logs: ids and err.name only.
 import { db } from "../db";
 import { appleAccess } from "../enrich/apple-music";
 import { biasFor } from "../enrich/bias";
-import { appleCandidates } from "../enrich/music";
+import { searchMusic } from "../enrich/music";
 import { providerFor, type NamedProvider } from "../enrich/registry";
 import { logEnrichError, runProvider, type EnrichQuery } from "../enrich/types";
 import { candidateKey, readCandidates, type StoredCandidate } from "../garden/which-one";
@@ -52,14 +52,14 @@ export type SearchResult =
 
 export interface SearchDeps { env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }
 
-/** The type's provider; for music, Apple's catalog when MusicBrainz finds nothing (decision 050). Each tagged with its provider. */
+/** The type's provider; music: MusicBrainz and Apple together, as the lane does (decision 050). Each tagged with its provider. */
 export async function searchCandidates(
   provider: NamedProvider, q: EnrichQuery, env: Record<string, string | undefined>, fetchImpl: typeof fetch,
 ): Promise<StoredCandidate[]> {
-  const found = await runProvider(provider.def, q, fetchImpl);
-  const apple = provider.name === "musicbrainz" && found.length === 0 ? appleAccess(env) : null;
-  const all = apple ? await appleCandidates(apple, q, fetchImpl) : found; // an Apple 503/429 throws: "try again in a bit"
-  return all.map((c) => ({ provider: provider.name, ...c }));
+  const found = provider.name === "musicbrainz"
+    ? await searchMusic(q, fetchImpl, appleAccess(env)) // nothing found and a 503/429: "try again in a bit"
+    : await runProvider(provider.def, q, fetchImpl);
+  return found.map((c) => ({ provider: provider.name, ...c }));
 }
 
 /** Search again: candidates replaced, nothing picked. A pending tip becomes no_match so the lane can't overwrite them. */

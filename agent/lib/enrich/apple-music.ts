@@ -1,5 +1,5 @@
 import { appleMusicConfig, getDeveloperToken } from "../music/developer-token";
-import { type Candidate, type EnrichmentMatch, type EnrichQuery, type ProviderDef } from "./types";
+import { type Candidate, type EnrichQuery, type ProviderDef } from "./types";
 
 // Apple Music catalog search. GET /v1/catalog/{storefront}/search?types=&term= (spaces as +), Bearer developer token;
 // results.{albums|songs|artists}.data[].attributes; artwork.url is a {w}x{h} template.
@@ -48,10 +48,10 @@ export function parseAppleSearch(json: unknown, q: EnrichQuery): Candidate[] {
 
 export const norm = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-// Apple adds links to an identity MusicBrainz already settled, so no second Jev call: an Apple result is attached only
-// when its name and artist equal the match's (normalised). ponytail: exact-name equality; ISRC/UPC lookup
+// An Apple result is the same release as a MusicBrainz match or candidate when name and artist are equal (normalised):
+// the add-on attaches it to a settled match with no second Jev call; the together search (music.ts) merges the two. ponytail: exact-name equality; ISRC/UPC lookup
 // (filter[isrc] / filter[upc]) is the upgrade path if real data shows misses.
-export function sameAsMatch(m: EnrichmentMatch, a: Candidate): boolean {
+export function sameAsMatch(m: Pick<Candidate, "canonicalName" | "creator">, a: Candidate): boolean {
   return norm(a.canonicalName) === norm(m.canonicalName) && (m.creator === null || norm(a.creator) === norm(m.creator));
 }
 
