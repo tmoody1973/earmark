@@ -3,7 +3,7 @@ import { getEnv, ownerFirstName } from "../env";
 import { distanceMeters, type LatLng } from "../geo";
 import { credit } from "../garden/queries";
 import { createEarmarkTodo } from "../sync/bee-todos"; // M3-T7 (generic Earmark todo, 10-open cap)
-import { withLink } from "../sync/todo-text";
+import { alarmSoon, withLink } from "../sync/todo-text";
 
 // FR-16: Bee reports where the owner is; near a saved place tip, make one Bee todo, at most once per place per day.
 // Logs elsewhere carry the outcome only, never coordinates or names.
@@ -112,7 +112,7 @@ export async function handleLocationUpdate(
   let result: Awaited<ReturnType<NudgeDeps["createTodo"]>>;
   try {
     // Each day's nudge is its own entity (place_nudges.id), so forget can find every day's Bee todo.
-    result = await deps.createTodo({ entityType: "place_nudge", entityId: nudgeId, text, alarmAt: now.toISOString() });
+    result = await deps.createTodo({ entityType: "place_nudge", entityId: nudgeId, text, alarmAt: alarmSoon(now) });
   } catch (err) {
     // a failed write gives the day back so the next location event retries; a failing release must not hide `err`
     await deps.release(nudgeId).catch((e: unknown) => console.error(`[earmark] nudge release failed error=${e instanceof Error ? e.name : "unknown"}`));

@@ -14,6 +14,11 @@ const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", t
 
 export const slotsAvailable = (open: number) => Math.max(0, MAX_OPEN_TODOS - open);
 
+// An alarm for "now" reaches Bee a moment later, already past, and Bee never fires it (research todo, Oct 19: alarm
+// 23:10:58.7, saved in Bee 23:10:59.4, no notification). One minute ahead is the smallest lead that always lands.
+export const ALARM_LEAD_MS = 60_000;
+export const alarmSoon = (now: Date = new Date()) => new Date(now.getTime() + ALARM_LEAD_MS).toISOString();
+
 // A Bee todo's link opens the tip's own page (/tips/<id>, owner-only): art, preview, credits and what was said.
 export const gardenLink = (baseUrl: string, recId: number) => `${baseUrl.replace(/\/$/, "")}/tips/${recId}`;
 

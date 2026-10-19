@@ -13,7 +13,7 @@ import { PROVIDER_TIMEOUT_MS, ProviderHttpError } from "../enrich/types";
 import { RESEARCH_AGAIN_MINUTES } from "../pipeline/save-item";
 import { searchWeb, type WebResult } from "../recs/web-find";
 import type { createEarmarkTodo } from "../sync/bee-todos";
-import { TODO_PREFIX, withLink } from "../sync/todo-text";
+import { alarmSoon, TODO_PREFIX, withLink } from "../sync/todo-text";
 
 export const TINYFISH_FETCH = "https://api.fetch.tinyfish.ai";
 export const RESEARCH_PER_RUN = 2;
@@ -286,7 +286,7 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
 async function tell(clusterId: number, title: string, d: ResearchDeps): Promise<boolean> {
   const text = withLink(`${TODO_PREFIX}Research ready: ${clip(title, TITLE_IN_QUERY)}`, "ideas", clusterId, d.env.EARMARK_PUBLIC_BASE_URL?.trim());
   try {
-    const out = await d.notify({ entityType: "idea_research", entityId: clusterId, text, alarmAt: new Date().toISOString() });
+    const out = await d.notify({ entityType: "idea_research", entityId: clusterId, text, alarmAt: alarmSoon() });
     if ("skipped" in out) console.log(`[research] idea=${clusterId} todo skipped=${out.skipped}`);
     return !("skipped" in out);
   } catch (err) {
