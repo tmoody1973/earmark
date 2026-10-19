@@ -3,12 +3,13 @@ import { useState, useTransition, type FormEvent } from "react";
 import type { TipFix } from "@/agent/lib/recs/fix-tip";
 import type { RecType } from "@/agent/lib/types";
 import { fixTip, linkTip } from "./actions";
+import { linkChanged as changedLink } from "./link-change";
 
 // "Fix this tip" (decision 049): the owner's words for the name, maker, type and note, and a link to where the thing
 // lives. Only the fields changed here are sent, so an untouched field never starts a new lookup (or clears the link).
 // The words save first, then the link, which settles the tip as the owner's. What Bee heard (the quote) stays as said.
 
-export interface FixTipValues { name: string; creator: string | null; type: RecType; note: string | null; link: string | null }
+export interface FixTipValues { name: string; creator: string | null; type: RecType; note: string | null; link: string | null; ownLink: boolean }
 
 const blankIsNull = (v: FormDataEntryValue | null) => String(v ?? "").trim() || null;
 
@@ -24,7 +25,7 @@ export function FixTip({ tipId, was, types }: { tipId: number; was: FixTipValues
     const before = { ...was, creator: was.creator?.trim() || null, note: was.note?.trim() || null };
     const fix = Object.fromEntries(Object.entries(now).filter(([k, v]) => v !== before[k as keyof FixTipValues])) as TipFix;
     const link = blankIsNull(form.get("link"));
-    const linkChanged = link !== (was.link?.trim() || null);
+    const linkChanged = changedLink(was, String(form.get("link") ?? ""));
     setSaid(""); // clear first, so the same message twice is announced again
     if (Object.keys(fix).length === 0 && !linkChanged) return setSaid("Nothing to change.");
     startTransition(async () => {
