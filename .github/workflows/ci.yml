@@ -37,6 +37,15 @@ jobs:
       # Vercel's eve service runs `eve build` from the repo root, evaluating agent/ outside Next (so next/* can't
       # resolve there). `next build` alone never does this. Sandbox prewarm needs Vercel credentials; skip it here.
       - run: node node_modules/eve/bin/eve.js build --skip-sandbox-prewarm
+      # eve-bee (decision 054): builds and tests on its own, with no app env; tsc's rootDir fails the build if src/
+      # ever imports app code. The app imports packages/eve-bee/src by path, so the code itself has one copy.
+      - run: pnpm --dir packages/eve-bee build && pnpm --dir packages/eve-bee test
+      # relay/ and LICENSE ship as copies inside the package: fail if they drift from Earmark's own.
+      - name: eve-bee copies match their sources
+        run: |
+          diff -u relay/run.sh packages/eve-bee/relay/run.sh
+          diff -u relay/forward.ts packages/eve-bee/relay/forward.ts
+          diff -u LICENSE packages/eve-bee/LICENSE
 
   gitleaks:
     runs-on: ubuntu-latest

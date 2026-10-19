@@ -1,0 +1,48 @@
+{
+  "name": "eve-bee",
+  "version": "0.1.0",
+  "description": "Bee wearable connection and window-triage skill for eve agents: Bee REST client, bee stream event parser, relay script, voice-trigger parser and decision-model triage.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tmoody1973/earmark.git",
+    "directory": "packages/eve-bee"
+  },
+  "keywords": [
+    "bee",
+    "wearable",
+    "eve",
+    "agent",
+    "jev",
+    "ai-sdk",
+    "triage"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "relay",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build && pnpm test"
+  },
+  "peerDependencies": {
+    "ai": "^7.0.142",
+    "zod": "^4.0.0"
+  }
+}
