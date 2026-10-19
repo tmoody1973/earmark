@@ -63,7 +63,7 @@ describe("getPublishedSpace", () => {
     expect(q).toContain("si.item_type = 'rec'");
     expect(q).not.toMatch(/excerpt|context_summary|raw_text|'idea'/);
     const params = sql.mock.calls[1].slice(1);
-    expect(params).toContainEqual(["dismissed", "composted", "needs_review"]);
+    expect(params).toContainEqual(["dismissed", "composted", "needs_review", "overheard"]);
     expect(params).toContain(PUBLIC_TIP_CAP);
     expect(PUBLIC_TIP_CAP).toBe(40);
   });

@@ -80,7 +80,7 @@ export async function searchEarmarks(
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.status not in ('dismissed','composted')
+    where r.status not in ('dismissed','composted','overheard')
       and (${who}::text is null or p.first_name_key = lower(${who}::text))
       and (${since}::timestamptz is null or r.said_at >= ${since}::timestamptz)
       and (${until}::timestamptz is null or r.said_at < ${until}::timestamptz)
