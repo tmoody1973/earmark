@@ -30,4 +30,29 @@ where status not in ('dismissed', 'composted') group by 1, 2 order by 1, 2;
 
 If many corrected tips still end up unmatched, the lookup services need better queries for the owner's words, or the form needs a hint about what to type.
 
+## Piece 2: from the Bee app
+
+**What it does:** Tarik can now fix a tip by editing its todo in the Bee app. If he changes "Earmark · Listen: Jemetta Rose's new albums, Jemetta Rose (Oct 16) …" to "Earmark · Listen: Lanquidity, Sun Ra (Oct 16) …", Earmark takes that as a correction and looks the tip up again, through the same `applyTipFix` the tip page uses.
+
+**How it works, in order:** Each time the Bee todo job runs (the reconciler, the job that makes Bee's todos match Earmark's tips), it compares every open tip todo's text in Bee with the text Earmark last wrote there. If they differ, Tarik edited it. Earmark first tries to read the new words as its own format: verb, name, "by", the (who, day) part, and the link. He may delete the link or the parentheses. Only if he rewrote it freely does Earmark make one small model call, and that call sees the two todo texts and nothing else, never what was said. Then Earmark writes the clean text back to Bee and applies the fix. Bee is written first, so if Bee fails or the job crashes halfway, the next run reads the same edit again, and the fix is only applied once.
+
+The verb changes the type only when it points to one type: Read means a book, Visit a place, Try "other". Listen and Watch each cover several types, so a change to one of them goes to the model.
+
+If the edit isn't a correction (a note to self, "ask Ann which pressing"), Earmark leaves his text alone in Bee and remembers it has already read that edit, so it doesn't ask again every run.
+
+**A correction to piece 1:** the bullet above says the todo's text "follows on its own… No new Bee code." That was wrong. The job only wrote text when it made a todo, so a fix on the tip page never reached an open todo. Now it does: a todo Tarik hasn't edited gets the tip's new text on the next run, both after his fix and again when the lookup replaces his typing with the service's spelling ("sun ra" becomes "Sun Ra").
+
+**What we gave up:**
+- The first run after this ships rewrites every open tip todo whose text is out of date, including old ones that still link to the Shelf instead of the tip's page, at most 10 writes per run.
+- If the model call fails, the edit is treated as "not a correction" and isn't retried. Tarik has to edit it again.
+- An edit that only shortens the text (say, deleting the link) is left as he wrote it, and that todo stops getting later name updates.
+- If the fix itself fails after Bee was written, the next run puts the tip's old words back in Bee, so Bee never claims a fix Earmark doesn't have.
+- An edit made while the todo is checked off isn't read.
+
+**How we'll know if this was right:** Editing tip 150's todo in Bee to "Lanquidity, Sun Ra" shows the new name on the tip page and a clean todo in Bee within one run. Edits Earmark read and left alone are countable at any time. If many of them are real corrections, the parsing or the model prompt is missing them:
+
+```sql
+select count(*) from bee_sync where entity_type = 'rec' and bee_object = 'todo' and last_written_state ? 'seen';
+```
+
 **What actually happened:**
