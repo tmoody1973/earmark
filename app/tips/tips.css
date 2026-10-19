@@ -97,3 +97,36 @@
 
 .tip-source { margin-top: 2rem; font-size: 0.8125rem; }
 .tip-source a { color: var(--ink-2); text-underline-offset: 2px; }
+
+/* "Which one?" (decision 048): options as small rows, a thumbnail, the facts, and "This one"; None and Search below. */
+.which-options { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; }
+.which-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-top: 1px solid var(--hairline); }
+.which-option:last-child { border-bottom: 1px solid var(--hairline); }
+.which-thumb {
+  flex: none; display: grid; place-items: center; width: 56px; height: 56px; overflow: hidden;
+  border-radius: var(--radius-art); background: var(--art-ground); color: var(--ink-3);
+}
+.which-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.which-text { flex: 1 1 auto; min-width: 0; }
+.which-name { margin: 0; font-family: var(--serif); font-size: 1.0625rem; font-weight: 600; line-height: 1.3; }
+.which-sub { margin: 0.125rem 0 0; font-size: 0.875rem; color: var(--ink-2); }
+.which-pick { flex: none; padding: 0 0.875rem; font-weight: 600; }
+.which-option button:disabled, .which-one button:disabled, .which-fix button:disabled { opacity: 0.6; cursor: default; }
+.which-more { margin-top: 1rem; }
+.which-search { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.which-search input {
+  box-sizing: border-box; flex: 1 1 12rem; min-width: 0; min-height: 44px; padding: 0 1rem;
+  font: inherit; font-size: 1.0625rem; /* ≥ 16px: no zoom-on-focus on iOS */
+  color: var(--ink); background: var(--surface); border: 1px solid var(--hairline); border-radius: 999px;
+}
+.which-search input:hover { border-color: var(--hairline-strong); }
+.which-search input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-color: var(--ink-3); }
+.which-status { margin: 0.5rem 0 0; }
+.which-status:empty { display: none; }
+/* the correction is quiet: a disclosure under the links, not a panel */
+.which-fix { margin-top: 1rem; }
+.which-fix summary {
+  display: inline-flex; align-items: center; min-height: 44px; cursor: pointer;
+  font-size: 0.9375rem; color: var(--ink-2); text-decoration: underline; text-underline-offset: 0.2em; text-decoration-thickness: 1px;
+}
+.which-fix summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }

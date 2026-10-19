@@ -6,6 +6,7 @@ import { HIDDEN_TIP_STATUSES, setRecRating, setRecStatus, type SetStatusOptions 
 import type { IdeaStage, Rating, RecStatus, RecType } from "../types";
 import { cardArtworkUrl, cardLink, cardVariant, clampWhy, type CardVariant } from "./cards";
 import { buildLedger, type LedgerPerson, type TasteLedger } from "./ledger";
+import { asksWhichOne } from "./which-one";
 import { gardenOrder, isBloomed, plantLevel, type PlantLevel } from "./plant";
 import { TIP_MOVES, type TipChoice } from "./tip";
 import { latestLine, parseTimeline, type MentionRef, type TimelineEntry } from "./timeline";
@@ -32,6 +33,8 @@ export interface RecCardData {
   lat: number | null;
   lng: number | null;
   link: string | null;
+  /** Earmark wasn't sure which item this is and kept options (decision 048): the owner's cards show "Which one?". */
+  whichOne?: boolean;
 }
 
 export interface PlantView {
@@ -59,6 +62,8 @@ export type GardenRecRow = {
   lat: number | null; lng: number | null; links: unknown;
   recommender_id: number | null; first_name: string | null;
   about?: string | null; about_url?: string | null; // the owner's views select these (shelf, People, Spaces); never /s/
+  // The owner's shelf and People pages select these for the "Which one?" chip (decision 048); nothing public does.
+  enrichment_status?: string; match_source?: string; owner_none_at?: unknown; has_candidates?: boolean;
 };
 
 export type PlantRow = {
@@ -98,6 +103,7 @@ export function toRecCard(r: GardenRecRow): RecCardData {
     lat: r.lat,
     lng: r.lng,
     link: cardLink(r.links),
+    ...(asksWhichOne(r) && { whichOne: true }), // absent otherwise: a public page's card never carries the flag
   };
 }
 
@@ -128,6 +134,7 @@ export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   const recs = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
+      r.enrichment_status, r.match_source, r.owner_none_at, r.match_candidates is not null as has_candidates,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
@@ -137,6 +144,7 @@ export async function getShelf(focusRecId?: number): Promise<RecCardData[]> {
   const focus = (await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
+      r.enrichment_status, r.match_source, r.owner_none_at, r.match_candidates is not null as has_candidates,
       p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
     where r.id = ${focusRecId} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])`) as GardenRecRow[];
@@ -325,6 +333,7 @@ export async function getRecommenderPage(id: number): Promise<RecommenderPage | 
   const recs = ((await db()`
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
+      r.enrichment_status, r.match_source, r.owner_none_at, r.match_candidates is not null as has_candidates,
       p.id as recommender_id, p.first_name
     from recommendations r join recommenders p on p.id = r.recommender_id
     where r.recommender_id = ${id} and r.status <> all(${HIDDEN_TIP_STATUSES}::text[])

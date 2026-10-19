@@ -66,6 +66,8 @@ export function RecCard({ card, actions = false, from = true }: { card: RecCardD
           </p>
         )}
         <TipTag status={card.status} rating={card.rating} />
+        {/* Decision 048: Earmark kept options it wasn't sure of; the tip page asks. The owner's cards only. */}
+        {actions && card.whichOne && <p className="rec-which">Which one?</p>}
         {/* Maybes (needs_review) never reach this card: they wait in the Maybe? row (MaybeRow.tsx, decision 025). */}
         <div className="rec-foot">
           {from && card.recommender && <p className="rec-from">from {card.recommender.firstName}</p>}
