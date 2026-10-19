@@ -90,68 +90,98 @@ describe("enrichMusic", () => {
   });
 });
 
-// Decision 050: MusicBrainz has nothing (or Jev abstains on all of it) → Apple Music's catalog, same Jev pick, same bar.
-describe("enrichMusic Apple fallback", () => {
+// Decision 050: when Apple is configured, MusicBrainz and Apple's catalog are searched together on every music lookup;
+// the same release from both is one candidate; Jev picks once among the merged list, same bar.
+describe("enrichMusic with Apple alongside MusicBrainz", () => {
   const APPLE_ACCESS = { token: async () => "tok", storefront: "us" };
-  const METTA = { results: { albums: { data: [{ id: "1700", attributes: { name: "MettaSun", artistName: "Jimetta Rose", releaseDate: "2026-09-01",
-    url: "https://music.apple.com/us/album/1700", artwork: { url: "https://is1/{w}x{h}.jpg" } } }] } } };
+  const appleAlbum = (id: string, name: string, artistName: string) => ({ id, attributes: { name, artistName, releaseDate: "2026-09-01",
+    url: `https://music.apple.com/us/album/${id}`, artwork: { url: `https://is1/${id}/{w}x{h}.jpg` } } });
+  const apple = (...data: unknown[]) => ({ results: { albums: { data } } });
+  const METTA = apple(appleAlbum("1700", "MettaSun", "Jimetta Rose"));
   const mettaInput = { ...input, query: { ...input.query, name: "MettaSun", creator: "Jimetta Rose" }, described: "MettaSun by Jimetta Rose" };
-  const routed = (mb: unknown, apple: () => Response) => vi.fn(async (u: string) =>
-    u.startsWith("https://musicbrainz.org/") ? json(mb) : u.startsWith("https://api.music.apple.com/") ? apple() : json(CAA));
-  const appleCalls = (f: ReturnType<typeof vi.fn>) => (f.mock.calls as unknown as [string][]).filter(([u]) => u.startsWith("https://api.music.apple.com/"));
+  const routed = (mb: () => Response, ap: () => Response, caa: () => Response = () => json(CAA)) => vi.fn(async (u: string) =>
+    u.startsWith("https://musicbrainz.org/") ? mb() : u.startsWith("https://api.music.apple.com/") ? ap() : caa());
+  const calls = (f: ReturnType<typeof vi.fn>, prefix: string) => (f.mock.calls as unknown as [string][]).filter(([u]) => u.startsWith(prefix));
+  const shown = (pick: ReturnType<typeof vi.fn>) => (pick.mock.calls[0]![1] as Candidate[]).map((c) => `${c.provider ?? "-"}:${c.canonicalName}`);
 
-  it("MusicBrainz empty → Apple searched → Jev's pick is the match, with Apple's id, link and art and no Cover Art call", async () => {
-    const fetchImpl = routed({ "release-groups": [] }, () => json(METTA));
+  it("an Apple-only release (MettaSun): Jev picks it once; Apple's id, link and art, no Cover Art call", async () => {
+    const fetchImpl = routed(() => json({ "release-groups": [] }), () => json(METTA));
     const pick = vi.fn(pickFirst);
     const m = await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick, apple: APPLE_ACCESS });
-    expect(m).toMatchObject({ canonicalName: "MettaSun", creator: "Jimetta Rose", yearOrAddress: "2026", appleMusicId: "1700",
-      links: { apple_music: "https://music.apple.com/us/album/1700" }, imageUrl: "https://is1/600x600.jpg", provider: "apple", matchConfidence: 0.9 });
+    expect(m).toMatchObject({ canonicalName: "MettaSun", creator: "Jimetta Rose", yearOrAddress: "2026", appleMusicId: "1700", provider: "apple",
+      links: { apple_music: "https://music.apple.com/us/album/1700" }, imageUrl: "https://is1/1700/600x600.jpg", matchConfidence: 0.9 });
     expect(m!.mbid).toBeUndefined();
-    expect(appleCalls(fetchImpl)).toHaveLength(1); // the fallback only: no add-on search on top
-    expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("coverartarchive"))).toBe(false);
-    expect(pick).toHaveBeenCalledTimes(2);
-    expect(pick.mock.calls[1]![0]).toEqual({ described: "MettaSun by Jimetta Rose", excerpt: EXCERPT }); // same pick, same input
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(pick.mock.calls[0]![0]).toEqual({ described: "MettaSun by Jimetta Rose", excerpt: EXCERPT });
+    expect(calls(fetchImpl, "https://api.music.apple.com/")).toHaveLength(1);
+    expect(calls(fetchImpl, "https://coverartarchive.org/")).toHaveLength(0);
   });
 
-  it("MusicBrainz has an accepted pick → no fallback; the Apple add-on runs once, as before", async () => {
-    const apple = { results: { albums: { data: [{ id: "155", attributes: { name: "Night Garden", artistName: "Mara Vell", url: "https://music.apple.com/us/album/155" } }] } } };
-    const fetchImpl = routed(MB, () => json(apple));
+  it("the same release from both: one merged candidate with both identities; no second Apple search after the pick", async () => {
+    const fetchImpl = routed(() => json(MB), () => json(apple(appleAlbum("155", "Night Garden", "Mara Vell"))));
     const pick = vi.fn(pickFirst);
     const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick, apple: APPLE_ACCESS });
-    expect(m).toMatchObject({ mbid: "rg-1", appleMusicId: "155" });
-    expect(m!.provider).toBeUndefined();
-    expect(pick).toHaveBeenCalledTimes(1);
-    expect(appleCalls(fetchImpl)).toHaveLength(1);
+    expect(shown(pick)).toEqual(["musicbrainz+apple:Night Garden"]);
+    expect(m).toMatchObject({ mbid: "rg-1", releaseGroupId: "rg-1", appleMusicId: "155", imageUrl: "https://is1/155/600x600.jpg",
+      links: { musicbrainz: "https://musicbrainz.org/release-group/rg-1", apple_music: "https://music.apple.com/us/album/155" } });
+    expect(calls(fetchImpl, "https://api.music.apple.com/")).toHaveLength(1);
+    expect(calls(fetchImpl, "https://coverartarchive.org/")).toHaveLength(0); // art already there: CAA only fills a gap
   });
 
-  it("MusicBrainz candidates but Jev abstains → Apple searched and Jev asked again among Apple's", async () => {
-    const fetchImpl = routed(MB, () => json(METTA));
-    const pick = vi.fn(async (_i: unknown, cs: readonly Candidate[]) => (cs[0]?.provider === "apple" ? { ...cs[0], matchConfidence: 0.85 } : null));
-    const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick, apple: APPLE_ACCESS });
-    expect(m).toMatchObject({ appleMusicId: "1700", provider: "apple", matchConfidence: 0.85 });
-    expect(pick.mock.calls.map(([, cs]) => cs.map((c) => c.canonicalName))).toEqual([["Night Garden"], ["MettaSun"]]);
+  it("a MusicBrainz-only release: Cover Art Archive art, and the Apple add-on still looks for its twin by the matched name", async () => {
+    const fetchImpl = routed(() => json(MB), () => json(apple()));
+    const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS });
+    expect(m).toMatchObject({ mbid: "rg-1", imageUrl: "https://coverartarchive.org/release/r/1-500.jpg" });
+    expect(m!.appleMusicId).toBeUndefined();
+    expect(calls(fetchImpl, "https://api.music.apple.com/")).toHaveLength(2); // the search, then the add-on
   });
 
-  it("Jev abstains on Apple's too → null", async () => {
-    const fetchImpl = routed({ "release-groups": [] }, () => json(METTA));
+  it("orders Jev's list merged first, then MusicBrainz and Apple alternating, at most MAX_CANDIDATES", async () => {
+    const rg = (id: string, title: string, artist: string) => ({ id, title, "primary-type": "Album", "artist-credit": [{ name: artist, joinphrase: "" }] });
+    const mb = { "release-groups": [rg("rg-a", "Alpha", "Mara Vell"), rg("rg-b", "Bravo", "Mara Vell"), rg("rg-n", "Night Garden", "Mara Vell")] };
+    const ap = apple(appleAlbum("1", "Charlie", "Mara Vell"), appleAlbum("2", "Night Garden", "Mara Vell"), appleAlbum("3", "Delta", "Mara Vell"));
+    const pick = vi.fn(async () => null);
+    await enrichMusic(input, { fetchImpl: routed(() => json(mb), () => json(ap)) as never, pick, apple: APPLE_ACCESS });
+    expect(shown(pick)).toEqual(["musicbrainz+apple:Night Garden", "-:Alpha", "apple:Charlie"]);
+  });
+
+  it("Jev abstains on the merged list → null", async () => {
+    const fetchImpl = routed(() => json({ "release-groups": [] }), () => json(METTA));
     expect(await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: async () => null, apple: APPLE_ACCESS })).toBeNull();
   });
 
-  it("Apple not configured → null as today, one MusicBrainz call", async () => {
-    const fetchImpl = routed({ "release-groups": [] }, () => json(METTA));
-    expect(await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: null })).toBeNull();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  it("MusicBrainz fails, Apple found something: Apple's candidates are used and the failure is logged (ids, error name)", async () => {
+    const fetchImpl = routed(() => json({}, 503), () => json(METTA));
+    const m = await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS });
+    expect(m).toMatchObject({ appleMusicId: "1700" });
+    expect(logs).toContain("[enrich] musicbrainz failed rec=42 error=ProviderHttpError status=503");
   });
 
-  it("an Apple error during the fallback → null for this try, logged with ids and the error name only", async () => {
-    for (const fail of [() => json({}, 503), () => { throw Object.assign(new Error(`boom ${EXCERPT}`), { name: "TimeoutError" }); }]) {
-      resetMusicBrainzThrottle();
-      logs = [];
-      const fetchImpl = routed({ "release-groups": [] }, fail);
-      expect(await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS })).toBeNull();
-      const line = logs.find((l) => l.includes("apple-music"))!;
-      expect(line).toMatch(/^\[enrich\] apple-music failed rec=42 error=(ProviderHttpError status=503|TimeoutError)$/);
-    }
+  it("MusicBrainz fails and Apple found nothing: the MusicBrainz error is thrown (the lane's retry/back-off, as today)", async () => {
+    const fetchImpl = routed(() => json({}, 503), () => json(apple()));
+    await expect(enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS }))
+      .rejects.toMatchObject({ name: "ProviderHttpError", host: "musicbrainz.org", status: 503 });
+  });
+
+  it("Apple fails, MusicBrainz found something: MusicBrainz's candidates are used and the failure is logged", async () => {
+    const boom = () => { throw Object.assign(new Error(`boom ${EXCERPT}`), { name: "TimeoutError" }); };
+    const fetchImpl = routed(() => json(MB), boom);
+    const m = await enrichMusic(input, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS });
+    expect(m).toMatchObject({ mbid: "rg-1" });
+    expect(logs).toContain("[enrich] apple-music failed rec=42 error=TimeoutError");
     expect(logs.join("\n")).not.toContain("SECRET-TRANSCRIPT");
+    expect(logs.join("\n")).not.toContain("boom");
+  });
+
+  it("Apple fails and MusicBrainz found nothing: the Apple error is thrown, so the lane retries rather than settling no_match", async () => {
+    const fetchImpl = routed(() => json({ "release-groups": [] }), () => json({}, 503));
+    await expect(enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: APPLE_ACCESS }))
+      .rejects.toMatchObject({ name: "ProviderHttpError", host: "api.music.apple.com", status: 503 });
+  });
+
+  it("Apple not configured: MusicBrainz only, as today", async () => {
+    const fetchImpl = routed(() => json({ "release-groups": [] }), () => json(METTA));
+    expect(await enrichMusic(mettaInput, { fetchImpl: fetchImpl as never, pick: pickFirst, apple: null })).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

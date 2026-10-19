@@ -261,12 +261,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     expect(e.links).toEqual(B.links); // no links.discogs for the old item
   });
 
-  // Decision 050: MusicBrainz has nothing (MettaSun, tip 150), Apple's catalog does. Real enrichRec, fake HTTP and Jev.
+  // Decision 050: MusicBrainz and Apple searched together; MettaSun (tip 150) is only on Apple. Real enrichRec, fake HTTP and Jev.
   const APPLE_ENV = { APPLE_TEAM_ID: "T", APPLE_MUSIC_KEY_ID: "K",
     APPLE_MUSIC_PRIVATE_KEY: generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString() };
   const METTA = { results: { albums: { data: [{ id: "1700", attributes: { name: "MettaSun", artistName: "Jimetta Rose", releaseDate: "2026-09-01",
     url: "https://music.apple.com/us/album/1700", artwork: { url: "https://is1-ssl.mzstatic.com/{w}x{h}.jpg" } } }] } } };
-  const MB_ONE = { "release-groups": [{ id: "rg-metta", title: "Metta Sun", "primary-type": "Album", "artist-credit": [{ name: "Someone Else", joinphrase: "" }] }] };
+  const MB_TWO = { "release-groups": [{ id: "rg-other", title: "Metta Sun", "primary-type": "Album", "artist-credit": [{ name: "Someone Else", joinphrase: "" }] },
+    { id: "rg-metta", title: "MettaSun", "primary-type": "Album", "artist-credit": [{ name: "Jimetta Rose", joinphrase: "" }] }] };
   const musicFetch = (mb: unknown) => vi.fn(async (u: string) => new Response(JSON.stringify(
     u.startsWith("https://musicbrainz.org/") ? mb : u.startsWith("https://api.music.apple.com/") ? METTA : {}),
   { status: u.includes("musicbrainz.org") || u.includes("api.music.apple.com") ? 200 : 404, headers: { "content-type": "application/json" } }));
@@ -287,12 +288,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     expect(r.match_candidates.map((x: Candidate) => x.provider)).toEqual(["apple"]);
   });
 
-  it("Jev abstains on both: the options keep Apple's first, then MusicBrainz's, each with its provider", async () => {
+  it("Jev abstains: the options keep both catalogs, the same release merged first, each with its provider", async () => {
     const id = await addRec({ type: "album", name: "MettaSun" });
-    expect(await sweep({ enrich: realEnrich(musicFetch(MB_ONE)), pick: picks(null), env: APPLE_ENV, onlyIds: [id] })).toMatchObject({ secondLook: 1 });
+    expect(await sweep({ enrich: realEnrich(musicFetch(MB_TWO)), pick: picks(null), env: APPLE_ENV, onlyIds: [id] })).toMatchObject({ secondLook: 1 });
     const r = await row(id);
     expect(r).toMatchObject({ enrichment_status: "pending", auto_pick: "none" });
-    expect(r.match_candidates.map((x: Candidate) => [x.provider, x.canonicalName])).toEqual([["apple", "MettaSun"], ["musicbrainz", "Metta Sun"]]);
+    expect(r.match_candidates.map((x: Candidate) => [x.provider, x.canonicalName])).toEqual([["musicbrainz+apple", "MettaSun"], ["musicbrainz", "Metta Sun"]]);
+    expect(r.match_candidates[0]).toMatchObject({ mbid: "rg-metta", appleMusicId: "1700", links: { apple_music: "https://music.apple.com/us/album/1700" } });
   });
 
   it("the owner picks an Apple option: Apple's id, link and art are written; Search again falls back to Apple too", async () => {

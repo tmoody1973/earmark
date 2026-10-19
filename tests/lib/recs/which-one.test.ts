@@ -4,7 +4,7 @@ import { resetMusicBrainzThrottle } from "../../../agent/lib/enrich/musicbrainz"
 import { providerFor } from "../../../agent/lib/enrich/registry";
 import { searchCandidates } from "../../../agent/lib/recs/which-one";
 
-// Search again's lookup (decision 048), without the database: MusicBrainz first, Apple when it finds nothing (decision 050).
+// Search again's lookup (decision 048), without the database: for music, MusicBrainz and Apple together (decision 050).
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const APPLE_ENV = { APPLE_TEAM_ID: "T", APPLE_MUSIC_KEY_ID: "K",
   APPLE_MUSIC_PRIVATE_KEY: generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString() };
@@ -29,11 +29,23 @@ describe("searchCandidates", () => {
     expect(hosts(fetchImpl)).toEqual(["musicbrainz.org", "api.music.apple.com"]);
   });
 
-  it("music: MusicBrainz found something → only MusicBrainz, stored as musicbrainz", async () => {
+  it("music: both searched every time; each candidate stored with where it came from, the same release merged", async () => {
     const fetchImpl = routed(MB, () => json(METTA));
     const found = await searchCandidates(mb, q("Night Garden"), APPLE_ENV, fetchImpl as never);
-    expect(found.map((c) => [c.provider, c.canonicalName])).toEqual([["musicbrainz", "Night Garden"]]);
-    expect(hosts(fetchImpl)).toEqual(["musicbrainz.org"]);
+    expect(found.map((c) => [c.provider, c.canonicalName])).toEqual([["musicbrainz", "Night Garden"], ["apple", "MettaSun"]]);
+    expect(hosts(fetchImpl).sort()).toEqual(["api.music.apple.com", "musicbrainz.org"]);
+
+    resetMusicBrainzThrottle();
+    const twin = { results: { albums: { data: [{ id: "155", attributes: { name: "Night Garden", artistName: "Mara Vell", url: "https://music.apple.com/us/album/155" } }] } } };
+    const merged = await searchCandidates(mb, q("Night Garden"), APPLE_ENV, routed(MB, () => json(twin)) as never);
+    expect(merged).toEqual([expect.objectContaining({ provider: "musicbrainz+apple", mbid: "rg-1", appleMusicId: "155",
+      links: { musicbrainz: "https://musicbrainz.org/release-group/rg-1", apple_music: "https://music.apple.com/us/album/155" } })]);
+  });
+
+  it("music: Apple fails but MusicBrainz found something → MusicBrainz's candidates, not an error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const found = await searchCandidates(mb, q("Night Garden"), APPLE_ENV, routed(MB, () => json({}, 503)) as never);
+    expect(found.map((c) => c.provider)).toEqual(["musicbrainz"]);
   });
 
   it("music without Apple configured: MusicBrainz only, as today", async () => {
@@ -42,7 +54,7 @@ describe("searchCandidates", () => {
     expect(hosts(fetchImpl)).toEqual(["musicbrainz.org"]);
   });
 
-  it("an Apple 429 throws to Search again's caller (\"try again in a bit\"), as any provider's does", async () => {
+  it("an Apple 429 with nothing from MusicBrainz throws to Search again's caller (\"try again in a bit\")", async () => {
     const fetchImpl = routed({ "release-groups": [] }, () => json({}, 429));
     await expect(searchCandidates(mb, q("MettaSun"), APPLE_ENV, fetchImpl as never)).rejects.toMatchObject({ name: "ProviderHttpError", status: 429 });
   });
