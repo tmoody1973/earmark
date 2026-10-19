@@ -184,7 +184,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("handleTodoChange on the Neon te
     expect(await rec(open.recId)).toEqual({ status: "queued", bee_todo_id: String(open.beeId) });
     expect(await rec(off.recId)).toEqual({ status: "queued", bee_todo_id: String(off.beeId) });
     expect(bee.createTodo).not.toHaveBeenCalled();
-    expect(bee.updateTodo).not.toHaveBeenCalled();
+    // The open todo's old-format text (a /shelf link) is refreshed to the tip's text (decision 049); nothing else writes.
+    expect(bee.updateTodo.mock.calls).toEqual([[open.beeId, { text: expect.stringMatching(/\/tips\/\d+$/) }]]);
     expect(bee.deleteTodo).not.toHaveBeenCalled();
   });
 
