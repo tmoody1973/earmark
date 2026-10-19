@@ -55,4 +55,37 @@ If the edit isn't a correction (a note to self, "ask Ann which pressing"), Earma
 select count(*) from bee_sync where entity_type = 'rec' and bee_object = 'todo' and last_written_state ? 'seen';
 ```
 
+## Piece 3: say it out loud
+
+**What it does:** Tarik can fix a tip by saying so to his Bee: "Earmark, that Sun Raw tip should be Sun Ra, the musician", or, as a voice note, "Earmark that: the Jemetta Rose album is actually Lanquidity by Sun Ra." Earmark works out which recent tip he means and puts a card on Home: "Fix *Jemetta Rose's new albums* → *Lanquidity, Sun Ra*?" with **Apply** and **Ignore**. Apply changes the tip through the same `applyTipFix` the tip page and the Bee app use, and the tip is looked up again. Ignore leaves the tip as it is. Tapping either twice does nothing the second time.
+
+**Why it never applies a fix by itself:** the whole reason a tip needs fixing is that Bee mishears. A spoken correction goes through the same ears. "Sun Ra" could come back as "Son Raw", or the correction could be matched to the wrong tip. If Earmark applied it straight away, one mishearing would quietly overwrite a tip that was fine, and its art and links would be wiped for a fresh lookup. So the spoken fix is only ever a proposal (a suggested change that waits for a yes). Tarik sees the old words and the new words side by side and decides. The proposal stores only the new name, creator and type (each 120 characters at most) and which conversation or voice note it came from, never what was said.
+
+**How it works, in order:**
+1. Only a *deliberate* earmark can be a correction: a voice note or "Earmark that / Earmark, …" said in a conversation. Those are the moments Tarik is talking *to* Earmark. Ordinary talk (ambient windows, the overheard stretches of a conversation) is never treated as a correction, and its triage questions are exactly what they were before.
+2. The triage call for a deliberate earmark gets one extra yes/no question: "is this correcting a tip Earmark saved?" Triage is the small classifier model, Jev, that already decides idea versus recommendation. If Jev is at least 80% sure, Earmark treats it as a correction and does not save a new tip. Below that, the earmark is saved exactly as before.
+3. A model call pulls out the words Tarik used for the tip as it is now ("Sun Raw") and the right words ("Sun Ra", plus the creator and type only if he said them).
+4. Earmark lists the tips saved in the last 30 days that aren't cleared, and keeps the 3 whose spelling is closest to his words. Closeness is scored on three-letter chunks, so a word misheard a second time still lands near.
+5. Jev picks one of those 3 or answers "none of these". The options are shuffled, because Jev leans toward whichever comes first. If it isn't at least 80% sure, or the tip already says those words, nothing is stored and the log records only ids.
+6. The proposal is saved in the same database transaction as the rest of that conversation or voice note. A transaction is an all-or-nothing write: either everything from that conversation lands or none of it does. The corrected name is also added to the conversation's "already earmarked" names, so if someone in the room says "Sun Ra is great" a minute later, that doesn't become a new tip either.
+
+**Choices Claude made:** where to detect it. Options: (a) a new "correction" answer in the ambient classifier. That would change how every overheard window is sorted, which the brief ruled out. (b) A separate model call for every deliberate earmark. It's clean, but it costs an extra call each time. (c) One more question inside the deliberate earmark's existing triage call. Claude chose (c): no extra call, and ambient sorting is untouched.
+
+**What we gave up:**
+- A correction has to start with the trigger ("Earmark that…" or "Earmark, that…"). Saying "that Sun Raw tip should be Sun Ra" in passing does nothing.
+- The extra question shares a call with the idea-or-recommendation question for deliberate earmarks. That could in principle nudge how Jev sorts those, and we have no labelled examples to measure it. Ambient windows are unaffected.
+- If Jev wrongly decides a real earmark is a correction (80% or more sure), that earmark becomes a proposal or nothing at all, not a tip. The 80% bar is a guess, set like the "Which one?" match bar, not tuned on data.
+- If Earmark can't tell which tip he means, nothing is kept and nothing tells him. He would notice no card on Home and could fix the tip on its page.
+- By voice he can change the name, creator and type, but can't clear a creator or write a note. The tip page does those.
+- Only tips from the last 30 days can be corrected by voice.
+- If the extraction model returns garbage, the earmark falls back to the existing safety net: it is saved as a "Maybe?" tip with the spoken words as its title, so it is seen rather than lost.
+- There is no "forget a conversation" command in Earmark, so "forgetting a conversation deletes its proposals" has nothing to hook into. Forgetting the *tip* deletes its proposals (they are tied to the tip's row and go with it), and the forget dry run counts them.
+- One more table, `tip_fix_proposals` (migration 042).
+
+**How we'll know if this was right:** Saying "Earmark, that Sun Raw tip should be Sun Ra" puts one card on Home for tip 150 within one processing run, with no new "Sun Ra" tip. Over time, Apply should far outnumber Ignore. Many Ignores mean Earmark is picking the wrong tip or hearing the fix wrong:
+
+```sql
+select status, count(*) from tip_fix_proposals group by 1 order by 1;
+```
+
 **What actually happened:**

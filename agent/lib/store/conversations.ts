@@ -126,7 +126,9 @@ export async function markJournalProcessed(
 
 // Query builder: runs in the same transaction as the item insert, so the claim records its item (and done) or the save rolls back.
 // Self-contained: finds the item by its journal id (inserted by an earlier statement in the same transaction).
-export function journalItemQuery(txn: Txn, id: string, kind: "idea" | "rec") {
+// "none": the note saved no item (a spoken tip correction, decision 049).
+export function journalItemQuery(txn: Txn, id: string, kind: "idea" | "rec" | "none") {
+  if (kind === "none") return txn`update processed_journals set item_type = 'none', item_id = null, done = true where bee_journal_id = ${id}::text`;
   return kind === "rec"
     ? txn`update processed_journals set item_type = 'rec', done = true,
             item_id = (select max(id) from recommendations where bee_journal_id = ${id}::text)

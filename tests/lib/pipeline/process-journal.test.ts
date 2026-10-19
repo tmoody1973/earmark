@@ -27,7 +27,14 @@ vi.mock("../../../agent/lib/ideas/compost", async (orig) => ({
   planIdeaClusters: vi.fn(async (items: unknown[]) => items),
 }));
 
+// Which tip a spoken correction means is unit-tested in tests/lib/recs/spoken-fix.test.ts; here it is a stub.
+vi.mock("../../../agent/lib/recs/spoken-fix", async (orig) => ({
+  ...(await orig<typeof import("../../../agent/lib/recs/spoken-fix")>()),
+  planSpokenFix: vi.fn(async () => null),
+}));
+
 import { CompostUnavailableError, planIdeaClusters } from "../../../agent/lib/ideas/compost";
+import { planSpokenFix } from "../../../agent/lib/recs/spoken-fix";
 import { finishJournalAs, markJournalProcessed, recsSaidBetween, releaseJournal } from "../../../agent/lib/store/conversations";
 import { processJournal } from "../../../agent/lib/pipeline/process-journal";
 import type { PipelineDeps } from "../../../agent/lib/pipeline/process-conversation";
@@ -37,8 +44,8 @@ import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 
 const createdAt = new Date("2026-10-16T16:00:00Z");
 const NONE = { recIds: [], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] };
-const triage = (kind: string, p = 0.4) =>
-  vi.fn(async () => ({ kind, kindProbability: p, recType: "place", recTypeProbability: 0.7, jokingProbability: 0, broadcastProbability: 0.01, model: "m", providerMetadata: {} })) as unknown as PipelineDeps["triage"];
+const triage = (kind: string, p = 0.4, correctionProbability?: number) =>
+  vi.fn(async () => ({ kind, kindProbability: p, recType: "place", recTypeProbability: 0.7, jokingProbability: 0, broadcastProbability: 0.01, model: "m", providerMetadata: {}, correctionProbability })) as unknown as PipelineDeps["triage"];
 const extractRecommendation = vi.fn(async () => ({ canonicalName: "Ardent", creator: null, recommenderName: "Ann", excerpt: "Ann's ramen spot" })) as PipelineDeps["extractRecommendation"];
 const extractIdea = vi.fn(async () => ({ title: "AI in public radio newsletter", excerpt: "newsletter idea about AI in public radio" })) as PipelineDeps["extractIdea"];
 const deps = (kind: string, p?: number): Partial<PipelineDeps> => ({
@@ -113,7 +120,7 @@ describe("processJournal", () => {
   it("captures a voice rec at full confidence even when Jev is unsure, credited to the named person", async () => {
     const d = deps("neither", 0.3);
     expect(await processJournal({ id: "56", text: "Earmark that, Ann's ramen spot", createdAt }, d)).toEqual({ created: "rec", saved: { recIds: [1], ideaClusterIds: [], mentionIds: [], bloomedClusterIds: [] } });
-    expect(d.triage).toHaveBeenCalledWith("Unknown: Ann's ramen spot");
+    expect(d.triage).toHaveBeenCalledWith("Unknown: Ann's ramen spot", { correction: true });
     const [rec] = recs();
     expect(rec!.params).toEqual(expect.arrayContaining(["place", "Ardent", "voice_trigger", "voice", "56", 1, createdAt]));
     expect(rec!.sql).toMatch(/recommenders/);
@@ -250,3 +257,36 @@ describe("processJournal", () => {
     spy.mockRestore();
   });
 });
+
+describe("processJournal: a spoken tip correction (decision 049, piece 3)", () => {
+  // Invented sentence: the owner corrects a tip Bee misheard.
+  const NOTE = "Earmark that, Velvet Moth tip should be Velvet Mouth, the band";
+  const fixing = (correction: number): Partial<PipelineDeps> => ({ ...deps("rec_to_user", 0.9), triage: triage("rec_to_user", 0.9, correction), fix: {} });
+  const proposals = () => committed.filter((q) => /insert into tip_fix_proposals/.test(q.sql));
+
+  it("stores a proposed fix for the tip, never a new tip, and finishes the claim as none in the same transaction", async () => {
+    vi.mocked(planSpokenFix).mockResolvedValueOnce({ recId: 31, fix: { name: "Velvet Mouth", type: "artist" }, beeConversationId: null, beeJournalId: "70" });
+    const d = fixing(0.95);
+    expect(await processJournal({ id: "70", text: NOTE, createdAt }, d)).toEqual({ created: null, saved: NONE });
+    expect(planSpokenFix).toHaveBeenCalledWith("Velvet Moth tip should be Velvet Mouth, the band", { beeConversationId: null, beeJournalId: "70" }, d.fix);
+    expect(recs()).toHaveLength(0);
+    expect(extractRecommendation).not.toHaveBeenCalled();
+    expect(proposals()).toHaveLength(1);
+    expect(proposals()[0]!.params).toEqual(expect.arrayContaining([31, "Velvet Mouth", null, "artist", null, "70"]));
+    expect(committed.some((q) => /update processed_journals set item_type = 'none'/.test(q.sql))).toBe(true);
+  });
+
+  it("Earmark can't tell which tip: nothing is stored, the claim still finishes", async () => {
+    expect(await processJournal({ id: "71", text: NOTE, createdAt }, fixing(0.95))).toEqual({ created: null, saved: NONE });
+    expect(recs()).toHaveLength(0);
+    expect(proposals()).toHaveLength(0);
+    expect(committed.some((q) => /update processed_journals set item_type = 'none'/.test(q.sql))).toBe(true);
+  });
+
+  it("below the correction bar it is an earmark as before", async () => {
+    expect(await processJournal({ id: "72", text: NOTE, createdAt }, fixing(0.5))).toMatchObject({ created: "rec" });
+    expect(planSpokenFix).not.toHaveBeenCalled();
+    expect(proposals()).toHaveLength(0);
+  });
+});
+

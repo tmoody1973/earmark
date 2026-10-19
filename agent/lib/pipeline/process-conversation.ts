@@ -7,6 +7,7 @@ import { db } from "../db";
 import { planIdeaClusters, type CompostDeps } from "../ideas/compost";
 import { ownerFirstName } from "../env";
 import { chooseRecommender } from "./attribution";
+import { tipFixProposalQuery, type SpokenFix, type SpokenFixDeps } from "../recs/spoken-fix";
 import { planDeliberateItem, splitDeliberate, type DeliberateEarmark } from "./deliberate";
 import { extractIdea, extractRecommendation } from "./extract";
 import { buildSaveQueries, noneSaved, savedIds, type SaveItem, type SavedIds } from "./save-item";
@@ -25,6 +26,8 @@ export interface PipelineDeps {
   now: () => Date;
   // Cluster-planning deps (embed, Jev, timeline note); tests inject fakes so they never reach the Gateway.
   compost?: Partial<CompostDeps>;
+  // Spoken tip corrections (decision 049): the extractor, the recent-tips read and Jev's pick; tests inject fakes.
+  fix?: Partial<SpokenFixDeps>;
 }
 
 // saved: ids from the save transaction — M3's rec lane and M2's clustering hook on these.
@@ -38,6 +41,7 @@ export function resolveDeps(deps: Partial<PipelineDeps>): PipelineDeps {
     extractIdea: deps.extractIdea ?? extractIdea,
     now: deps.now ?? (() => new Date()),
     compost: deps.compost,
+    fix: deps.fix,
   };
 }
 
@@ -132,19 +136,24 @@ export function withSaidLocation(items: SaveItem[], loc: Conversation["primary_l
 
 // Earmarks already saved from this conversation (a released claim being retried) are skipped before any model call.
 // A model outage throws (run released, retried); any other failure on one earmark saves it as a raw needs_review rec (see planDeliberateItem).
-// items: what to save now. earmarkedNames: rec names of ALL earmarks of this conversation, including ones saved on an
-// earlier attempt, so ambient never re-saves them.
+// items: what to save now. fixes: spoken tip corrections, saved as proposals in the same transaction (decision 049).
+// earmarkedNames: rec names of ALL earmarks of this conversation, including ones saved on an earlier attempt, plus each
+// fix's corrected name, so ambient never re-saves them as tips.
+// ponytail: a retry re-plans a fix (its key isn't in savedDeliberateKeys); harmless, since only a committed
+// transaction stores one and that also marks the conversation done.
 async function planDeliberate(
   id: number, earmarks: DeliberateEarmark[], fallbackAt: Date, d: PipelineDeps,
-): Promise<{ items: SaveItem[]; earmarkedNames: string[] }> {
-  if (earmarks.length === 0) return { items: [], earmarkedNames: [] };
+): Promise<{ items: SaveItem[]; fixes: SpokenFix[]; earmarkedNames: string[] }> {
+  if (earmarks.length === 0) return { items: [], fixes: [], earmarkedNames: [] };
   const saved = await savedDeliberateKeys(id);
   const todo = earmarks.filter((e) => !saved.has(e.key));
-  const items = await mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
+  const planned = await mapLimit(todo, WINDOW_CONCURRENCY, (e) => planDeliberateItem(
     e.body, { label: `conversation=${id}`, beeConversationId: id, beeJournalId: null, spokenAt: e.spokenAt ?? fallbackAt, deliberateKey: e.key }, d,
   ));
-  const names = [...saved.values(), ...items.map((it) => (it.kind === "rec" ? it.extraction.canonicalName : null))];
-  return { items, earmarkedNames: names.flatMap((n) => (n ? [n] : [])) };
+  const items = planned.flatMap((p) => (p.kind === "fix" ? [] : [p]));
+  const fixes = planned.flatMap((p) => (p.kind === "fix" && p.fix ? [p.fix] : []));
+  const names = [...saved.values(), ...items.map((it) => (it.kind === "rec" ? it.extraction.canonicalName : null)), ...fixes.map((f) => f.fix.name)];
+  return { items, fixes, earmarkedNames: names.flatMap((n) => (n ? [n] : [])) };
 }
 
 // One earmark per moment (M2-T14): a rec from this conversation that a voice note already saved within ±60 s is the
@@ -210,7 +219,7 @@ export async function processConversation(
     // The span lets an unmapped live mention of this same conversation (uuid only) count as this occasion, and bounds
     // the voice notes Bee may have recorded during it (one earmark per moment, M2-T14).
     const span = { start: toDate(conversation.start_time) ?? fallbackAt, end: toDate(conversation.end_time) ?? d.now() };
-    const { items: deliberate, earmarkedNames } = await planDeliberate(id, earmarks, fallbackAt, d);
+    const { items: deliberate, fixes, earmarkedNames } = await planDeliberate(id, earmarks, fallbackAt, d);
 
     // A 415-utterance conversation is ~200 windows: run them a few at a time so it fits a function's time limit.
     const outcomes = await mapLimit(windows, WINDOW_CONCURRENCY, (w, i) => runWindow(w, i, id, summary, fallbackAt, d, deadline));
@@ -239,8 +248,10 @@ export async function processConversation(
     // Idea compost: embedding + Jev cluster choice per accepted idea (the last model calls), before the transaction.
     const saveItems = withSaidLocation(await planIdeaClusters(items, d.compost, { span }), conversation.primary_location);
     const counts = { ideas: saveItems.filter((it) => it.kind === "idea").length, recs: saveItems.filter((it) => it.kind === "rec").length };
-    // All model calls are done; one transaction saves every item, the counts and done, or nothing.
-    const results = await db().transaction((txn) => [...saveItems.flatMap((it) => buildSaveQueries(txn, it)), conversationCountsQuery(txn, id, counts)]);
+    // All model calls are done; one transaction saves every item, the fix proposals, the counts and done, or nothing.
+    const results = await db().transaction((txn) => [
+      ...saveItems.flatMap((it) => buildSaveQueries(txn, it)), ...fixes.map((f) => tipFixProposalQuery(txn, f)), conversationCountsQuery(txn, id, counts),
+    ]);
     return {
       skipped: false, ...counts, reviews: saveItems.filter((it) => it.route === "review").length, failed, incomplete: false,
       saved: savedIds(saveItems, results),

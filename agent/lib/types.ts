@@ -25,6 +25,7 @@ export interface TriageResult {
   recTypeProbability: number;
   jokingProbability: number;         // P(clearly a joke or hypothetical)
   broadcastProbability: number;      // P(ad, station ID or scripted broadcast audio, not live speech)
+  correctionProbability?: number;    // deliberate earmarks only (triageWindow opts.correction): P(it corrects a saved tip)
   model: string;
   providerMetadata: unknown;         // logged; confidence key via Gateway unverified
 }
