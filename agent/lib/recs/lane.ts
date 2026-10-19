@@ -231,12 +231,12 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
 // excerpt is the source; Bee's conversation summary is context, and Bee being down only drops that context. A changed
 // why drops the embedding, so the embed step above writes it again from the new text (recEmbedText includes the why).
 // Least-tried first, so a tip whose call keeps failing goes to the back and never blocks the rest; after
-// MAX_SUMMARY_ATTEMPTS failures it is done with no why.
+// MAX_SUMMARY_ATTEMPTS failures it is done with no why. A why the owner wrote (why_source 'owner', decision 049) is final.
 async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
   const rows = await db()`
     select r.id, r.canonical_name, r.excerpt, r.bee_conversation_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.summarized_at is null and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+    where r.summarized_at is null and r.why_source = 'auto' and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
     order by r.summary_attempts, r.status = 'needs_review', r.id desc
     limit ${MAX_SUMMARIES_PER_RUN}`;
@@ -254,7 +254,7 @@ async function writeWhys(d: SweepDeps, r: Done, overBudget: () => boolean): Prom
       await db()`update recommendations set
           embedding = case when context_summary is distinct from ${why} then null else embedding end,
           context_summary = ${why}, summarized_at = now(), updated_at = now()
-        where id = ${id} and summarized_at is null`;
+        where id = ${id} and summarized_at is null and why_source = 'auto'`;
       r.summarized++;
       failuresInARow = 0;
     } catch (err) {
@@ -330,11 +330,11 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 }
 
 // Which links a provider supplied (types.ts RecLinks), as opposed to a capture's own (url, urls, youtube, primary).
-const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
+export const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
   "openstreetmap", "podcast_index", "apple_podcasts"];
 // What each capture brought itself, which a correction keeps: a shared song its Apple Music id and link (capture/songs.ts),
 // a photo its picture (photos.ts). An email capture (email.ts) and a heard tip bring neither.
-const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
+export const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple_music");
 
 // The one save path for a match, the lane's and the owner's ("Which one?", decision 048). Never a cleared tip, never one
 // the owner already settled (match_source 'owner' is final).
