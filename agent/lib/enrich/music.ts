@@ -97,7 +97,7 @@ export async function enrichMusic(input: MusicInput, deps: Partial<MusicDeps> = 
     apple: deps.apple === undefined ? appleAccess() : deps.apple,
   };
   const candidates = await searchMusic(input.query, d.fetchImpl, d.apple, input.recId);
-  const match = await d.pick({ described: input.described, excerpt: input.excerpt }, candidates);
+  const match = await d.pick({ described: input.described, excerpt: input.excerpt, name: input.query.name, creator: input.query.creator }, candidates);
   if (!match) return null;
   let m = match;
   for (const addOn of MUSIC_ADDONS) m = await addOn(m, input, d);

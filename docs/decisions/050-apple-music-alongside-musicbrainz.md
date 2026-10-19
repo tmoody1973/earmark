@@ -35,4 +35,6 @@ where type in ('album', 'song', 'artist')
 
 If more than about one in ten automatic picks of an Apple-only option get corrected by Tarik, Apple's results are leading Jev astray.
 
+**Follow-up, the same night: an exact name and artist settles it.** The first real run after this shipped found MettaSun on Apple, listed next to two older Jimetta Rose albums from MusicBrainz, and Jev still chose none. Jev (the small model that picks the matching option) reads what Bee heard as well as the tip's words, and Bee heard *"…her new albums as a tribute to Sun Raw Records."* Jev's rules say a tribute is a different item and to abstain when what was said doesn't settle it, so the old, misheard sentence outvoted Tarik's fix. Now, when exactly one option has the tip's own name and artist (ignoring case, accents and punctuation), that option is the match with no model call. A tip with no artist, or two options with the same name and artist, still goes to Jev. *What we gave up:* a tip whose words Bee heard wrong but which happen to equal some real album by that same artist would match it without Jev's second opinion; that needs both the title and the artist to be wrong in exactly matching ways, which we judged rare. Made by Claude, after Tarik reported the miss.
+
 **What actually happened:**
