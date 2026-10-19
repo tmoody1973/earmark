@@ -15,7 +15,7 @@ export default function ErrorPage({ error, retry }: { error: unknown; retry: () 
   return (
     <main className="garden garden-center error-page">
       <h1>Something didn&rsquo;t work</h1>
-      <p>{demo ? "This may be the read-only demo: nothing here can be changed." : "Nothing was lost. Try again in a moment."}</p>
+      <p>{demo ? "This may be the read-only demo: nothing here can be changed." : "Try again in a moment."}</p>
       <button type="button" onClick={() => retry()}>Back to the page</button>
     </main>
   );
