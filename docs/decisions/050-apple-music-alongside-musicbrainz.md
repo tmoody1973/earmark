@@ -1,36 +1,38 @@
-# 050 — Apple Music as the music lookup's fallback
+# 050 — Apple Music searched alongside MusicBrainz
 
-**Decision:** When MusicBrainz has nothing for an album, song or artist (or Jev, the matching model, says none of MusicBrainz's options is the one), Earmark now searches Apple Music's catalog with the same words and lets Jev pick among Apple's options, at the same 0.8 bar. An Apple pick becomes the match, with Apple's cover, Apple Music link and Apple id. "Search again" on a music tip does the same: MusicBrainz first, Apple when MusicBrainz finds nothing.
+**Decision:** Every album, song and artist lookup now searches MusicBrainz and Apple Music's catalog at the same time, with the same words. When both return the same release, Earmark keeps it as one option carrying both identities (the MusicBrainz id and the Apple id, link and cover). Jev, the matching model, then picks once from the combined list, at the same 0.8 bar. "Search again" on a music tip does the same search.
 
-**Why this came up:** Tarik reported tip 150, the album "MettaSun" by Jimetta Rose, a new independent release. MusicBrainz (the free, community-edited music catalog Earmark uses to name music, decision 012), Discogs and the free iTunes Search API all return nothing for it. Earmark's own Apple Music catalog search (the paid developer account it already uses to add links and covers) returns exactly one result: MettaSun by Jimetta Rose, with a cover and a link. But Apple was only ever asked to decorate a match MusicBrainz had already made, so the tip ended unmatched with no art and nothing to pick in "Which one?" (decision 048). New and independent releases often reach Apple's catalog before anyone adds them to MusicBrainz, so this will keep happening.
+**Why this came up:** Tarik reported tip 150, the album "MettaSun" by Jimetta Rose, a new independent release. MusicBrainz is the free, community-edited music catalog Earmark uses to name music (decision 012). It has no MettaSun, only three of Jimetta Rose's other albums. Discogs and the free iTunes Search API have nothing either. Earmark's own Apple Music catalog search (the paid developer account it already uses to add links and covers) returns exactly one result: MettaSun by Jimetta Rose, with a cover and a link. But Apple was only asked to decorate a match MusicBrainz had already made, so the tip ended unmatched, with no art and nothing to pick in "Which one?" (decision 048). New and independent releases often reach Apple's catalog before anyone adds them to MusicBrainz, so this will keep happening.
 
 **Options:**
-1. **Leave it.** Cost: new independent releases, the kind of tip a radio person most wants to act on, stay unmatched; the only fix is typing the details in by hand.
-2. **Apple as a fallback when MusicBrainz has no accepted match.** Cost: one more Apple call and up to one more Jev call per such tip; a match found this way has no MusicBrainz id, so it gets no Wikipedia note.
-3. **Ask both every time and let Jev choose across them.** Cost: an Apple call and a bigger choice for Jev on every music tip, including the many MusicBrainz already gets right, and two catalogs' near-duplicates competing in one question.
+1. **Search both every time and merge the results.** Cost: one extra Apple call on every music lookup, plus the work of recognising the same release in both lists.
+2. **Apple first, MusicBrainz only when Apple has nothing.** Cost: loses the MusicBrainz id on most matches, which the Wikipedia note and the cover-art retry depend on.
+3. **MusicBrainz first, Apple as a fallback** only when Jev accepts nothing from MusicBrainz. Cost: a tip like MettaSun reaches Apple only if Jev correctly turns down all three wrong Jimetta Rose albums first, and Jev never sees both catalogs side by side.
 
-**What we chose and why:** Option 2, jointly: Tarik reported the case, Claude proposed the fallback. MusicBrainz stays first because it is keyless and its ids power the Wikipedia note and the cover-art retry. How it plugs in:
-- The background lookup (the lane, decision 013) asks Jev about MusicBrainz's options as before. Only if Jev accepts none (or there were none) and Apple is set up does it search Apple, then asks Jev again with the same tip and the same words. An Apple pick skips the Cover Art Archive step (that needs a MusicBrainz id; Apple's cover is already on it).
-- The "Which one?" options keep both lists: Apple's first, then MusicBrainz's, up to the three the page shows. Each option records which service it came from (`provider: "apple"` or `"musicbrainz"`), and picking an Apple option writes its Apple id, link and cover through the same save path as any pick.
-- If Apple errors or times out during the fallback, the lane treats it as "no match this time" and logs it (ids and error name only); it never throws away a MusicBrainz result and never counts against the tip. In "Search again", an Apple "slow down" (429/503) shows "try again in a bit", the same as any service's.
+**What we chose and why:** Option 1, chosen by Tarik. Claude first built option 3, then Tarik chose to search both every time, accepting the extra Apple call per music tip so that Jev always sees the best of both. Claude chose how it plugs in:
+- The two searches run together. When the same release is in both (same name and artist, ignoring accents, case and punctuation), it becomes one option with both identities; its cover is Apple's when MusicBrainz has none, which is always at search time.
+- Jev sees at most three options: merged ones first, then MusicBrainz and Apple alternating. The same three are saved for "Which one?", each recording where it came from (`musicbrainz`, `apple`, or `musicbrainz+apple`). Picking an Apple option writes its Apple id, link and cover through the same save path as any pick.
+- After the pick, the Cover Art Archive step still runs for a MusicBrainz release with no cover. The separate Apple step that looks for a release's Apple twin now runs only for a pick that has no Apple id yet.
+- If one search fails, the other's results are still used and the failure is logged (ids and error name only). A failure counts as a failure only when nothing was found at all, so the lane's existing retry and back-off rules apply exactly as they do for MusicBrainz today. "Search again" then says "try again in a bit".
 - Apple not set up: everything behaves exactly as before.
 
 **What we gave up:**
-- A music tip can now cost two Jev calls instead of one, so the lane's cap of 8 Jev calls a run can be passed by one.
-- An Apple-only match has no MusicBrainz id, so it gets no Wikipedia note (the note is only written when Wikidata confirms the page is that MusicBrainz artist). The preview and Discogs credits still work: they search by name, artist and Apple id.
-- An Apple timeout during the fallback, on a tip MusicBrainz knew nothing about, ends that look as unmatched rather than retrying. Tarik can still use "Search again", or requeue it.
-- Apple's catalog search is by words, so Jev's same-item judgment is the only guard against a look-alike; it is the same guard every other lookup has.
+- One extra Apple call per music lookup, and a second one when Jev picks a MusicBrainz-only release (the twin search by the matched name).
+- A release found in both catalogs now shows Apple's cover rather than the Cover Art Archive's, because Apple's arrives with the search and Cover Art only fills a gap.
+- A match found only on Apple has no MusicBrainz id, so it gets no Wikipedia note (the note is written only when Wikidata confirms the page is that MusicBrainz artist). The preview and the Discogs credits still work, because they search by name, artist and Apple id.
+- If MusicBrainz is overloaded (it answers "slow down") but Apple returns results, the tip is still matched from Apple's list. The lane then keeps going rather than pausing for MusicBrainz, so the next music tips in the same run ask MusicBrainz again.
+- "Same release" means the same name and artist. A deluxe edition or a differently punctuated title shows up as two options, and Jev decides between them.
 
-**How we'll know if this was right:** Tip 150 (MettaSun) is matched to the Apple album after it is requeued. And over the next month, the tips Apple matched are listable, along with any Tarik later corrected:
+**How we'll know if this was right:** Tip 150 (MettaSun) is matched to the Apple album after it is requeued. And over the next month, the tips whose options include Apple's are listable, along with any Tarik later corrected:
 
 ```sql
--- Music tips whose options include an Apple one, and whether the match came from Apple.
+-- Music tips whose options include an Apple one (alone or merged), and what was picked.
 select id, canonical_name, creator, enrichment_status, match_source, auto_pick, owner_pick
 from recommendations
 where type in ('album', 'song', 'artist')
-  and exists (select 1 from jsonb_array_elements(match_candidates) c where c->>'provider' = 'apple');
+  and exists (select 1 from jsonb_array_elements(match_candidates) c where c->>'provider' in ('apple', 'musicbrainz+apple'));
 ```
 
-If more than about one in ten of the automatic Apple picks get corrected by Tarik, the fallback is guessing too loosely.
+If more than about one in ten automatic picks of an Apple-only option get corrected by Tarik, Apple's results are leading Jev astray.
 
 **What actually happened:**
