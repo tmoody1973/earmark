@@ -1,0 +1,42 @@
+/* About (public, static). The garden's world, one reading column: tokens from globals.css, nothing new designed. */
+.about { max-width: 40rem; }
+.about h2 { font-family: var(--serif); font-size: 1.375rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 1rem; }
+.about-lede { font-family: var(--serif); font-size: 1.1875rem; line-height: 1.5; margin: 1.5rem 0 0; }
+.about-note { color: var(--ink-2); margin: 0 0 1rem; }
+
+/* What a tip can be: a quiet row of the cards' own type icons */
+.about-kinds { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0; margin: 1.25rem 0 0; }
+.about-kinds li {
+  display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.375rem 0.75rem 0.375rem 0.5rem;
+  font-size: 0.9375rem; color: var(--ink-2); background: var(--surface); border: 1px solid var(--hairline); border-radius: 999px;
+}
+.about-kinds svg { color: var(--sage-ink); }
+
+/* How it works: a numbered path, each step a sage mark and two lines */
+.about-steps { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+.about-steps li { display: flex; gap: 1rem; padding: 0.875rem 0; border-bottom: 1px solid var(--hairline); }
+.about-steps li:last-child { border-bottom: 0; }
+.about-step-mark {
+  flex: none; display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+  color: var(--sage-ink); background: var(--sage-ground); border-radius: 50%;
+}
+.about-steps h3 { font-size: 1.0625rem; font-weight: 600; margin: 0.125rem 0 0.125rem; }
+.about-steps h3::before { counter-increment: step; content: counter(step) ". "; color: var(--ink-2); font-weight: 400; }
+.about-steps p { margin: 0; color: var(--ink-2); }
+
+.about-list, .about-credits { padding-left: 1.25rem; margin: 0; }
+.about-list li, .about-credits li { margin: 0 0 0.625rem; }
+.about-credits { font-size: 0.9375rem; color: var(--ink-2); }
+.about-credits a { color: var(--ink); }
+
+/* TMDB requires its logo; smaller than Earmark's own wordmark, unaltered, on the page's ground */
+.about-credits .about-tmdb { list-style: none; margin-left: -1.25rem; margin-top: 1rem; }
+.about-tmdb a { display: inline-flex; align-items: center; min-height: 44px; }
+.about-tmdb img { display: block; width: 154px; height: auto; }
+.about-tmdb span { display: block; }
+
+/* 44px link rows (the "See all" pattern) */
+.about-links { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+.about-links a, .about-foot a { display: inline-flex; align-items: center; min-height: 44px; }
+.about-foot { margin: 3rem 0 0; font-size: 0.9375rem; }
+.about-foot a { color: var(--ink-2); }
