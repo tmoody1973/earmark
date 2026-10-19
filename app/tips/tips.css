@@ -130,3 +130,17 @@
   font-size: 0.9375rem; color: var(--ink-2); text-decoration: underline; text-underline-offset: 0.2em; text-decoration-thickness: 1px;
 }
 .which-fix summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+/* "Fix this tip" (decision 049): the same quiet disclosure; labelled fields, 44px targets, >= 16px text (no iOS zoom) */
+.tip-fix-form { display: grid; gap: 0.25rem; margin-top: 0.5rem; }
+.tip-fix-form .idea-quiet { margin: 0 0 0.5rem; }
+.tip-fix-form label { margin-top: 0.5rem; font-size: 0.9375rem; color: var(--ink-2); }
+.tip-fix-form :is(input, select, textarea) {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 0.5rem 0.75rem;
+  font: inherit; font-size: 1.0625rem; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--hairline); border-radius: var(--radius-art);
+}
+.tip-fix-form :is(input, select, textarea):hover { border-color: var(--hairline-strong); }
+.tip-fix-form :is(input, select, textarea):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-color: var(--ink-3); }
+.tip-fix-form textarea { resize: vertical; line-height: 1.5; }
+.tip-fix-form button { justify-self: start; margin-top: 0.75rem; padding: 0 1.25rem; font-weight: 600; }
+.tip-fix-form button:disabled { opacity: 0.6; cursor: default; }
