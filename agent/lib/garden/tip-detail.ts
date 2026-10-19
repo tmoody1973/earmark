@@ -31,9 +31,8 @@ export interface TipDetail {
 const SERVICE: Record<string, string> = {
   apple_music: "Apple Music", apple_podcasts: "Apple Podcasts", podcast_index: "Podcast Index", musicbrainz: "MusicBrainz",
   discogs: "Discogs", openlibrary: "Open Library", wikipedia: "Wikipedia", tmdb: "TMDB", google_maps: "Google Maps", youtube: "YouTube",
+  bandcamp: "Bandcamp", // links.web (an owner-pasted page, decision 049) is labelled by its site
 };
-// The owner's pasted link (decision 049, recs/tip-link.ts) has its own words, wherever it sits.
-const OWN_LABEL: Record<string, string> = { bandcamp: "Listen on Bandcamp", web: "Open link" };
 const VERB: Record<RecType, string> = {
   album: "Listen", song: "Listen", artist: "Listen", podcast: "Listen", book: "Read", film_tv: "Watch", video: "Watch", place: "Map", other: "Open",
 };
@@ -54,7 +53,7 @@ export function tipLinks(type: RecType, links: unknown): TipLink[] {
     if (seen.has(url)) return [];
     seen.add(url);
     const service = SERVICE[key] ?? host(url);
-    return [{ label: OWN_LABEL[key] ?? (url === primary ? `${VERB[type] ?? "Open"} · ${service}` : service), url }];
+    return [{ label: url === primary && key !== "web" ? `${VERB[type] ?? "Open"} · ${service}` : service, url }];
   });
 }
 
