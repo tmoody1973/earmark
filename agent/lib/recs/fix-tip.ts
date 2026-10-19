@@ -72,6 +72,7 @@ export async function applyTipFix(id: number, fix: TipFix): Promise<{ changed: b
       auto_pick = case when f.relook then null else r.auto_pick end,
       match_candidates = case when f.relook then null else r.match_candidates end,
       candidates_at = case when f.relook then null else r.candidates_at end,
+      web_looked_at = case when f.relook then null else r.web_looked_at end, -- new words: the web may look again (decision 051)
       year_or_address = case when f.relook then null else r.year_or_address end,
       image_url = case when f.relook and r.source <> 'photo' then null else r.image_url end,
       apple_music_id = case when f.relook and r.source <> 'song' then null else r.apple_music_id end,

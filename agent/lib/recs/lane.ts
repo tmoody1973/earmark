@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { createBeeClient } from "../bee/client";
 import { db } from "../db";
+import { ownerFirstName } from "../env";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
 import { discogsAccess } from "../enrich/discogs";
@@ -12,12 +13,14 @@ import { fetchExtras, type ExtrasRec, type RecExtras } from "../enrich/extras";
 import { MATCH_ACCEPT, pickMatch } from "../enrich/match";
 import { coverArtUrl } from "../enrich/musicbrainz";
 import { enabledTypes, providerFor, REC_TYPES } from "../enrich/registry";
-import { describeCandidate, logEnrichError, ProviderHttpError, type Candidate, type EnrichmentMatch } from "../enrich/types";
+import { describeCandidate, logEnrichError, MAX_CANDIDATES, ProviderHttpError, type Candidate, type EnrichmentMatch } from "../enrich/types";
 import { HIDDEN_TIP_STATUSES } from "../garden/queries";
+import { candidateKey, readCandidates, type StoredCandidate } from "../garden/which-one";
 import { ensureRecEmbeddings } from "../links/candidates";
 import { CLAIM_LEASE } from "../store/conversations";
 import type { RecStatus, RecType } from "../types";
 import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
+import { findOnWeb, WEB_FIND_TYPES, type WebFound, type WebTip } from "./web-find";
 
 export const MAX_RECS_PER_RUN = 10;
 export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip; tips with no candidates cost none
@@ -41,6 +44,9 @@ export const MAX_ABOUT_TRIES = 3; // errors/timeouts (not 503/429): then done, n
 // Decision 045. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia).
 export const MAX_EXTRAS_PER_RUN = 10;
 export const MAX_EXTRAS_TRIES = 3; // errors/timeouts (not 503/429): then the lane stops asking (extras_at stays null)
+// Decision 051. Find it on the web: <=3 tips a run, each 1 TinyFish Search (free) + <=1 EXTRACT_MODEL call + <=3 catalog
+// searches with the web's titles. Never Jev. Once per tip (web_looked_at), only while TINYFISH_API_KEY is set.
+export const MAX_WEB_FINDS_PER_RUN = 3;
 
 // Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
@@ -71,7 +77,7 @@ export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
       jevCalls: number; artFixed: number; abouts: number; extras: number; summarized: number; summaryFailed: number; embedded: number;
-      stoppedOn: string | null; waitingForKeys: RecType[] };
+      webFinds: number; webMatched: number; stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
 export interface SweepDeps {
@@ -83,6 +89,7 @@ export interface SweepDeps {
   embedRecs: (limit: number) => Promise<number>;
   about: (rec: AboutRec) => Promise<About | null>;
   extras: (rec: ExtrasRec) => Promise<RecExtras>;
+  webFind: (tip: WebTip) => Promise<WebFound>;
   env: Record<string, string | undefined>;
   budgetMs: number;
   onlyIds: readonly number[] | null; // tests: scope the sweep to their own rows
@@ -100,6 +107,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
     embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec), extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env)),
+    webFind: (tip) => findOnWeb(tip, { env: deps.env ?? process.env, fetchImpl: fetch }),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -138,7 +146,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number; pendingKey: string })[];
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
-    summarized: 0, summaryFailed: 0, embedded: 0, stoppedOn: null, waitingForKeys };
+    summarized: 0, summaryFailed: 0, embedded: 0, webFinds: 0, webMatched: 0, stoppedOn: null, waitingForKeys };
   // What Jev was shown and what it chose, for this tip ("Which one?", decision 048). Every provider asks pick once.
   type Seen = { candidates: readonly Candidate[]; picked: EnrichmentMatch | null };
   const last: { seen: Seen | null } = { seen: null };
@@ -220,6 +228,14 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       await writeWhys(d, r, overBudget);
     } catch (err) {
       logEnrichError("rec-lane whys", {}, err); // the embed step below still runs
+    }
+  }
+  // After the whys (its query reads the why), and never while a catalog is asking us to slow down (it searches them too).
+  if (!overBudget() && !r.stoppedOn && d.env.TINYFISH_API_KEY?.trim()) {
+    try {
+      await findOnTheWeb(d, r, overBudget, types);
+    } catch (err) {
+      logEnrichError("rec-lane web find step", {}, err); // the embed step below still runs
     }
   }
   if (!overBudget()) {
@@ -334,6 +350,56 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
   }
 }
 
+// Find it on the web (decision 051): automatic no-matches the web hasn't been asked about, whose why step is done (the
+// query reads it) and whose options the owner hasn't searched for (candidates_at later than enriched_at: decision 048's
+// rule), newest first. A refusal from TinyFish or a catalog (ProviderHttpError: 402/429/503…) leaves the tip as it was and
+// stops this step: the next run asks again. Any other failure (the model, a timeout) ends the tip's one look, so a bad
+// answer never costs a call every run. web_looked_at is claimed only while the tip is still the no_match that was read
+// (enriched_at unchanged); every write after is guarded the same way.
+async function findOnTheWeb(d: SweepDeps, r: Done, overBudget: () => boolean, types: readonly RecType[]): Promise<void> {
+  const rows = (await db()`
+    select id, type, canonical_name, creator, context_summary, match_candidates, enriched_at::text as enriched_key,
+      (select first_name from recommenders p where p.id = recommendations.recommender_id) as recommender_first_name from recommendations
+    where enrichment_status = 'no_match' and match_source = 'auto' and web_looked_at is null
+      and (summarized_at is not null or why_source = 'owner') and (candidates_at is null or candidates_at <= enriched_at)
+      and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${WEB_FIND_TYPES.filter((t) => types.includes(t))}::text[])
+      and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
+    order by id desc limit ${MAX_WEB_FINDS_PER_RUN}`) as (Omit<WebTip, "id"> & { id: number | string; match_candidates: unknown; enriched_key: string | null; recommender_first_name: string | null })[];
+  for (const row of rows) {
+    if (overBudget()) break;
+    const id = Number(row.id);
+    r.webFinds++;
+    let found: WebFound;
+    try {
+      found = await d.webFind({ id, type: row.type, canonical_name: row.canonical_name, creator: row.creator, context_summary: row.context_summary,
+        names: [row.recommender_first_name, ownerFirstName()] });
+    } catch (err) {
+      logEnrichError("rec-lane web find", { rec: id }, err);
+      if (err instanceof ProviderHttpError) break; // not this tip's answer: it is asked again next run
+      found = { kind: "nothing" };
+    }
+    const claimed = await db()`update recommendations set web_looked_at = now()
+      where id = ${id} and web_looked_at is null and enrichment_status = 'no_match' and match_source = 'auto'
+        and enriched_at is not distinct from ${row.enriched_key}::timestamptz returning id`;
+    if (claimed.length === 0) continue; // the owner (or another tab) changed the tip mid-lookup
+    if (found.kind === "match" && await saveMatch(id, found.match, { ifNoMatchAt: row.enriched_key })) {
+      r.webMatched++;
+      await applyReviewReason(id);
+    } else if (found.kind === "options") {
+      await saveWebCandidates(id, found.candidates, row.match_candidates, row.enriched_key);
+    }
+  }
+}
+
+// The web's options first, then what the catalogs offered before (Jev turned those down), at most MAX_CANDIDATES.
+// candidates_at and enriched_at move together (one now()), so "a later candidates_at means the owner searched" still holds.
+async function saveWebCandidates(id: number, found: readonly StoredCandidate[], before: unknown, enrichedKey: string | null): Promise<void> {
+  const all = [...found, ...readCandidates(before)];
+  const stored = all.filter((c, i) => all.findIndex((o) => candidateKey(o) === candidateKey(c)) === i).slice(0, MAX_CANDIDATES);
+  await db()`update recommendations set match_candidates = ${JSON.stringify(stored)}::jsonb, candidates_at = now(), enriched_at = now(), updated_at = now()
+    where id = ${id} and enrichment_status = 'no_match' and match_source = 'auto' and enriched_at is not distinct from ${enrichedKey}::timestamptz`;
+}
+
 // Which links a provider supplied (types.ts RecLinks), as opposed to a capture's own (url, urls, youtube, primary).
 export const PROVIDER_LINK_KEYS = ["apple_music", "musicbrainz", "discogs", "openlibrary", "wikipedia", "tmdb", "google_maps",
   "openstreetmap", "podcast_index", "apple_podcasts"];
@@ -352,11 +418,14 @@ export const SONG_CAPTURE_STRIPS = PROVIDER_LINK_KEYS.filter((k) => k !== "apple
 // item; auto_pick is kept, so "did Jev agree?" stays answerable. enriched_at moves, which the lane's tail writes check.
 // recEmbedText reads name and creator, so a change drops the embedding and the sweep's embed step writes it again.
 // A match whose art lookup errored (or a music pick with no art yet) and that has no picture is marked for the art-only
-// retry tail. ifPendingSince: the lane's read token (see sweepLeased). Returns whether the row changed.
+// retry tail. ifPendingSince: the lane's read token (see sweepLeased). ifNoMatchAt: the web find's (decision 051), an
+// automatic no_match whose enriched_at is still this. Returns whether the row changed.
 export async function saveMatch(
-  id: number, m: EnrichmentMatch, opts: { ownerPick?: string; ifCandidates?: string; ifPendingSince?: string } = {},
+  id: number, m: EnrichmentMatch,
+  opts: { ownerPick?: string; ifCandidates?: string; ifPendingSince?: string; ifNoMatchAt?: string | null } = {},
 ): Promise<boolean> {
   const owner = opts.ownerPick !== undefined;
+  const web = opts.ifNoMatchAt !== undefined;
   const lat = m.lat ?? null;
   const lng = m.lng ?? null;
   const img = m.imageUrl;
@@ -388,7 +457,9 @@ export async function saveMatch(
     from (select id, ${owner}::boolean as owner, ${owner}::boolean and enrichment_status = 'matched' as fix,
             source = 'song' as song, source = 'photo' as photo
           from recommendations where id = ${id}) f
-    where r.id = f.id and r.match_source = 'auto' and (f.owner or r.enrichment_status = 'pending')
+    where r.id = f.id and r.match_source = 'auto'
+      and (f.owner or r.enrichment_status = 'pending' or (${web}::boolean and r.enrichment_status = 'no_match'))
+      and (not ${web}::boolean or r.enriched_at is not distinct from ${opts.ifNoMatchAt ?? null}::timestamptz)
       and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${opts.ifCandidates ?? null}::jsonb is null or r.match_candidates = ${opts.ifCandidates ?? null}::jsonb)
       and (${opts.ifPendingSince ?? null}::timestamptz is null or r.pending_since = ${opts.ifPendingSince ?? null}::timestamptz)
