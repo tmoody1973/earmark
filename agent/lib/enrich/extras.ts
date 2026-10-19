@@ -13,6 +13,10 @@
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
 //  - anything with a Wikipedia about_url (lane.ts about step): the page summary's extract, up to 600 characters.
 //  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
+//  - film_tv (keyed: the caller passes TMDB_API_KEY, the v4 Bearer token): ONE request, GET /3/{movie|tv}/{id}
+//    ?append_to_response=credits,videos,watch/providers (https://developer.themoviedb.org/docs/append-to-response) →
+//    synopsis, genres, runtime or seasons, directors or creators, top cast, the first official YouTube trailer, and US
+//    watch providers. Those come from JustWatch: TMDB's terms ask for "JustWatch" credit wherever they show (the page does).
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import type { RecType } from "../types";
@@ -36,6 +40,20 @@ export interface RecExtras {
   book?: { description: string | null; firstPublished: string | null; pages: number | null };
   wiki?: { text: string; url: string };
   discogs?: DiscogsExtras; // albums, songs, artists (decision 047); its url is also copied to links.discogs
+  film?: FilmExtras; // film_tv, from TMDB (decision 056)
+}
+export interface WatchProvider { name: string; logoUrl: string | null }
+export interface FilmExtras {
+  kind: "movie" | "tv";
+  overview: string | null;
+  genres: string[];
+  runtime: number | null; // a movie's minutes
+  seasons: number | null; // a show's
+  episodes: number | null;
+  by: string[]; // a movie's directors, a show's creators
+  cast: string[]; // top billed, in order
+  watch: { link: string; stream: WatchProvider[]; free: WatchProvider[]; rentBuy: WatchProvider[] } | null; // US only
+  trailer: string | null; // a YouTube video id, played by the page's tap-to-load player
 }
 export interface ExtrasRec {
   type: RecType; canonical_name: string; creator: string | null; apple_music_id: string | null; links: unknown; about_url: string | null;
@@ -155,6 +173,75 @@ export function youtubeId(url: string | null): string | null {
   }
 }
 
+const MAX_CAST = 4;
+const MAX_PROVIDERS = 6; // per group; "More ways to watch" has the rest
+const MAX_GENRES = 3;
+const MAX_BY = 3;
+const TMDB_SITE = "https://www.themoviedb.org/";
+const TMDB_LOGO = /^https:\/\/image\.tmdb\.org\/t\/p\/w92\/[\w-]+\.(?:png|jpe?g|svg)$/;
+const TMDB_REF = /^https:\/\/www\.themoviedb\.org\/(movie|tv)\/(\d+)(?:-[\w-]*)?\/?$/;
+
+const posInt = (v: unknown): number | null => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : null);
+const strs = (v: unknown, max: number): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim()))].slice(0, max) : [];
+const names = (v: unknown, max: number) => strs(Array.isArray(v) ? v.map((x) => x?.name) : [], max);
+
+// A provider list (or two merged: free + ads, rent + buy), TMDB's order, each name once.
+function providers(...lists: unknown[]): WatchProvider[] {
+  const all = lists.flatMap((l) => (Array.isArray(l) ? l : []));
+  const unique = all.filter((p, i) => typeof p?.provider_name === "string" && p.provider_name.trim()
+    && all.findIndex((q) => q?.provider_name === p.provider_name) === i);
+  return unique.slice(0, MAX_PROVIDERS).map((p) => {
+    const logoUrl = typeof p.logo_path === "string" ? `https://image.tmdb.org/t/p/w92${p.logo_path}` : "";
+    return { name: p.provider_name.trim(), logoUrl: TMDB_LOGO.test(logoUrl) ? logoUrl : null };
+  });
+}
+
+/** TMDB videos → the first official YouTube Trailer, else Teaser (TMDB's order). Pure. */
+export function pickTrailer(videos: unknown): string | null {
+  const yt = (Array.isArray(videos) ? videos : []).filter((v) => v?.site === "YouTube" && v.official === true && VIDEO_ID.test(String(v.key)));
+  return (yt.find((v) => v.type === "Trailer") ?? yt.find((v) => v.type === "Teaser"))?.key ?? null;
+}
+
+/** A TMDB movie or tv answer (credits, videos, watch/providers appended) → what the page shows. Pure. */
+export function filmFromTmdb(json: unknown, kind: FilmExtras["kind"]): FilmExtras | null {
+  const j = json as any;
+  if (!j || typeof j !== "object") return null;
+  const us = j["watch/providers"]?.results?.US;
+  const [stream, free, rentBuy] = [providers(us?.flatrate), providers(us?.free, us?.ads), providers(us?.rent, us?.buy)];
+  const link = typeof us?.link === "string" && us.link.startsWith(TMDB_SITE) ? us.link : null;
+  const crew: any[] = Array.isArray(j.credits?.crew) ? j.credits.crew : [];
+  return {
+    kind,
+    overview: typeof j.overview === "string" ? trimText(j.overview) : null,
+    genres: names(j.genres, MAX_GENRES),
+    runtime: kind === "movie" ? posInt(j.runtime) : null,
+    seasons: kind === "tv" ? posInt(j.number_of_seasons) : null,
+    episodes: kind === "tv" ? posInt(j.number_of_episodes) : null,
+    by: kind === "movie" ? names(crew.filter((c) => c?.job === "Director"), MAX_BY) : names(j.created_by, MAX_BY),
+    cast: names(j.credits?.cast, MAX_CAST),
+    watch: link && (stream.length || free.length || rentBuy.length) ? { link, stream, free, rentBuy } : null,
+    trailer: pickTrailer(j.videos?.results),
+  };
+}
+
+function readFilm(x: any): FilmExtras | null {
+  if (!x || typeof x !== "object" || (x.kind !== "movie" && x.kind !== "tv")) return null;
+  const list = (v: unknown): WatchProvider[] => (Array.isArray(v) ? v : []).flatMap((p: any) => (typeof p?.name === "string" && p.name
+    ? [{ name: p.name, logoUrl: typeof p.logoUrl === "string" && TMDB_LOGO.test(p.logoUrl) ? p.logoUrl : null }] : [])).slice(0, MAX_PROVIDERS);
+  const w = x.watch;
+  const watch = typeof w?.link === "string" && w.link.startsWith(TMDB_SITE)
+    ? { link: w.link, stream: list(w.stream), free: list(w.free), rentBuy: list(w.rentBuy) } : null;
+  return {
+    kind: x.kind,
+    overview: typeof x.overview === "string" && x.overview ? x.overview : null,
+    genres: strs(x.genres, MAX_GENRES), runtime: posInt(x.runtime), seasons: posInt(x.seasons), episodes: posInt(x.episodes),
+    by: strs(x.by, MAX_BY), cast: strs(x.cast, MAX_CAST),
+    watch: watch && (watch.stream.length || watch.free.length || watch.rentBuy.length) ? watch : null,
+    trailer: typeof x.trailer === "string" && VIDEO_ID.test(x.trailer) ? x.trailer : null,
+  };
+}
+
 /** The stored jsonb, as far as the page may trust it: web URLs only, every part the right shape. Pure. */
 export function readExtras(raw: unknown): RecExtras {
   const x = raw as any;
@@ -179,6 +266,8 @@ export function readExtras(raw: unknown): RecExtras {
   if (typeof x.wiki?.text === "string" && typeof x.wiki.url === "string" && x.wiki.url.startsWith(WIKI)) out.wiki = { text: x.wiki.text, url: x.wiki.url };
   const discogs = readDiscogs(x.discogs);
   if (discogs) out.discogs = discogs;
+  const film = readFilm(x.film);
+  if (film) out.film = film;
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -311,6 +400,15 @@ async function openLibraryBook(links: unknown, fetchImpl: typeof fetch): Promise
   return bookFromOpenLibrary(work, search);
 }
 
+async function tmdbFilm(links: unknown, token: string, fetchImpl: typeof fetch): Promise<FilmExtras | null> {
+  const m = TMDB_REF.exec(String((links as Record<string, unknown> | null)?.tmdb ?? "")); // tmdb.ts stores /movie|tv/<id>
+  if (!m) return null;
+  const kind = m[1] as FilmExtras["kind"];
+  const json = await getJson(`https://api.themoviedb.org/3/${kind}/${m[2]}?append_to_response=credits,videos,watch/providers&language=en-US`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }, fetchImpl);
+  return json === null ? null : filmFromTmdb(json, kind);
+}
+
 async function wikipedia(aboutUrl: string | null, fetchImpl: typeof fetch): Promise<RecExtras["wiki"] | null> {
   const title = aboutUrl?.startsWith(WIKI) ? aboutUrl.slice(WIKI.length) : null; // already in URL form ("Sault_(band)")
   if (!title || !/^[^/?#\s]+$/.test(title)) return null;
@@ -322,8 +420,10 @@ async function wikipedia(aboutUrl: string | null, fetchImpl: typeof fetch): Prom
  * One matched tip → its extras ({} when there is nothing). A 429/5xx or a timeout throws, for the lane to handle.
  * Discogs (decision 047) runs last and only when the caller passes a key (never read from process.env here). Its 429 stops
  * the step before anything is saved; its other failures are logged and leave the other extras intact.
+ * TMDB (film_tv) likewise only with the caller's token; a 429 there stops the step like any other 429.
  */
-export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = null): Promise<RecExtras> {
+export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = null,
+  tmdbToken: string | null = null): Promise<RecExtras> {
   const out: RecExtras = {};
   if (rec.type === "song" || rec.type === "album") {
     const preview = await itunesPreview(rec, rec.type, fetchImpl);
@@ -337,6 +437,9 @@ export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetc
   } else if (rec.type === "book") {
     const book = await openLibraryBook(rec.links, fetchImpl);
     if (book) out.book = book;
+  } else if (rec.type === "film_tv" && tmdbToken) {
+    const film = await tmdbFilm(rec.links, tmdbToken, fetchImpl);
+    if (film) out.film = film;
   }
   const wiki = await wikipedia(rec.about_url, fetchImpl);
   if (wiki) out.wiki = wiki;

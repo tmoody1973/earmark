@@ -13,6 +13,7 @@ import { cardSubline, TYPE_LABEL } from "@/app/garden/cards/RecCard";
 import { TipCard, TipMenu, TipTag } from "@/app/garden/cards/TipActions";
 import { TabBar } from "@/app/garden/TabBar";
 import { Credits } from "./Credits";
+import { FilmDetails } from "./FilmDetails";
 import { FixTip } from "./FixTip";
 import { VideoPlayer } from "./VideoPlayer";
 import { WhichOne } from "./WhichOne";
@@ -58,6 +59,7 @@ export default async function TipPage({ params }: Props) {
   const note = extras.wiki ?? card.about; // the longer Wikipedia extract when the lane stored one
   const onShelf = !HIDDEN_TIP_STATUSES.includes(card.status);
   const from = card.recommender;
+  const videoId = extras.videoId ?? extras.film?.trailer ?? null; // a film's trailer: the same tap-to-load player
 
   return (
     <>
@@ -71,8 +73,10 @@ export default async function TipPage({ params }: Props) {
         <header className="tip-head">
           {card.variant !== "note" && (
             <div className="tip-art">
-              {extras.videoId ? (
-                <VideoPlayer videoId={extras.videoId} title={card.name}><Artwork card={art} /></VideoPlayer>
+              {videoId ? (
+                <VideoPlayer videoId={videoId} title={extras.videoId ? card.name : `${card.name} trailer`}>
+                  <Artwork card={art} />
+                </VideoPlayer>
               ) : (
                 <Artwork card={art} />
               )}
@@ -197,6 +201,8 @@ export default async function TipPage({ params }: Props) {
             {(extras.book.firstPublished || extras.book.pages) && <p className="idea-quiet">{published(extras.book)} · Open Library</p>}
           </section>
         )}
+
+        {extras.film && <FilmDetails film={extras.film} year={card.yearOrAddress} />}
 
         {extras.discogs && <Credits discogs={extras.discogs} />}
 
