@@ -119,8 +119,8 @@ export default async function TipPage({ params }: Props) {
               <a href={note.url} rel="noopener noreferrer">Wikipedia</a>
             </p>
           )}
-          {/* Decision 049: the owner corrects the words or the note; a cleared tip can't be fixed, and the quote never is */}
-          {card.status !== "dismissed" && card.status !== "composted" && (
+          {/* Decision 049: the owner corrects the words or the note; a cleared or overheard tip can't be fixed, and the quote never is */}
+          {card.status !== "dismissed" && card.status !== "composted" && card.status !== "overheard" && (
             <FixTip tipId={card.id} types={TYPE_LABEL}
               was={{ name: card.name, creator: card.creator, type: card.type, note: tip.note, link: tip.knownLink, ownLink: tip.ownerLink !== null }} />
           )}
@@ -137,7 +137,9 @@ export default async function TipPage({ params }: Props) {
           </TipCard>
         ) : (
           <p className="idea-note">
-            {card.status === "needs_review" ? "A maybe: keep it or clear it on Home." : "You cleared this tip. It stays here, so nothing is lost."}
+            {card.status === "needs_review" ? "A maybe: keep it or clear it on Home."
+              : card.status === "overheard" ? <>Heard nearby, with no one recommending it. Keep it or clear it in <Link href="/heard">Heard nearby</Link>.</>
+              : "You cleared this tip. It stays here, so nothing is lost."}
           </p>
         )}
 

@@ -20,7 +20,7 @@ import type { applyTipFix, TipFix, TipNow } from "./fix-tip";
 const fixTip = () => import("./fix-tip");
 // Cleared tips, which no fix may touch: lane.ts SWEEP_SKIPS_STATUSES, spelled out so this file needn't load the lane.
 // tests/lib/recs/spoken-fix.test.ts keeps the two equal.
-export const CLEARED_STATUSES = ["dismissed", "composted"] as const;
+export const CLEARED_STATUSES = ["dismissed", "composted", "overheard"] as const;
 
 export const FIX_LOOKBACK_DAYS = 30;
 export const MAX_TIP_CANDIDATES = 3; // as "Which one?" (MAX_CANDIDATES): Jev picks one of these, or none_fits

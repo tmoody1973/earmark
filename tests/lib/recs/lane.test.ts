@@ -17,8 +17,8 @@ describe("rec lane rules", () => {
     expect(isBackOffSignal(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe(false);
   });
 
-  it("enriches maybes (needs_review) but never dismissed or composted tips", () => {
-    expect([...SWEEP_SKIPS_STATUSES].sort()).toEqual(["composted", "dismissed"]);
+  it("enriches maybes (needs_review) but never dismissed, composted or Heard nearby (overheard) tips", () => {
+    expect([...SWEEP_SKIPS_STATUSES].sort()).toEqual(["composted", "dismissed", "overheard"]);
   });
 });
 

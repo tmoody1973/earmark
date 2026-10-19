@@ -48,7 +48,7 @@ export const MAX_EXTRAS_TRIES = 3; // errors/timeouts (not 503/429): then the la
 // searches with the web's titles. Never Jev. Once per tip (web_looked_at), only while TINYFISH_API_KEY is set.
 export const MAX_WEB_FINDS_PER_RUN = 3;
 
-// Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared tips never are.
+// Maybes (needs_review) are enriched so the Maybe? row shows art (decision 025); cleared and overheard tips never are.
 export const SWEEP_SKIPS_STATUSES: readonly RecStatus[] = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
 
 export type EnrichmentStatus = "pending" | "matched" | "no_match" | "failed";

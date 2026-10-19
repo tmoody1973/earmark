@@ -1,0 +1,7 @@
+/* Heard nearby (/heard, decision 052): the Maybe? row's dashed cards (cards.css), one per row, with where each came
+   from. Quiet on purpose: no count, no badge, never orange. Tokens: app/globals.css. */
+.heard-page { max-width: 44rem; }
+.heard-page .garden-head p { max-width: 36rem; }
+.heard-list { grid-template-columns: 1fr; margin-top: 1.25rem; }
+.heard-when { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--ink-2); }
+.heard-quote { margin: 0.5rem 0 0; font-family: var(--serif); font-style: italic; font-size: 1rem; line-height: 1.5; color: var(--ink); hanging-punctuation: first; }

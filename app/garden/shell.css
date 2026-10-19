@@ -18,6 +18,10 @@
 /* at 320 the line wraps: the icon stays centred on its first line */
 .garden-lookback svg { flex: none; margin-top: calc(0.65em - 8px); }
 .garden-lookback:hover { color: var(--ink); }
+/* Home's one quiet way to Heard nearby (decision 052): plain text, no count; a 44px target */
+.heard-door { margin: 1rem 0 0; font-size: 0.9375rem; }
+.heard-door a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink-2); text-underline-offset: 2px; }
+.heard-door a:hover { color: var(--ink); }
 
 /* ---- search: a door, not a toolbar ---- */
 .garden-search { display: block; position: relative; margin-top: 1.5rem; }
