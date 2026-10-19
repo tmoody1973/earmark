@@ -187,16 +187,40 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     expect((await row(book)).match_candidates.map((x: Candidate) => x.canonicalName)).toEqual([C.canonicalName]); // untouched
   });
 
-  it("a captured song keeps its own Apple identity through a correction unless the pick brings its own", async () => {
+  // Each capture owns different fields (capture/songs.ts, photos.ts, email.ts): a correction keeps only those.
+  const capturedTip = (source: string, wrongPick: Candidate, right: Candidate) => addRec({ type: "album", set: `source = '${source}',
+    enrichment_status = 'matched', apple_music_id = '999', image_url = 'https://is1-ssl.mzstatic.com/wrong.jpg',
+    links = '{"apple_music":"https://music.apple.com/us/album/wrong/999","url":"https://mine.example"}'::jsonb,
+    match_candidates = '${stored([wrongPick, right])}'::jsonb, auto_pick = '${key(wrongPick)}'` });
+  const capRow = async (id: number) =>
+    (await c.query(`select apple_music_id, image_url, links, art_retry_mbid from recommendations where id = $1`, [id])).rows[0];
+  const wrongAlbum = cand("Blew", { appleMusicId: "999" });
+  const rightAlbum = cand("Blue", { creator: "Joni Mitchell", imageUrl: null, releaseGroupId: "rg-right", mbid: "rg-right",
+    links: { musicbrainz: "https://musicbrainz.org/release-group/rg-right" } });
+
+  it("a song capture keeps its own Apple id and link through a correction, but not the wrong match's cover", async () => {
     const { pickCandidate } = await whichOne();
-    const right = cand("Blue", { creator: "Joni Mitchell", imageUrl: null, links: { musicbrainz: "https://musicbrainz.org/release-group/r" } });
-    const id = await addRec({ type: "song", set: `source = 'song', enrichment_status = 'matched', apple_music_id = '123',
-      image_url = 'https://is1-ssl.mzstatic.com/a.jpg', links = '{"apple_music":"https://music.apple.com/us/song/x/123","musicbrainz":"https://musicbrainz.org/release-group/w"}'::jsonb,
-      match_candidates = '${stored([cand("Blew"), right])}'::jsonb, auto_pick = '${key(cand("Blew"))}'` });
-    expect(await pickCandidate(id, 1, key(right))).toEqual({ changed: true });
-    const r = (await c.query(`select apple_music_id, image_url, links from recommendations where id = $1`, [id])).rows[0];
-    expect(r).toMatchObject({ apple_music_id: "123", image_url: "https://is1-ssl.mzstatic.com/a.jpg" });
-    expect(r.links).toEqual({ apple_music: "https://music.apple.com/us/song/x/123", musicbrainz: "https://musicbrainz.org/release-group/r" });
+    const id = await capturedTip("song", wrongAlbum, rightAlbum);
+    expect(await pickCandidate(id, 1, key(rightAlbum))).toEqual({ changed: true });
+    const r = await capRow(id);
+    expect(r).toMatchObject({ apple_music_id: "999", image_url: null, art_retry_mbid: "rg-right" });
+    expect(r.links).toEqual({ apple_music: "https://music.apple.com/us/album/wrong/999", url: "https://mine.example",
+      musicbrainz: "https://musicbrainz.org/release-group/rg-right" });
+  });
+
+  it("a photo capture keeps its own picture; an email capture keeps none of the wrong match's Apple details", async () => {
+    const { pickCandidate } = await whichOne();
+    const photo = await capturedTip("photo", wrongAlbum, rightAlbum);
+    expect(await pickCandidate(photo, 1, key(rightAlbum))).toEqual({ changed: true });
+    const p = await capRow(photo);
+    expect(p).toMatchObject({ apple_music_id: null, image_url: "https://is1-ssl.mzstatic.com/wrong.jpg", art_retry_mbid: null });
+    expect(p.links.apple_music).toBeUndefined();
+
+    const email = await capturedTip("email", wrongAlbum, rightAlbum);
+    expect(await pickCandidate(email, 1, key(rightAlbum))).toEqual({ changed: true });
+    const e = await capRow(email);
+    expect(e).toMatchObject({ apple_music_id: null, image_url: null, art_retry_mbid: "rg-right" }); // the lane fetches the right cover
+    expect(e.links).toEqual({ url: "https://mine.example", musicbrainz: "https://musicbrainz.org/release-group/rg-right" });
   });
 
   it("the lane never overwrites candidates the owner searched for while it was looking", async () => {
