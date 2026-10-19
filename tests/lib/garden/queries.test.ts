@@ -90,8 +90,8 @@ describe("garden queries", () => {
     expect(h.mock.calls[1].text).not.toContain("raw_text");
   });
 
-  it("hides dismissed, composted and maybe (needs_review) tips: maybes live only in the Maybe? row", () => {
-    expect([...HIDDEN_TIP_STATUSES].sort()).toEqual(["composted", "dismissed", "needs_review"]);
+  it("hides dismissed, composted, maybe (needs_review) and Heard nearby (overheard) tips: each lives only in its own list", () => {
+    expect([...HIDDEN_TIP_STATUSES].sort()).toEqual(["composted", "dismissed", "needs_review", "overheard"]);
   });
 
   it("matches the owner by first name even when the owner's full name is configured", () => {

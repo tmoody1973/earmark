@@ -4,7 +4,8 @@ export type Route = "accept" | "review" | "drop";
 export type Source = "ambient" | "voice" | "photo" | "song" | "email";
 export type AttributionSource = "voice_trigger" | "second_person" | "summary" | "slack" | "email" | "none";
 export type IdeaStage = "compost" | "sprouting" | "ready" | "drafted" | "used" | "dismissed";
-export type RecStatus = "needs_review" | "new" | "queued" | "tried" | "thanked" | "dismissed" | "composted";
+// overheard: Heard nearby (decision 052), an overheard tip nobody recommended; only that quiet log shows it.
+export type RecStatus = "needs_review" | "new" | "queued" | "tried" | "thanked" | "dismissed" | "composted" | "overheard";
 export type Rating = "loved" | "fine" | "not_for_me";
 
 // id: Bee's utterance id when REST sent one (identity of a deliberate "Earmark that" within its conversation).

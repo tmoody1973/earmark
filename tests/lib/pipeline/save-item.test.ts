@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSaveQueries, savedIds, type SaveItem } from "../../../agent/lib/pipeline/save-item";
+import { buildSaveQueries, recStatusAtSave, savedIds, type SaveItem } from "../../../agent/lib/pipeline/save-item";
 import type { Txn } from "../../../agent/lib/store/conversations";
 
 const txn = ((strings: TemplateStringsArray, ...params: unknown[]) => ({ sql: strings.join("?"), params })) as unknown as Txn;
@@ -114,5 +114,33 @@ describe("savedIds", () => {
       [{ id: 3, cluster_id: 12, prev_stage: null, next_stage: "compost" }],
     ];
     expect(savedIds(items, results)).toEqual({ recIds: [], ideaClusterIds: [10, 11, 12], mentionIds: [1, 2, 3], bloomedClusterIds: [10] });
+  });
+});
+
+// Decision 052: an overheard tip nobody recommended goes to Heard nearby ('overheard'), whatever its band.
+describe("buildSaveQueries for recs: the status a tip is saved with", () => {
+  const rec = (over: Partial<Extract<SaveItem, { kind: "rec" }>> = {}): Extract<SaveItem, { kind: "rec" }> => ({
+    kind: "rec", route: "accept", recType: "album", extraction: { canonicalName: "Promises", creator: "Floating Points", excerpt: "you should hear Promises" } as never,
+    attribution: { firstName: null, source: "none" },
+    beeConversationId: 42, beeJournalId: null, spokenAt: new Date("2026-10-16T12:00:00Z"), confidence: 0.95, source: "ambient", ...over,
+  });
+  const ann = { firstName: "Ann", source: "second_person" } as const;
+
+  it.each(["accept", "review"] as const)("overheard, no person, %s band: 'overheard'", (route) => {
+    expect(recStatusAtSave(rec({ route }))).toBe("overheard");
+    expect(one(rec({ route })).params).toContain("overheard");
+  });
+
+  it.each([["accept", "new"], ["review", "needs_review"]] as const)("overheard with a person, %s band: %s as before", (route, status) => {
+    expect(recStatusAtSave(rec({ route, attribution: ann }))).toBe(status);
+    expect(one(rec({ route, attribution: ann })).params).toContain(status);
+  });
+
+  it("deliberate captures with no person keep today's status: 'Earmark that', a voice note, a journal", () => {
+    expect(recStatusAtSave(rec({ deliberateKey: "u-9" }))).toBe("new");
+    expect(recStatusAtSave(rec({ route: "review", deliberateKey: "u-9" }))).toBe("needs_review");
+    expect(recStatusAtSave(rec({ source: "voice" }))).toBe("new");
+    expect(recStatusAtSave(rec({ beeJournalId: "j-1", beeConversationId: null }))).toBe("new");
+    expect(recStatusAtSave(rec({ source: "email" }))).toBe("new");
   });
 });
