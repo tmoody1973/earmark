@@ -214,8 +214,9 @@ async function reconcile(d: DrainDeps): Promise<DrainCounts> {
       const { planTipFix, TipFixSchema } = await fixTip();
       const read = await readTodoEdit(row.last_written_state.text, t.text, tip, d.generate).catch((err: unknown) => {
         console.error(`[bee-todos] read edit failed rec=${recId} error=${errName(err)}`);
-        return null;
+        return undefined;
       });
+      if (read === undefined) continue; // the model call failed (not "no fix"): read the edit again next run
       const valid = read ? TipFixSchema.safeParse(read) : null;
       const plan = valid?.success ? planTipFix(tip, valid.data) : null;
       if (!valid?.success || !plan?.relook) {

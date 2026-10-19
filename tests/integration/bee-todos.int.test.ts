@@ -253,6 +253,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
       expect(await words(a)).toMatchObject({ canonical_name: "Lanquidity", creator: "Sun Ra" });
     });
 
+    it("a model call that fails leaves the edit to be read again next run, not marked seen", async () => {
+      const { a, bee, beeId } = await edited("IT Garble", () => "it was lanquidity by sun ra");
+      const down = vi.fn(async () => { throw new Error("gateway down"); });
+      expect(await drain(bee, [a], down)).toMatchObject({ fixed: 0 });
+      expect(bee.todos.get(beeId)!.text).toBe("it was lanquidity by sun ra");
+      const model = vi.fn(async () => ({ output: { correction: true, name: "Lanquidity", creator: "Sun Ra", type: "album" } }));
+      expect(await drain(bee, [a], model)).toMatchObject({ fixed: 1 });
+      expect(await words(a)).toMatchObject({ canonical_name: "Lanquidity", creator: "Sun Ra" });
+    });
+
     it("an edit to a receipt reminder (not a tip's todo) is ignored", async () => {
       const a = await addRec("queued", "IT Receipt Holder");
       const bee = fakeBee();
