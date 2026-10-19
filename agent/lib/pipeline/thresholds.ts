@@ -17,6 +17,10 @@ export function routeByConfidence(p: number): Route {
   return p > ACCEPT_ABOVE ? "accept" : "review";
 }
 
+// A deliberate earmark is a spoken tip correction (decision 049) only at or above this; below, it is saved as before.
+// ponytail: no labels yet; set like MATCH_ACCEPT, since a false yes turns a real earmark into a proposal (or nothing).
+export const CORRECTION_ACCEPT = 0.8;
+
 // Ambient triage drops a window when broadcastProbability is above this. Voice notes are exempt (explicit capture).
 export const BROADCAST_MAX = 0.5;
 
