@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { BeeChangesSchema, createBeeClient } from "../../../agent/lib/bee/client";
+import { BeeChangesSchema, createBeeClient } from "../src/client.ts";
 
 // Real shape (observed 2026-10-16): the meta fields sit at the TOP level, not under a `meta` key; ids are bare numbers.
 const meta = { next_cursor: "v1-1760610000000", since: 1760600000000, until: 1760610000000, updated: true, timezone: "America/Chicago" };
@@ -34,9 +34,9 @@ describe("BeeClient.changes", () => {
     expect(() => BeeChangesSchema.parse({ ...meta, conversations: [{ foo: 1 }] })).toThrow();
   });
 
-  it("parses the real (redacted) fixture", () => {
-    const fixture = JSON.parse(readFileSync("tests/fixtures/bee-changes.json", "utf8"));
+  it("parses a fixture in the live response shape (invented values)", () => {
+    const fixture = JSON.parse(readFileSync(new URL("./fixtures/bee-changes.json", import.meta.url), "utf8"));
     const r = BeeChangesSchema.parse(fixture);
-    expect(r.conversations).toEqual([11331219]);
+    expect(r.conversations).toEqual([1000001]);
   });
 });
