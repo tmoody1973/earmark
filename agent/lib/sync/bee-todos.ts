@@ -2,16 +2,20 @@
 // (BINDING, progress.md M3-T2a): run by the bee-changes schedule and nudged by the "bee-todos" status effect, it makes
 // Bee match Postgres and is safe to re-run or crash at any point:
 //   1. tips that left "queued" with a todo: complete it (tried/thanked) or delete it (anything else); 404 = gone.
+//   1b. queued tips with an open todo: Tarik's edit of its text in Bee fixes the tip; a fix from anywhere refreshes it.
 //   2. queued tips with no todo: re-link or reopen the tip's own todo, adopt an unsaved twin with the same text (a crash
 //      between create and save), or create one, while Bee's real count of open Earmark todos is under 10.
 // createEarmarkTodo is the same machinery for M5's other todos (place nudges, receipts). Decision 014.
 // Bee first, then Postgres: sync state is saved only after Bee succeeded. Kill switch: writes only when
 // BEE_TODO_WRITES=on. Logs carry ids and err.name only; todo text never holds transcript text (todo-text.ts).
 import { randomUUID } from "node:crypto";
+import type { generateText } from "ai";
 import { BeeApiError, createBeeClient, type BeeClient, type Todo } from "../bee/client";
 import { db } from "../db";
+import type { TipFix, TipNow } from "../recs/fix-tip";
 import type { StatusChange } from "../recs/status-effects";
 import { CLAIM_LEASE } from "../store/conversations";
+import { readTodoEdit, todoEditAction } from "./todo-edit";
 import { formatTodoText, MAX_OPEN_TODOS, TODO_PREFIX } from "./todo-text";
 
 export const MAX_WRITES_PER_RUN = 10;
@@ -28,11 +32,16 @@ export interface DrainDeps {
   /** Backstop (M3-T8): the inbound rec handler, passed by the bee-changes schedule (todo-handlers.ts imports this file). */
   checkLinked?: (recId: number, todo: Todo | null) => Promise<void>;
   lease?: string; // integration tests: their own lease name (shared TEST branch)
+  generate?: typeof generateText; // the model call that reads a free rewrite (todo-edit.ts); tests pass a stub
 }
-export interface DrainCounts { created: number; adopted: number; completed: number; removed: number; open: number; failed: boolean }
+export interface DrainCounts {
+  created: number; adopted: number; completed: number; removed: number; open: number; fixed: number; refreshed: number; failed: boolean;
+}
 export type DrainResult = { status: "skipped" } | { status: "locked" } | ({ status: "done" } & DrainCounts);
 export type EarmarkTodoResult = { todoId: number } | { skipped: "cap" | "off" | "locked" };
 
+// Loaded when used, not imported: fix-tip → lane → garden → status → status-effects → this file is a cycle.
+const fixTip = () => import("../recs/fix-tip");
 const errName = (err: unknown) => (err instanceof Error ? err.name : "unknown");
 
 function writesOn(env: Record<string, string | undefined>): boolean {
@@ -88,7 +97,9 @@ async function readBee(bee: TodoBee): Promise<BeeView> {
 export async function drainTodoQueue(deps: Partial<DrainDeps> = {}): Promise<DrainResult> {
   const env = deps.env ?? process.env;
   if (!writesOn(env)) return { status: "skipped" };
-  const d: DrainDeps = { bee: deps.bee ?? createBeeClient(), env, onlyIds: deps.onlyIds ?? null, checkLinked: deps.checkLinked };
+  const d: DrainDeps = {
+    bee: deps.bee ?? createBeeClient(), env, onlyIds: deps.onlyIds ?? null, checkLinked: deps.checkLinked, generate: deps.generate,
+  };
   const out = await withLease(() => reconcile(d), deps.lease);
   return out === "locked" ? { status: "locked" } : { status: "done", ...out };
 }
@@ -105,7 +116,7 @@ export async function beeTodoEffect(c: StatusChange, drain: () => Promise<unknow
 
 async function reconcile(d: DrainDeps): Promise<DrainCounts> {
   const view = await readBee(d.bee);
-  const r: DrainCounts = { created: 0, adopted: 0, completed: 0, removed: 0, open: view.open.length, failed: false };
+  const r: DrainCounts = { created: 0, adopted: 0, completed: 0, removed: 0, open: view.open.length, fixed: 0, refreshed: 0, failed: false };
   let writes = 0;
 
   // One Bee write. 404 = already gone. Any other error stops the run (Bee is unwell; the next tick retries).
@@ -169,6 +180,66 @@ async function reconcile(d: DrainDeps): Promise<DrainCounts> {
     if (view.isOpen(t)) r.open--;
   }
 
+  // 1b. Queued tips with an open todo (decision 049). Tarik's edit of its text in Bee is a fix: read the new words
+  // (todo-edit.ts), write the tip's clean text to Bee, then applyTipFix (the tip is looked up again). Bee first: a Bee
+  // failure or a crash leaves the edit to be read again next run, and applyTipFix's compare-and-set applies it once.
+  // An edit that is no fix is marked seen and left alone in Bee. A todo he hasn't edited gets the tip's new text after
+  // any fix (the tip page, or the lane's own name for the corrected words).
+  const base = d.env.EARMARK_PUBLIC_BASE_URL || DEFAULT_BASE_URL;
+  const linked = await db()`
+    select r.id, r.type, r.canonical_name, r.creator, r.context_summary, p.first_name as recommender_first_name, r.said_at,
+      r.bee_todo_id, s.last_written_state
+    from recommendations r
+    join bee_sync s on s.entity_type = 'rec' and s.entity_id = r.id and s.bee_object = 'todo' and s.bee_id = r.bee_todo_id
+    left join recommenders p on p.id = r.recommender_id
+    where r.status = 'queued'
+      and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
+    order by r.updated_at, r.id`;
+  for (const row of linked) {
+    if (writes >= MAX_WRITES_PER_RUN) break;
+    const recId = Number(row.id);
+    const beeId = Number(row.bee_todo_id);
+    const t = view.inBee.get(beeId);
+    if (!t || t.completed) continue; // step 0 and the inbound handler's
+    const tip = { ...row, id: recId } as Parameters<typeof formatTodoText>[0] & TipNow;
+    let text = formatTodoText(tip, base);
+    const action = todoEditAction(row.last_written_state, t.text, text);
+    if (action === "none") continue;
+    if (action === "adopt") {
+      await saveTodoState(recId, beeId, { text });
+      continue;
+    }
+    let fix: TipFix | null = null;
+    if (action === "fix") {
+      const { planTipFix, TipFixSchema } = await fixTip();
+      const read = await readTodoEdit(row.last_written_state.text, t.text, tip, d.generate).catch((err: unknown) => {
+        console.error(`[bee-todos] read edit failed rec=${recId} error=${errName(err)}`);
+        return undefined;
+      });
+      if (read === undefined) continue; // the model call failed (not "no fix"): read the edit again next run
+      const valid = read ? TipFixSchema.safeParse(read) : null;
+      const plan = valid?.success ? planTipFix(tip, valid.data) : null;
+      if (!valid?.success || !plan?.relook) {
+        await saveTodoState(recId, beeId, { seen: t.text });
+        continue;
+      }
+      fix = valid.data;
+      text = formatTodoText({ ...tip, type: plan.type, canonical_name: plan.name, creator: plan.creator }, base);
+    }
+    if (t.text !== text) {
+      const out = await write(fix ? "fix" : "refresh", recId, () => d.bee.updateTodo(beeId, { text }));
+      if (out === "failed") return r;
+      if (out === "gone") continue;
+    }
+    if (fix) {
+      await (await fixTip()).applyTipFix(recId, fix)
+        .catch((err: unknown) => console.error(`[bee-todos] fix failed id=${recId} err=${errName(err)}`));
+    }
+    await saveTodoState(recId, beeId, { text });
+    if (fix) r.fixed++;
+    else r.refreshed++;
+  }
+
   // 2. Queued tips with no todo, oldest first, while there is room.
   if (!view.complete) {
     console.error("[bee-todos] Bee todo list incomplete; no todo created this run");
@@ -182,7 +253,6 @@ async function reconcile(d: DrainDeps): Promise<DrainCounts> {
     where r.status = 'queued' and r.bee_todo_id is null
       and (${d.onlyIds}::bigint[] is null or r.id = any(${d.onlyIds}::bigint[]))
     order by r.updated_at, r.id limit ${MAX_OPEN_TODOS}`;
-  const base = d.env.EARMARK_PUBLIC_BASE_URL || DEFAULT_BASE_URL;
 
   for (const row of queued) {
     // Two writes of headroom: the write itself plus the undo, so a todo is never left orphaned by the per-run cap.
@@ -283,6 +353,15 @@ export async function saveTodo(entityType: string, entityId: number, beeId: numb
       do update set bee_id = excluded.bee_id, last_written_state = excluded.last_written_state, last_synced_at = now()
       returning entity_id`;
   return rows.length > 0;
+}
+
+// A tip's open todo: the text Earmark wrote to Bee, or an edit of Tarik's read and left alone (seen), saved while the
+// tip still holds that todo. A new text drops any seen edit: Bee no longer shows it.
+async function saveTodoState(recId: number, beeId: number, patch: { text: string } | { seen: string }): Promise<void> {
+  await db()`
+    update bee_sync set last_synced_at = now(),
+      last_written_state = (coalesce(last_written_state, '{}'::jsonb) - 'seen') || ${JSON.stringify(patch)}::jsonb
+    where entity_type = 'rec' and entity_id = ${recId} and bee_object = 'todo' and bee_id = ${beeId}`;
 }
 
 // kept = Bee still holds the todo, completed: its bee_sync row stays (forget deletes it from Bee; a re-queue reopens

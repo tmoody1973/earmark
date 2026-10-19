@@ -44,7 +44,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
   const sync = async (id: number) => (await c.query(
     `select bee_id, last_written_state from bee_sync where entity_type = 'rec' and entity_id = $1 and bee_object = 'todo'`, [id])).rows[0];
   const setStatus = (id: number, s: string) => c.query(`update recommendations set status = $2 where id = $1`, [id, s]);
-  const drain = async (bee: ReturnType<typeof fakeBee>, onlyIds: number[]) => (await mod()).drainTodoQueue({ bee, env, onlyIds });
+  // No test reaches a model: a stub answers, and a test that expects no model call gets one that throws.
+  const noModel = vi.fn(async () => { throw new Error("no model call expected"); });
+  const drain = async (bee: ReturnType<typeof fakeBee>, onlyIds: number[], generate: unknown = noModel) =>
+    (await mod()).drainTodoQueue({ bee, env, onlyIds, generate: generate as never });
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -186,6 +189,111 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
     const q = await addRec("queued");
     expect(await drain(bee, [...leaving, q])).toMatchObject({ removed: MAX_WRITES_PER_RUN - 1, created: 0 });
     expect(await drain(bee, [...leaving, q])).toMatchObject({ created: 1 });
+  });
+
+  describe("owner fixes a tip (decision 049)", () => {
+    const words = async (id: number) => (await c.query(
+      `select canonical_name, creator, type, enrichment_status from recommendations where id = $1`, [id])).rows[0];
+    // A queued tip with its todo made, then Tarik's edit of that todo's text in the Bee app.
+    async function edited(name: string, text: (id: number) => string) {
+      const a = await addRec("queued", name);
+      const bee = fakeBee();
+      await drain(bee, [a]);
+      const beeId = Number((await rec(a)).bee_todo_id);
+      bee.todos.set(beeId, { ...bee.todos.get(beeId)!, text: text(a) });
+      bee.updateTodo.mockClear();
+      return { a, bee, beeId };
+    }
+
+    it("a text edit in Bee is a fix: the tip gets the new words and is looked up again, and Bee gets the clean text", async () => {
+      const { a, bee, beeId } = await edited("IT Sun Raw", () => "Earmark · Listen: Lanquidity, Sun Ra (Oct 12)"); // link deleted
+      const out = await drain(bee, [a]);
+      expect(await words(a)).toEqual({ canonical_name: "Lanquidity", creator: "Sun Ra", type: "album", enrichment_status: "pending" });
+      expect(out).toMatchObject({ status: "done", fixed: 1 });
+      expect((await rec(a)).status).toBe("queued");
+      const clean = `Earmark · Listen: Lanquidity, Sun Ra (Oct 12) https://earmark.test/tips/${a}`;
+      expect(bee.updateTodo.mock.calls).toEqual([[beeId, { text: clean }]]);
+      expect(await sync(a)).toMatchObject({ last_written_state: { text: clean, completed: false } });
+      expect(noModel).not.toHaveBeenCalled();
+    });
+
+    it("the same edit run twice is applied once", async () => {
+      const { a, bee } = await edited("IT Twice", () => "Earmark · Listen: IT Once, IT Band");
+      await drain(bee, [a]);
+      const after = (await c.query(`select updated_at from recommendations where id = $1`, [a])).rows[0];
+      expect(await drain(bee, [a])).toMatchObject({ fixed: 0, refreshed: 0 });
+      expect(bee.updateTodo).toHaveBeenCalledTimes(1);
+      expect((await c.query(`select updated_at from recommendations where id = $1`, [a])).rows[0]).toEqual(after);
+    });
+
+    it("a Bee failure writes nothing and the edit is read again next run", async () => {
+      const { a, bee } = await edited("IT Retry", () => "Earmark · Listen: IT Retried, IT Band");
+      bee.updateTodo.mockRejectedValueOnce(new BeeApiError(500, "/v1/todos", "boom"));
+      expect(await drain(bee, [a])).toMatchObject({ fixed: 0, failed: true });
+      expect((await words(a)).canonical_name).toBe("IT Retry");
+      expect(await drain(bee, [a])).toMatchObject({ fixed: 1, failed: false });
+      expect((await words(a)).canonical_name).toBe("IT Retried");
+    });
+
+    it("an edit that isn't a fix is left alone in Bee and read once (the model is asked once)", async () => {
+      const { a, bee, beeId } = await edited("IT Note", () => "ask Ann which pressing");
+      const model = vi.fn(async () => ({ output: { correction: false, name: "", creator: "", type: "other" } }));
+      expect(await drain(bee, [a], model)).toMatchObject({ fixed: 0 });
+      expect(await drain(bee, [a], model)).toMatchObject({ fixed: 0 });
+      expect(model).toHaveBeenCalledTimes(1);
+      expect(bee.updateTodo).not.toHaveBeenCalled();
+      expect(bee.todos.get(beeId)!.text).toBe("ask Ann which pressing");
+      expect((await words(a)).canonical_name).toBe("IT Note");
+    });
+
+    it("a free rewrite the model reads as a correction is applied", async () => {
+      const { a, bee } = await edited("IT Garble", () => "it was lanquidity by sun ra");
+      const model = vi.fn(async () => ({ output: { correction: true, name: "Lanquidity", creator: "Sun Ra", type: "album" } }));
+      expect(await drain(bee, [a], model)).toMatchObject({ fixed: 1 });
+      expect(await words(a)).toMatchObject({ canonical_name: "Lanquidity", creator: "Sun Ra" });
+    });
+
+    it("a model call that fails leaves the edit to be read again next run, not marked seen", async () => {
+      const { a, bee, beeId } = await edited("IT Garble", () => "it was lanquidity by sun ra");
+      const down = vi.fn(async () => { throw new Error("gateway down"); });
+      expect(await drain(bee, [a], down)).toMatchObject({ fixed: 0 });
+      expect(bee.todos.get(beeId)!.text).toBe("it was lanquidity by sun ra");
+      const model = vi.fn(async () => ({ output: { correction: true, name: "Lanquidity", creator: "Sun Ra", type: "album" } }));
+      expect(await drain(bee, [a], model)).toMatchObject({ fixed: 1 });
+      expect(await words(a)).toMatchObject({ canonical_name: "Lanquidity", creator: "Sun Ra" });
+    });
+
+    it("an edit to a receipt reminder (not a tip's todo) is ignored", async () => {
+      const a = await addRec("queued", "IT Receipt Holder");
+      const bee = fakeBee();
+      await drain(bee, [a]);
+      const reminder = bee.add({ text: "Earmark · Listen: IT Hijack, IT Band", completed: false });
+      await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id, last_written_state)
+        values ('rec_receipt', $1, 'todo', $2, $3)`, [a, reminder, JSON.stringify({ text: "Earmark · Thank Ann", completed: false })]);
+      try {
+        expect(await drain(bee, [a])).toMatchObject({ fixed: 0, refreshed: 0 });
+        expect(bee.updateTodo).not.toHaveBeenCalled();
+        expect((await words(a)).canonical_name).toBe("IT Receipt Holder");
+      } finally {
+        await c.query(`delete from bee_sync where entity_type = 'rec_receipt' and bee_id = $1`, [reminder]);
+      }
+    });
+
+    it("a fix on the tip page reaches the open Bee todo on the next run", async () => {
+      const a = await addRec("queued", "IT Web Before");
+      const bee = fakeBee();
+      await drain(bee, [a]);
+      const beeId = Number((await rec(a)).bee_todo_id);
+      const { applyTipFix } = await import("../../agent/lib/recs/fix-tip");
+      expect(await applyTipFix(a, { name: "IT Web After" })).toEqual({ changed: true, requeued: true });
+      const out = await drain(bee, [a]);
+      const clean = `Earmark · Listen: IT Web After, IT Band (Oct 12) https://earmark.test/tips/${a}`;
+      expect(bee.todos.get(beeId)!.text).toBe(clean);
+      expect(out).toMatchObject({ refreshed: 1, fixed: 0 });
+      expect(await sync(a)).toMatchObject({ last_written_state: { text: clean } });
+      expect(await drain(bee, [a])).toMatchObject({ refreshed: 0 });
+      expect(bee.updateTodo).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("createEarmarkTodo (M5 nudges and receipts)", () => {
