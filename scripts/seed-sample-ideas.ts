@@ -36,7 +36,7 @@ A weekly five-minute visit to one independent record store, told by the person b
 
 const SAMPLES: Sample[] = [
   { title: "A field-recording walk along the river", stage: "compost", mentions: [
-    { at: "2026-10-15T22:10:00Z", note: "first heard", excerpt: "what if we just recorded the river walk at dawn, no narration, only the city waking up" },
+    { at: "2026-10-15T22:10:00Z", note: "first heard", excerpt: "what if we just recorded the river walk at dawn, no narration, only the city waking up", source: "voice" },
   ] },
   { title: "Listener voicemail wall", stage: "sprouting", mentions: [
     { at: "2026-10-12T14:00:00Z", note: "added playing them back on Fridays", excerpt: "and then we play the best ones back on Friday afternoons", status: "needs_review" },

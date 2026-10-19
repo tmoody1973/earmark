@@ -34,7 +34,8 @@ export async function loadGardenerData(sources: Source[]): Promise<GardenerData>
   const data: GardenerData = {};
   for (const s of sources) {
     if (s === "ideas") {
-      data.ideas = (await db()`select title, stage, mention_count, draft_format from idea_clusters where stage <> 'dismissed' order by last_mentioned_at desc nulls last limit 30`) as Record<string, unknown>[];
+      data.ideas = (await db()`select title, stage, mention_count, draft_format from idea_clusters
+        where stage <> 'dismissed' and not idea_is_quiet(id) order by last_mentioned_at desc nulls last limit 30`) as Record<string, unknown>[];
     } else if (s === "recs") {
       data.recs = withoutOwner((await db()`
         select r.canonical_name, r.type, r.creator, r.status, r.rating, rc.first_name, r.said_at

@@ -94,7 +94,7 @@ export async function getSerendipity(now = new Date(), onPage: readonly ItemRef[
       array(select m.spoken_at from idea_mentions m where m.cluster_id = c.id and m.review_status = 'dismissed') as dismissed_at,
       coalesce(c.last_mentioned_at, c.created_at) as last_touched_at, c.last_surfaced_at
     from idea_clusters c
-    where c.stage = any(${STALLED_IDEA_STAGES}::text[]) and c.mention_count > 0 and not c.pinned
+    where c.stage = any(${STALLED_IDEA_STAGES}::text[]) and c.mention_count > 0 and not c.pinned and not idea_is_quiet(c.id)
       and (c.resting_until is null or c.resting_until <= now())
     order by greatest(coalesce(c.last_mentioned_at, c.created_at), c.last_surfaced_at), c.id
     limit ${READ_MAX}`) as Array<PlantRow & Stamps>;

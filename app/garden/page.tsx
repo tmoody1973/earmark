@@ -23,7 +23,10 @@ export default async function GardenPage() {
       <main className="garden" id="ideas">
         <header className="garden-head">
           <h1>Garden</h1>
-          <span className="garden-head-links"><Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link></span>
+          {/* Heard once (decision 055): ideas overheard once wait there, findable, never pushed. No count. */}
+          <span className="garden-head-links">
+            <Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link><Link href="/heard-once">Heard once</Link>
+          </span>
         </header>
         <section className="zone" aria-labelledby="all-ideas-h">
           <h2 id="all-ideas-h" className="visually-hidden">Every idea</h2>

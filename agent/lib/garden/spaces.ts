@@ -46,7 +46,7 @@ export async function listSpaces(id: number | null = null): Promise<SpaceSummary
   const rows = (await db()`
     with v as (
       select 'idea'::text as item_type, c.id as item_id from idea_clusters c
-      where c.stage <> 'dismissed' and c.mention_count > 0
+      where c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id)
       union all
       select 'rec', r.id from recommendations r where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])
     )
@@ -87,6 +87,7 @@ export async function getSpace(id: number): Promise<SpaceView | null> {
       array(select m.spoken_at from idea_mentions m where m.cluster_id = c.id and m.review_status = 'dismissed') as dismissed_at
     from space_items si join idea_clusters c on c.id = si.item_id
     where si.space_id = ${id} and si.item_type = 'idea' and c.stage <> 'dismissed' and c.mention_count > 0
+      and not idea_is_quiet(c.id)
       and (si.status = 'accepted' or (si.status = 'suggested' and si.confidence >= ${SPACE_MIN}))
     order by si.status = 'accepted' desc, c.last_mentioned_at desc nulls last, c.id
     limit ${MAX_SHOWN}`) as Array<PlantRow & { member_status: SpaceItemStatus }>;

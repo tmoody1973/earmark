@@ -207,7 +207,8 @@ export async function setTipChoice(
   return (await setRecRating(id, choice, "garden", opts)).changed;
 }
 
-// Every idea still growing (dismissed ones live only on their own page), in garden order.
+// Every idea still growing (dismissed ones live only on their own page; ideas overheard once wait in Heard once,
+// decision 055), in garden order.
 // ponytail: limit 200 is a range guard (the brief plans for 0–60); page the /garden route if a garden outgrows it.
 export async function getPlants(): Promise<PlantView[]> {
   const rows = (await db()`
@@ -216,7 +217,7 @@ export async function getPlants(): Promise<PlantView[]> {
       exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed,
       array(select m.spoken_at from idea_mentions m where m.cluster_id = c.id and m.review_status = 'dismissed') as dismissed_at
     from idea_clusters c
-    where c.stage <> 'dismissed' and c.mention_count > 0
+    where c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id)
     order by c.last_mentioned_at desc nulls last
     limit 200`) as PlantRow[];
   return gardenOrder(rows.map(toPlant));

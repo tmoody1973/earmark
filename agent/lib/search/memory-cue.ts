@@ -110,7 +110,7 @@ export async function searchEarmarks(
       exists (select 1 from idea_mentions m where m.cluster_id = c.id and m.review_status = 'accepted') as confirmed,
       array(select m.spoken_at from idea_mentions m where m.cluster_id = c.id and m.review_status = 'dismissed') as dismissed_at
     from idea_clusters c
-    where c.stage <> 'dismissed' and c.mention_count > 0
+    where c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id) -- heard once: decision 055
       and exists (
         select 1 from idea_mentions m
         where m.cluster_id = c.id and m.review_status <> 'dismissed'

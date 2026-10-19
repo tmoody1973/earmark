@@ -49,7 +49,7 @@ async function pendingItems(limit: number, spaceId: number | null): Promise<Pend
     with v as (
       select 'idea'::text as item_type, c.id as item_id, c.updated_at, c.title as name, c.summary as detail, c.timeline,
         null::text as rec_type, null::text as creator
-      from idea_clusters c where c.stage <> 'dismissed' and c.mention_count > 0
+      from idea_clusters c where c.stage <> 'dismissed' and c.mention_count > 0 and not idea_is_quiet(c.id)
       union all
       select 'rec', r.id, r.updated_at, r.canonical_name, r.context_summary, null, r.type, r.creator
       from recommendations r where r.status <> all(${HIDDEN_TIP_STATUSES}::text[])

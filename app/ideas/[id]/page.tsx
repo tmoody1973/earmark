@@ -13,6 +13,7 @@ import { PlantArt } from "@/app/garden/PlantArt";
 import { Icon } from "@/app/garden/cards/icons";
 import { Backlinks, MergedNote } from "./Backlinks";
 import { CopyButton } from "./CopyButton";
+import { DismissIdea } from "./DismissIdea";
 import { Draft } from "./Draft";
 import { PinToggle } from "./PinToggle";
 import "@/app/garden/cards/cards.css";
@@ -73,6 +74,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         )}
         {/* Top of Mind (M4-T9): a dismissed idea can't be pinned, but one still pinned can be let go */}
         {(!dismissed || plant.pinned) && <PinToggle ideaId={n} pinned={plant.pinned} />}
+        {/* Dismiss with Undo (decision 055); a merged idea is undone from its MergedNote instead */}
+        {!links.mergedInto && <DismissIdea ideaId={n} dismissed={dismissed} />}
       </header>
 
       <section className="idea-panel" aria-labelledby="grew-h">
