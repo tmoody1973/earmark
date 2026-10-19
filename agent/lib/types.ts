@@ -1,5 +1,5 @@
-export type ItemKind = "idea_by_user" | "rec_to_user" | "rec_by_user" | "neither";
-export type RecType = "album" | "song" | "artist" | "book" | "place" | "podcast" | "film_tv" | "video" | "other";
+// The triage types live in the eve-bee package (one copy); everything else here is Earmark-only.
+export type { ItemKind, RecType, TriageResult } from "../../packages/eve-bee/src/types";
 export type Route = "accept" | "review" | "drop";
 export type Source = "ambient" | "voice" | "photo" | "song" | "email";
 export type AttributionSource = "voice_trigger" | "second_person" | "summary" | "slack" | "email" | "none";
@@ -17,18 +17,6 @@ export interface TranscriptWindow {
   utterances: Utterance[];
   text: string;                      // "Unknown: …\nUnknown: …" — what Jev sees
   startedAt: Date | null;
-}
-
-export interface TriageResult {
-  kind: ItemKind;
-  kindProbability: number;           // probability of the chosen kind = routing confidence
-  recType: RecType | "none";
-  recTypeProbability: number;
-  jokingProbability: number;         // P(clearly a joke or hypothetical)
-  broadcastProbability: number;      // P(ad, station ID or scripted broadcast audio, not live speech)
-  correctionProbability?: number;    // deliberate earmarks only (triageWindow opts.correction): P(it corrects a saved tip)
-  model: string;
-  providerMetadata: unknown;         // logged; confidence key via Gateway unverified
 }
 
 export interface RecExtraction {

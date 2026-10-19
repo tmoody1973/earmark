@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { BeeApiError, createBeeClient, toDate } from "../../../agent/lib/bee/client";
-import todoFixture from "../../fixtures/bee-todo.json";
+import { BeeApiError, createBeeClient, toDate } from "../src/client.ts";
+import todoFixture from "./fixtures/bee-todo.json";
 
 function fakeFetch(status: number, body: unknown) {
   return vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isJournalComplete, parseBeeEnvelope } from "../../../agent/lib/bee/events";
+import { isJournalComplete, parseBeeEnvelope } from "../src/events.ts";
 
 // What the relay sends: {"event":"{{event}}","ts":"{{timestamp}}","data":{{raw}}}
 const wrap = (event: string, data: unknown) => JSON.parse(JSON.stringify({ event, ts: "2026-10-16T15:00:00.000Z", data }));
@@ -81,13 +81,13 @@ describe("isJournalComplete", () => {
 
 describe("conversationRef", () => {
   it("returns the pair from one level, in priority order", async () => {
-    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    const { conversationRef } = await import("../src/events.ts");
     expect(conversationRef({ conversation: { uuid: "u", id: 1 }, conversation_uuid: "x", conversation_id: 2 })).toEqual({ uuid: "u", id: 1 });
     expect(conversationRef({ conversation_uuid: "u", conversation_id: 2 })).toEqual({ uuid: "u", id: 2 });
     expect(conversationRef({ uuid: "u", id: "3" })).toEqual({ uuid: "u", id: 3 });
   });
   it("never mixes levels, and rejects unsafe ids", async () => {
-    const { conversationRef } = await import("../../../agent/lib/bee/events");
+    const { conversationRef } = await import("../src/events.ts");
     expect(conversationRef({ conversation: { uuid: "u" }, conversation_id: 5 })).toBeNull();
     expect(conversationRef({ conversation_uuid: "u", id: 5 })).toBeNull();
     expect(conversationRef({ conversation: { uuid: "u", id: "99999999999999999999" } })).toBeNull();

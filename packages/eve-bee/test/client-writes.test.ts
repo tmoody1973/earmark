@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BeeApiError, createBeeClient } from "../../../agent/lib/bee/client";
+import { BeeApiError, createBeeClient } from "../src/client.ts";
 
 const reply = (body: unknown, status = 200) =>
   vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>

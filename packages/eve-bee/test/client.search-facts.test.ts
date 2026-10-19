@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBeeClient, KeywordSearchSchema, NeuralSearchSchema } from "../../../agent/lib/bee/client";
+import { createBeeClient, KeywordSearchSchema, NeuralSearchSchema } from "../src/client.ts";
 
-// Shapes verified live on Tarik's account (docs/research/bee-api.md §7).
+// Response shapes as verified live against the Bee API; every value is invented.
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 const client = (fetchImpl: ReturnType<typeof vi.fn>) => createBeeClient({ token: "tok", baseUrl: "https://bee.test", fetchImpl: fetchImpl as never });
 const neuralBody = {
-  results: [{ id: 812, started_at: 1760500000000, stopped_at: 1760503600000, link: "https://bee.computer/c/812", locations: ["Milwaukee"],
-    short_summary: "Talked about AI tools at the station", detailed_summary: "A longer summary of the conversation." }],
+  results: [{ id: 812, started_at: 1760500000000, stopped_at: 1760503600000, link: "https://bee.computer/c/812", locations: ["Springfield"],
+    short_summary: "Talked about garden tools at the market", detailed_summary: "A longer summary of the conversation." }],
   total: 1, timezone: "America/Chicago",
 };
 const keywordBody = {
-  results: [{ id: "f_31", type: "fact", score: 7.2, summary: "Writes The Intersection newsletter", snippet: "Writes The Intersection", title_snippet: "", created_at: 1760000000000, corrections: [] }],
+  results: [{ id: "f_31", type: "fact", score: 7.2, summary: "Writes a weekly cooking newsletter", snippet: "Writes a weekly cooking", title_snippet: "", created_at: 1760000000000, corrections: [] }],
   next_cursor: "", search_mode: "bm25", timezone: "America/Chicago",
 };
 
@@ -18,7 +18,7 @@ describe("BeeClient.neuralSearch", () => {
   it("POSTs the query to /v1/search/conversations/neural with the bearer token and parses the result", async () => {
     const fetchImpl = vi.fn(async () => ok(neuralBody));
     const r = await client(fetchImpl).neuralSearch("AI in public radio", { limit: 5 });
-    expect(r.results[0]).toMatchObject({ id: 812, short_summary: "Talked about AI tools at the station" });
+    expect(r.results[0]).toMatchObject({ id: 812, short_summary: "Talked about garden tools at the market" });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://bee.test/v1/search/conversations/neural");
     expect(init.method).toBe("POST");
@@ -31,7 +31,7 @@ describe("BeeClient.keywordSearch", () => {
   it("POSTs filter and limit to /v1/search/conversations", async () => {
     const fetchImpl = vi.fn(async () => ok(keywordBody));
     const r = await client(fetchImpl).keywordSearch("AI newsletter", { filter: "facts", limit: 5 });
-    expect(r.results[0]).toMatchObject({ id: "f_31", summary: "Writes The Intersection newsletter" });
+    expect(r.results[0]).toMatchObject({ id: "f_31", summary: "Writes a weekly cooking newsletter" });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://bee.test/v1/search/conversations");
     expect(JSON.parse(String(init.body))).toEqual({ query: "AI newsletter", filter: "facts", limit: 5 });
