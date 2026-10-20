@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderHttpError } from "../../../agent/lib/enrich/types";
 import {
   afterFailure, asksForResearch, BRIEF_INSTRUCTIONS, briefPrompt, fetchPages, finishBrief, PAGE_CHARS, pickUrls,
-  RESEARCH_MAX_ATTEMPTS, researchQueries, type ResearchPage,
+  RESEARCH_MAX_ATTEMPTS, researchQueries, researchTodoTitle, takeawayOf, type ResearchPage,
 } from "../../../agent/lib/ideas/research";
 import type { WebResult } from "../../../agent/lib/recs/web-find";
 
@@ -144,6 +144,22 @@ describe("the brief", () => {
   it("a brief that cites none of the pages is refused", () => {
     expect(() => finishBrief("## What already exists\nThings exist.", pages)).toThrow(/cites no page/);
     expect(() => finishBrief("## What already exists\nThings exist [7].", pages)).toThrow(/cites no page/);
+  });
+
+  // The Bee app shows a todo's whole text as its title (no details field), so the takeaway rides in the title.
+  it("asks for an 'In one line' takeaway, shows it in bold, and lifts it for the Bee todo (no citations, clipped)", () => {
+    expect(BRIEF_INSTRUCTIONS).toMatch(/In one line:/);
+    const md = finishBrief("In one line: The gap is an agent on the resident's side [1], not the city's.\n\n## What already exists\nMari exists [1].", pages);
+    expect(md.startsWith("**In one line:** The gap is an agent on the resident's side, not the city's.")).toBe(true);
+    expect(takeawayOf(md)).toBe("The gap is an agent on the resident's side, not the city's.");
+    expect(takeawayOf("## What already exists\nMari exists [1].")).toBeNull();
+    expect(takeawayOf(`**In one line:** ${"word ".repeat(40)}`)!.length).toBeLessThanOrEqual(110);
+  });
+
+  it("the Bee todo title carries the takeaway when there is one, else says research is ready", () => {
+    expect(researchTodoTitle("Agent to help people navigate local government", "The gap is an agent on the resident's side."))
+      .toBe("Earmark · Research: Agent to help people navigate local government — The gap is an agent on the resident's side.");
+    expect(researchTodoTitle("Local gov agent", null)).toBe("Earmark · Research ready: Local gov agent");
   });
 });
 
