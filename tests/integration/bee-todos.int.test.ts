@@ -319,6 +319,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Bee todo reconciler on the Neon
       expect(bee.createTodo).toHaveBeenCalledTimes(1);
     });
 
+    it("refresh: an open todo for the entity gets the new text and a new alarm (one todo, Bee notifies again); without refresh it is only reused", async () => {
+      const bee = fakeBee();
+      const id = entityId + 7;
+      const first = await create(bee, id, "Earmark · Research ready: IT idea");
+      const todoId = (first as { todoId: number }).todoId;
+      const again = await (await mod()).createEarmarkTodo(
+        { entityType, entityId: id, text: "Earmark · Research: IT idea — the gap is X", alarmAt: "2026-10-20T16:00:00.000Z", refresh: true }, { bee, env });
+      expect(again).toEqual({ todoId });
+      expect(bee.createTodo).toHaveBeenCalledTimes(1);
+      expect(bee.updateTodo).toHaveBeenCalledWith(todoId, { text: "Earmark · Research: IT idea — the gap is X", alarm_at: "2026-10-20T16:00:00.000Z", completed: false });
+      expect((await row(id)).last_written_state).toEqual({ text: "Earmark · Research: IT idea — the gap is X", completed: false });
+      bee.updateTodo.mockClear();
+      expect(await create(bee, id, "Earmark · something else")).toEqual({ todoId }); // no refresh: reused untouched
+      expect(bee.updateTodo).not.toHaveBeenCalled();
+    });
+
     it("adds the prefix when missing, and returns { skipped: 'cap' } when 10 Earmark todos are open", async () => {
       const bee = fakeBee(Array.from({ length: 9 }, (_, i) => ({ text: `Earmark · Listen: old ${i}`, completed: false })));
       expect(await create(bee, entityId + 1, "Thank Ann for the tip")).toMatchObject({ todoId: expect.any(Number) });

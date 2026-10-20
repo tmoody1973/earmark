@@ -303,7 +303,7 @@ async function reconcile(d: DrainDeps): Promise<DrainCounts> {
  * FORGET_HOOKS (lane C), not by forget-rows.ts.
  */
 export async function createEarmarkTodo(
-  input: { entityType: string; entityId: number; text: string; alarmAt: string | null },
+  input: { entityType: string; entityId: number; text: string; alarmAt: string | null; refresh?: boolean },
   deps: Partial<Pick<DrainDeps, "bee" | "env">> = {},
 ): Promise<EarmarkTodoResult> {
   const { entityType, entityId } = input;
@@ -318,6 +318,13 @@ export async function createEarmarkTodo(
     const [mine] = await db()`
       select bee_id from bee_sync where entity_type = ${entityType} and entity_id = ${entityId} and bee_object = 'todo'`;
     const existing = mine ? view.inBee.get(Number(mine.bee_id)) : undefined;
+    // refresh (a new research brief): the open todo takes the new text and alarm, so Bee notifies again with no duplicate.
+    // Without it (a thank-you reminder) an open todo is only reused: its caller decides what that means.
+    if (existing && !existing.completed && input.refresh) {
+      await bee.updateTodo(existing.id, { text, alarm_at: input.alarmAt, completed: false });
+      await saveTodo(entityType, entityId, existing.id, text, false);
+      return { todoId: existing.id };
+    }
     if (existing && !existing.completed) return { todoId: existing.id };
     const twin = view.open.find((t) => t.text === text && !view.claimed.has(t.id));
     let todoId: number;
