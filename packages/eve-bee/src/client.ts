@@ -181,7 +181,7 @@ export function createBeeClient(opts: { token?: string; baseUrl?: string; fetchI
         method: "POST",
         body: JSON.stringify(input.alarmAt ? { text: input.text, alarm_at: input.alarmAt } : { text: input.text }),
       }),
-    updateTodo: async (id: number, patch: { text?: string; completed?: boolean }): Promise<void> => {
+    updateTodo: async (id: number, patch: { text?: string; completed?: boolean; alarm_at?: string | null }): Promise<void> => {
       await call(`/v1/todos/${id}`, z.unknown(), { method: "PUT", body: JSON.stringify(patch) });
     },
     changes: (cursor?: string) => call(`/v1/changes${query({ cursor })}`, BeeChangesSchema),

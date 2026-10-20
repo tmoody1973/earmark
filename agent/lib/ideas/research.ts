@@ -304,7 +304,7 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
 async function tell(clusterId: number, title: string, takeaway: string | null, d: ResearchDeps): Promise<boolean> {
   const text = withLink(researchTodoTitle(title, takeaway), "ideas", clusterId, d.env.EARMARK_PUBLIC_BASE_URL?.trim());
   try {
-    const out = await d.notify({ entityType: "idea_research", entityId: clusterId, text, alarmAt: alarmSoon() });
+    const out = await d.notify({ entityType: "idea_research", entityId: clusterId, text, alarmAt: alarmSoon(), refresh: true });
     if ("skipped" in out) console.log(`[research] idea=${clusterId} todo skipped=${out.skipped}`);
     return !("skipped" in out);
   } catch (err) {
