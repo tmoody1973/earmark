@@ -1,81 +1,81 @@
 {
-  "date": "2026-10-17",
+  "date": "2026-10-19",
   "labeledCount": 48,
   "triageModel": "typesafe-ai/jev-1.13.0",
   "models": {
     "typesafe-ai/jev-1.13.0": {
       "model": "typesafe-ai/jev-1.13.0",
       "n": 48,
-      "accuracy": 0.6388888888888888,
-      "recPrecision": 0.10714285714285714,
-      "ideaPrecision": 0.5172413793103449,
-      "recTypeAccuracy": 0.6666666666666666,
+      "accuracy": 0.6666666666666666,
+      "recPrecision": 0.11538461538461539,
+      "ideaPrecision": 0.5357142857142857,
+      "recTypeAccuracy": 0.7083333333333334,
       "jokingAccuracy": 1,
       "flipRate": 0.125,
-      "ece": 0.0834025763888889,
-      "brier": 0.18387708333333322,
+      "ece": 0.07131959722222223,
+      "brier": 0.18289930555555553,
       "reliability": [
         {
           "lo": 0.3,
           "hi": 0.4,
-          "count": 6,
-          "meanConfidence": 0.373333,
-          "accuracy": 0.166667
+          "count": 5,
+          "meanConfidence": 0.354,
+          "accuracy": 0
         },
         {
           "lo": 0.4,
           "hi": 0.5,
-          "count": 13,
-          "meanConfidence": 0.45,
-          "accuracy": 0.153846
+          "count": 15,
+          "meanConfidence": 0.448,
+          "accuracy": 0.4
         },
         {
           "lo": 0.5,
           "hi": 0.6,
-          "count": 23,
-          "meanConfidence": 0.543478,
-          "accuracy": 0.521739
+          "count": 24,
+          "meanConfidence": 0.548333,
+          "accuracy": 0.583333
         },
         {
           "lo": 0.6,
           "hi": 0.7,
-          "count": 24,
-          "meanConfidence": 0.63625,
-          "accuracy": 0.625
+          "count": 20,
+          "meanConfidence": 0.633,
+          "accuracy": 0.65
         },
         {
           "lo": 0.7,
           "hi": 0.8,
-          "count": 28,
-          "meanConfidence": 0.750714,
-          "accuracy": 0.642857
+          "count": 29,
+          "meanConfidence": 0.744483,
+          "accuracy": 0.586207
         },
         {
           "lo": 0.8,
           "hi": 0.9,
           "count": 15,
-          "meanConfidence": 0.848667,
-          "accuracy": 0.666667
+          "meanConfidence": 0.842667,
+          "accuracy": 0.733333
         },
         {
           "lo": 0.9,
           "hi": 1,
-          "count": 35,
-          "meanConfidence": 0.982857,
-          "accuracy": 0.971429
+          "count": 36,
+          "meanConfidence": 0.9825,
+          "accuracy": 0.972222
         }
       ],
-      "inputTokens": 300516,
-      "costUsd": 0.012621672,
+      "inputTokens": 314628,
+      "costUsd": 0.013214376000000002,
       "subsets": {
         "work_talk": {
           "n": 21,
-          "accuracy": 0.31746031746031744,
+          "accuracy": 0.38095238095238093,
           "predicted": {
-            "idea_by_user": 14,
-            "neither": 20,
-            "rec_to_user": 22,
-            "rec_by_user": 7
+            "idea_by_user": 13,
+            "neither": 24,
+            "rec_to_user": 20,
+            "rec_by_user": 6
           }
         },
         "room_wide": null
@@ -85,764 +85,148 @@
           "id": "11260875-148",
           "label": "neither",
           "predicted": "idea_by_user",
-          "confidence": 0.6900000000000001,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-148",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.58,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-148",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.54,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-33",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.79,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-33",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.74,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-33",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.85,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-253",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.75,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-253",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.66,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-253",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.58,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-90",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.78,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11333494-90",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.74,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11333494-90",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.74,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11260875-32",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.71,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-32",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.76,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11260875-32",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.63,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-92",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.51,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-92",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.76,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-92",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.73,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-29",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.53,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-29",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.45999999999999996,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-29",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.39,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-19",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.44,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-19",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.51,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-19",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.48,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-26",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.79,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-26",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.72,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-26",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.86,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-86",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.45,
-          "recType": "video",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-86",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.34,
-          "recType": "video",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-86",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.39,
-          "recType": "video",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11334599-5",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.63,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11334599-5",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.54,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11334599-5",
-          "label": "neither",
-          "predicted": "neither",
           "confidence": 0.65,
           "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11189950-56",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.86,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-56",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.76,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-56",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.91,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-192",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.4,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-192",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.46,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-192",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.43,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11331219-59",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.62,
-          "recType": "artist",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11331219-59",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.54,
-          "recType": "artist",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11331219-59",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.64,
-          "recType": "artist",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11078797-68",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.51,
-          "recType": "artist",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-68",
+          "id": "11260875-148",
           "label": "neither",
           "predicted": "neither",
           "confidence": 0.57,
-          "recType": "artist",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-68",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.54,
-          "recType": "artist",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-230",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.77,
           "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11078797-230",
+          "id": "11260875-148",
           "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.77,
+          "predicted": "idea_by_user",
+          "confidence": 0.5,
           "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11078797-230",
+          "id": "11260875-33",
           "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.81,
-          "recType": "other",
+          "predicted": "idea_by_user",
+          "confidence": 0.8,
+          "recType": "none",
           "labelRecType": "none"
         },
         {
-          "id": "11333494-89",
+          "id": "11260875-33",
           "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.74,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11260875-33",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.86,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.8,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.6,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11260875-253",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.56,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
           "predicted": "rec_by_user",
           "confidence": 0.76,
           "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.71,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11333494-90",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.79,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.72,
+          "recType": "none",
           "labelRecType": "none"
         },
         {
-          "id": "11333494-89",
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.77,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11260875-32",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.65,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-92",
           "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.86,
+          "predicted": "neither",
+          "confidence": 0.51,
           "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11333494-89",
+          "id": "11189950-92",
           "label": "neither",
-          "predicted": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.79,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-92",
+          "label": "neither",
+          "predicted": "neither",
           "confidence": 0.73,
           "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11334599-6",
-          "label": "rec_by_user",
-          "predicted": "neither",
-          "confidence": 0.64,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11334599-6",
-          "label": "rec_by_user",
-          "predicted": "neither",
-          "confidence": 0.74,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11334599-6",
-          "label": "rec_by_user",
-          "predicted": "neither",
-          "confidence": 0.59,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11078797-28",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.6,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-28",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.62,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-28",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.63,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-36",
-          "label": "rec_to_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.9,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11263599-36",
-          "label": "rec_to_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.77,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11263599-36",
-          "label": "rec_to_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.89,
-          "recType": "other",
-          "labelRecType": "other"
-        },
-        {
-          "id": "11191233-0",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.74,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-0",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.81,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-0",
-          "label": "neither",
-          "predicted": "idea_by_user",
-          "confidence": 0.72,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-3",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.79,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-3",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.81,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11333494-3",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.79,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11192589-8",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.41,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11192589-8",
-          "label": "neither",
-          "predicted": "rec_by_user",
-          "confidence": 0.38,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11192589-8",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.48,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-37",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.58,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-37",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.62,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-37",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.54,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-20",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.45,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-20",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.36,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11191233-20",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.38,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-13",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.61,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-13",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.62,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-13",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.51,
-          "recType": "none",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-14",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.56,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-14",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.49,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11263599-14",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.63,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11331219-58",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.66,
-          "recType": "album",
-          "labelRecType": "album"
-        },
-        {
-          "id": "11331219-58",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.53,
-          "recType": "artist",
-          "labelRecType": "album"
-        },
-        {
-          "id": "11331219-58",
-          "label": "rec_by_user",
-          "predicted": "rec_by_user",
-          "confidence": 0.68,
-          "recType": "album",
-          "labelRecType": "album"
-        },
-        {
-          "id": "11189950-104",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.62,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-104",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.81,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11189950-104",
-          "label": "neither",
-          "predicted": "neither",
-          "confidence": 0.61,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-66",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.87,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-66",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.67,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-66",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.63,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-67",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.85,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-67",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.82,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-67",
-          "label": "idea_by_user",
-          "predicted": "idea_by_user",
-          "confidence": 0.88,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-189",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.42,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-189",
-          "label": "neither",
-          "predicted": "rec_to_user",
-          "confidence": 0.6,
-          "recType": "other",
-          "labelRecType": "none"
-        },
-        {
-          "id": "11078797-189",
+          "id": "11189950-29",
           "label": "neither",
           "predicted": "rec_to_user",
           "confidence": 0.5,
@@ -850,42 +234,650 @@
           "labelRecType": "none"
         },
         {
-          "id": "11078797-196",
-          "label": "rec_by_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.52,
-          "recType": "podcast",
-          "labelRecType": "podcast"
-        },
-        {
-          "id": "11078797-196",
-          "label": "rec_by_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.67,
-          "recType": "podcast",
-          "labelRecType": "podcast"
-        },
-        {
-          "id": "11078797-196",
-          "label": "rec_by_user",
-          "predicted": "rec_to_user",
-          "confidence": 0.58,
-          "recType": "podcast",
-          "labelRecType": "podcast"
-        },
-        {
-          "id": "11078797-197",
+          "id": "11189950-29",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.64,
-          "recType": "podcast",
+          "confidence": 0.44,
+          "recType": "other",
           "labelRecType": "none"
         },
         {
-          "id": "11078797-197",
+          "id": "11189950-29",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.43,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.45,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.52,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-19",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.46,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.77,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.72,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-26",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.83,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.44,
+          "recType": "video",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.31,
+          "recType": "video",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-86",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.36,
+          "recType": "video",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.55,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.49,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11334599-5",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.66,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.86,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.73,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-56",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.93,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.41,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.44,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-192",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.44,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.63,
+          "recType": "artist",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.53,
+          "recType": "artist",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11331219-59",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.68,
+          "recType": "artist",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.49,
+          "recType": "artist",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-68",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.59,
+          "recType": "artist",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-68",
           "label": "neither",
           "predicted": "neither",
           "confidence": 0.54,
+          "recType": "artist",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.77,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.79,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-230",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.85,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.74,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.86,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-89",
+          "label": "neither",
+          "predicted": "rec_by_user",
+          "confidence": 0.72,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.64,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.7,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11334599-6",
+          "label": "rec_by_user",
+          "predicted": "neither",
+          "confidence": 0.61,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.6,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.65,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-28",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.64,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.92,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.83,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11263599-36",
+          "label": "rec_to_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.88,
+          "recType": "other",
+          "labelRecType": "other"
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.78,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.75,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-0",
+          "label": "neither",
+          "predicted": "idea_by_user",
+          "confidence": 0.72,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.73,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.78,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11333494-3",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.77,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.37,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.42,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11192589-8",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.45,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.56,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.58,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-37",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.56,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.49,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.39,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11191233-20",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.34,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.58,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.59,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-13",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.56,
+          "recType": "none",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.54,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.51,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11263599-14",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.7,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.63,
+          "recType": "album",
+          "labelRecType": "album"
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.58,
+          "recType": "artist",
+          "labelRecType": "album"
+        },
+        {
+          "id": "11331219-58",
+          "label": "rec_by_user",
+          "predicted": "rec_by_user",
+          "confidence": 0.7,
+          "recType": "album",
+          "labelRecType": "album"
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.54,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.82,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11189950-104",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.61,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.85,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.71,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-66",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.64,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.84,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.81,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-67",
+          "label": "idea_by_user",
+          "predicted": "idea_by_user",
+          "confidence": 0.9,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.41,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.57,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-189",
+          "label": "neither",
+          "predicted": "rec_to_user",
+          "confidence": 0.61,
+          "recType": "other",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.46,
+          "recType": "podcast",
+          "labelRecType": "podcast"
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.66,
+          "recType": "podcast",
+          "labelRecType": "podcast"
+        },
+        {
+          "id": "11078797-196",
+          "label": "rec_by_user",
+          "predicted": "rec_to_user",
+          "confidence": 0.63,
+          "recType": "podcast",
+          "labelRecType": "podcast"
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.6,
           "recType": "podcast",
           "labelRecType": "none"
         },
@@ -893,7 +885,15 @@
           "id": "11078797-197",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.56,
+          "confidence": 0.57,
+          "recType": "podcast",
+          "labelRecType": "none"
+        },
+        {
+          "id": "11078797-197",
+          "label": "neither",
+          "predicted": "neither",
+          "confidence": 0.6,
           "recType": "podcast",
           "labelRecType": "none"
         },
@@ -909,7 +909,7 @@
           "id": "11078797-208",
           "label": "rec_by_user",
           "predicted": "rec_by_user",
-          "confidence": 0.48,
+          "confidence": 0.53,
           "recType": "other",
           "labelRecType": "artist"
         },
@@ -917,7 +917,7 @@
           "id": "11078797-208",
           "label": "rec_by_user",
           "predicted": "rec_by_user",
-          "confidence": 0.54,
+          "confidence": 0.52,
           "recType": "other",
           "labelRecType": "artist"
         },
@@ -925,7 +925,7 @@
           "id": "11078797-209",
           "label": "rec_by_user",
           "predicted": "rec_by_user",
-          "confidence": 0.78,
+          "confidence": 0.77,
           "recType": "other",
           "labelRecType": "other"
         },
@@ -933,15 +933,15 @@
           "id": "11078797-209",
           "label": "rec_by_user",
           "predicted": "rec_by_user",
-          "confidence": 0.71,
-          "recType": "artist",
+          "confidence": 0.67,
+          "recType": "other",
           "labelRecType": "other"
         },
         {
           "id": "11078797-209",
           "label": "rec_by_user",
           "predicted": "rec_by_user",
-          "confidence": 0.71,
+          "confidence": 0.72,
           "recType": "other",
           "labelRecType": "other"
         },
@@ -949,7 +949,7 @@
           "id": "11189950-5",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.93,
+          "confidence": 0.97,
           "recType": "none",
           "labelRecType": "none"
         },
@@ -965,7 +965,7 @@
           "id": "11189950-5",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.96,
+          "confidence": 0.94,
           "recType": "none",
           "labelRecType": "none"
         },
@@ -1085,7 +1085,7 @@
           "id": "11078797-6",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.98,
+          "confidence": 0.99,
           "recType": "none",
           "labelRecType": "none"
         },
@@ -1117,7 +1117,7 @@
           "id": "11078797-1",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.93,
+          "confidence": 0.92,
           "recType": "none",
           "labelRecType": "none"
         },
@@ -1133,7 +1133,7 @@
           "id": "11078797-1",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.89,
+          "confidence": 0.91,
           "recType": "none",
           "labelRecType": "none"
         },
@@ -1165,7 +1165,7 @@
           "id": "11333494-8",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.86,
+          "confidence": 0.87,
           "recType": "other",
           "labelRecType": "none"
         },
@@ -1173,7 +1173,7 @@
           "id": "11333494-8",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.75,
+          "confidence": 0.79,
           "recType": "other",
           "labelRecType": "none"
         },
@@ -1181,7 +1181,7 @@
           "id": "11333494-8",
           "label": "neither",
           "predicted": "neither",
-          "confidence": 0.9,
+          "confidence": 0.88,
           "recType": "other",
           "labelRecType": "none"
         },
@@ -1290,8 +1290,8 @@
           "accuracy": 0.940299
         }
       ],
-      "inputTokens": 304737,
-      "costUsd": 0.0304737,
+      "inputTokens": 317985,
+      "costUsd": 0.0317985,
       "subsets": {
         "work_talk": {
           "n": 21,
