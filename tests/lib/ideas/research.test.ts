@@ -153,7 +153,10 @@ describe("the brief", () => {
     expect(md.startsWith("**In one line:** The gap is an agent on the resident's side, not the city's.")).toBe(true);
     expect(takeawayOf(md)).toBe("The gap is an agent on the resident's side, not the city's.");
     expect(takeawayOf("## What already exists\nMari exists [1].")).toBeNull();
-    expect(takeawayOf(`**In one line:** ${"word ".repeat(40)}`)!.length).toBeLessThanOrEqual(110);
+    const long = takeawayOf(`**In one line:** ${"word ".repeat(40)}`)!;
+    expect(long.length).toBeLessThanOrEqual(110);
+    expect(long.endsWith("word…")).toBe(true); // a clipped takeaway says so (Oct 20: "…looks less" read as broken)
+    expect(takeawayOf("In one line: Short and whole.")).toBe("Short and whole.");
   });
 
   it("the Bee todo title carries the takeaway when there is one, else says research is ready", () => {
