@@ -10,6 +10,7 @@ Lines to say, in order, for every beat of the video. Say them in your own words 
   2. **One thing per note.**
   3. **Say a first name** for a friend's tip. Your own name is never credited.
   4. **Name the actual thing** ("Kawa Ramen", not "that place").
+- **Which page updates live:** Home checks every 5 seconds, so plants grow and bloom, and a friend's tip appears (then gains its cover art or map), on screen without touching it.
 - No music audible in any shot (contest rule). Shazam a song with headphones on, or film the phone screen only.
 
 ---
@@ -50,7 +51,7 @@ Tell Claude "round 1 done" (then "round 2 done"). Claude checks the idea moved u
 
 ### On camera (round 3)
 
-1. Garden open on the laptop (https://earmark-two.vercel.app/garden), screen recorder running, phone camera on you.
+1. Earmark's **Home** page open on the laptop (https://earmark-two.vercel.app/, not /garden: only Home updates by itself, every 5 seconds), screen recorder running, phone camera on you.
 2. Say round 3 as a voice note.
 3. Within seconds the plant blooms; tap it to open the one-page draft with the three dates.
 4. Optional second take about 10 minutes later: your wrist buzzes "'<idea>' bloomed: draft and research ready"; open the research brief.
