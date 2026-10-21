@@ -3,7 +3,8 @@
 // EXTRACT_MODEL read of the top 5 results → only shows with a date, a venue, a city and a source result, in the next
 // 30 days, in the home city or a city OpenStreetMap places within 150 km of home. Stored as extras.shows (no
 // migration): { checkedAt, items, told }. The tip page lists the items; the first show not told yet becomes the tip's
-// one Bee todo (entity type 'show', keyed by the tip id), refreshed in place for the next show, so a show is told once.
+// one Bee todo (entity type 'show', keyed by the tip id), refreshed in place for the next show, so a show is told once;
+// completed once that show has passed with nothing newer to tell, or the tip is cleared (closeShowTodos).
 // Never a ticket, never a purchase. Privacy: the query and the model see the artist's name and the city only, never the
 // excerpt or a person's name. Logs: ids and err.name only. Called only from the rec lane's sweep, under its lease.
 import { generateText, Output } from "ai";
@@ -15,18 +16,13 @@ import { biasFor, type Bias } from "../enrich/bias";
 import type { Show } from "../enrich/extras";
 import { nominatimCity, nominatimProvider } from "../enrich/nominatim";
 import { logEnrichError, ProviderHttpError, runProvider } from "../enrich/types";
-import { TIMELINE_TZ } from "../ideas/timeline-format";
 import { createEarmarkTodo } from "../sync/bee-todos";
 import { alarmSoon, withLink } from "../sync/todo-text";
-import type { RecType } from "../types";
-import { HIDDEN_TIP_STATUSES } from "./status";
+import { artistOf, SHOW_ENTITY, showKey, storedItems, storedTold, sweepSkips, todayIn, type ShowTip, type Stored } from "./show-todos";
 import { searchWeb, WEB_QUERY_MAX, type WebResult } from "./web-find";
 import type { WristDeps } from "./which-one-todo";
 
-// lane.ts's SWEEP_SKIPS_STATUSES, read when called (importing lane breaks eve's one-module bundle; which-one-todo.ts).
-const sweepSkips = () => HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
-
-export const SHOW_ENTITY = "show";
+export { closeShowTodos, SHOW_ENTITY, showKey, showTodoDone, todayIn, type ShowTip } from "./show-todos";
 export const MAX_SHOW_CHECKS_PER_RUN = 5;
 export const SHOWS_EVERY_HOURS = 24;
 export const SHOWS_AHEAD_DAYS = 30;
@@ -37,10 +33,7 @@ const MODEL_TIMEOUT_MS = 20_000;
 const DAY_MS = 86_400_000;
 
 export type { Show };
-export interface ShowTip { type: RecType; canonical_name: string; creator: string | null }
 export interface RawShow { date: string | null; venue: string | null; city: string | null; result: number | null }
-
-const artistOf = (tip: ShowTip) => (tip.type === "artist" ? tip.canonical_name : tip.creator)?.trim() || null;
 
 /** The search words: the artist's name, "tour dates", the home city. Null without an artist. Pure. */
 export function showsQuery(tip: ShowTip, city: string): string | null {
@@ -48,8 +41,6 @@ export function showsQuery(tip: ShowTip, city: string): string | null {
   return artist ? `${artist} tour dates ${city}`.replace(/\s+/g, " ").slice(0, WEB_QUERY_MAX).trim() : null;
 }
 
-/** Milwaukee's date today, YYYY-MM-DD. */
-export const todayIn = (now: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: TIMELINE_TZ }).format(now);
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const realDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && addDays(s, 0) === s; // 2026-02-30 is not a day
 
@@ -147,8 +138,6 @@ export async function findShows(tip: ShowTip, home: { city: string; near: Bias }
   return keepNearby(parseShows(raw, results, today), home.city, cityNear(home.near, deps.env, deps.fetchImpl));
 }
 
-/** Who plays, where and when: the same show from any tip, any day. Pure. */
-export const showKey = (artist: string, s: Pick<Show, "date" | "venue">) => `${norm(artist)}|${s.date}|${norm(s.venue)}`;
 /** The first show not told yet. Pure. */
 export const nextToTell = (artist: string, shows: readonly Show[], told: readonly string[]) =>
   shows.find((s) => !told.includes(showKey(artist, s)));
@@ -171,9 +160,6 @@ export function showAlarm(date: string, now: Date = new Date()): string {
   return at.getTime() > now.getTime() + 60_000 ? at.toISOString() : alarmSoon(now);
 }
 
-interface Stored { checkedAt?: unknown; items?: unknown; told?: unknown }
-const storedItems = (s: Stored | null): Show[] => (Array.isArray(s?.items) ? (s.items as Show[]) : []);
-const storedTold = (s: Stored | null): string[] => (Array.isArray(s?.told) ? s.told.filter((t): t is string => typeof t === "string") : []);
 
 export interface ShowsDeps extends Pick<WristDeps, "bee" | "onlyIds"> {
   env: Record<string, string | undefined>;
@@ -259,7 +245,9 @@ async function tell(id: number, artist: string, items: readonly Show[], told: re
     }
   }
   const next = [...told, key].slice(-MAX_TOLD_KEPT);
-  await db()`update recommendations set extras = jsonb_set(extras, '{shows,told}', ${JSON.stringify(next)}::jsonb)
+  // todoDate: the day of the show the tip's todo names, so closeShowTodos knows when it has passed
+  const patch = elsewhere ? { told: next } : { told: next, todoDate: show.date };
+  await db()`update recommendations set extras = jsonb_set(extras, '{shows}', (extras->'shows') || ${JSON.stringify(patch)}::jsonb)
     where id = ${id} and extras ? 'shows'`;
   return !elsewhere;
 }

@@ -21,6 +21,7 @@ import { ensureRecEmbeddings } from "../links/candidates";
 import { addTipsToPlaylist } from "../music/library";
 import { CLAIM_LEASE } from "../store/conversations";
 import type { RecStatus, RecType } from "../types";
+import { closeShowTodos } from "./show-todos";
 import { lookForShows, type ShowsDeps } from "./shows";
 import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
 import { findOnWeb, WEB_FIND_TYPES, type WebFound, type WebTip } from "./web-find";
@@ -272,8 +273,10 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
   }
   // Shows nearby (decision 064): standing artist/album tips, each once a day, <=5 a run; the first show not told yet
   // becomes the tip's one Bee todo. Off while TINYFISH_API_KEY is unset or no home is set (EARMARK_HOME_LAT/LNG).
+  // First, every pass: a todo whose show has passed or whose tip was cleared is completed (it never holds a slot).
   if (!overBudget()) {
     try {
+      await closeShowTodos({ bee: d.bee, env: d.env, onlyIds: d.onlyIds });
       const shows = await lookForShows({ env: d.env, fetchImpl: d.showsFetch, generateImpl: d.showsGenerate, bee: d.bee, onlyIds: d.onlyIds, overBudget });
       r.showChecks = shows.checked;
       r.showTodos = shows.told;

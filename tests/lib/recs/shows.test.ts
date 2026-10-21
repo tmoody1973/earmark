@@ -7,7 +7,7 @@ vi.mock("../../../agent/lib/db", () => ({ db: () => h.mock.sql }));
 import { readExtras } from "../../../agent/lib/enrich/extras";
 import type { WebResult } from "../../../agent/lib/recs/web-find";
 import {
-  findShows, keepNearby, lookForShows, nextToTell, parseShows, readShows, showAlarm, showKey, showsQuery, showTodoText, todayIn,
+  findShows, keepNearby, lookForShows, nextToTell, parseShows, readShows, showAlarm, showKey, showsQuery, showTodoDone, showTodoText, todayIn,
   type RawShow, type Show,
 } from "../../../agent/lib/recs/shows";
 
@@ -82,6 +82,30 @@ describe("the todo", () => {
   });
   it("today is Milwaukee's date", () => {
     expect(todayIn(new Date("2026-10-22T03:00:00Z"))).toBe("2026-10-21");
+  });
+});
+
+describe("showTodoDone: a past show's todo is completed", () => {
+  const show = (date: string, venue = "Cactus Club"): Show => ({ date, venue, city: "Milwaukee, WI", url: "https://x.example.com/" });
+  const told = (...s: Show[]) => s.map((x) => showKey("Sault", x));
+  it("is done the day after the show it names, not on the day itself", () => {
+    const a = show("2026-10-20");
+    expect(showTodoDone({ items: [a], told: told(a), todoDate: a.date }, "Sault", "2026-10-21")).toBe(true);
+    expect(showTodoDone({ items: [a], told: told(a), todoDate: a.date }, "Sault", "2026-10-20")).toBe(false);
+  });
+  it("is not done while a newer show waits to be told (the next check refreshes it), and is once that show was told", () => {
+    const a = show("2026-10-20");
+    const b = show("2026-11-02", "Metro");
+    expect(showTodoDone({ items: [a, b], told: told(a), todoDate: a.date }, "Sault", "2026-10-21")).toBe(false);
+    expect(showTodoDone({ items: [a, b], told: told(a, b), todoDate: a.date }, "Sault", "2026-10-21")).toBe(true);
+  });
+  it("a cleared tip's todo is completed by a status effect", async () => {
+    const { STATUS_EFFECTS } = await import("../../../agent/lib/recs/status-effects");
+    expect(STATUS_EFFECTS.map((fx) => fx.name)).toContain("show-todo");
+  });
+  it("is never done without a known show date", () => {
+    expect(showTodoDone(null, "Sault", TODAY)).toBe(false);
+    expect(showTodoDone({ items: [], told: [] }, "Sault", TODAY)).toBe(false);
   });
 });
 

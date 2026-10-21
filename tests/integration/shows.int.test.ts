@@ -129,4 +129,52 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("shows nearby in the rec lane (d
     expect((await shows(album)).items).toHaveLength(1); // the page still lists it
     expect(await todoRows(album)).toHaveLength(0);
   });
+
+  // Plan review focus 1: a show todo never holds one of the 10 open slots past its use.
+  const todoOf = async (id: number, bee: ReturnType<typeof fakeBee>) => {
+    const [row] = await c.query(`select bee_id, last_written_state from bee_sync where entity_type = 'show' and entity_id = $1`, [id]).then((r) => r.rows);
+    return { todo: bee.todos.get(Number(row.bee_id))!, state: row.last_written_state };
+  };
+
+  it("a cleared tip's show todo is completed by the next pass, and the bee_sync row is kept", async () => {
+    const id = await addArtist(`IT Quintet ${RUN}`);
+    const o = { net: fakeNet(), gen: model(), bee: fakeBee() };
+    await sweep(id, o);
+    await c.query(`update recommendations set status = 'dismissed' where id = $1`, [id]);
+    await sweep(id, o);
+    const { todo, state } = await todoOf(id, o.bee);
+    expect(todo.completed).toBe(true);
+    expect(state).toMatchObject({ completed: true });
+    expect(await todoRows(id)).toHaveLength(1);
+  });
+
+  it("a todo whose show has passed completes on the next pass; one with a show still ahead stays open", async () => {
+    const id = await addArtist(`IT Sextet ${RUN}`);
+    const o = { net: fakeNet(), gen: model(), bee: fakeBee() };
+    await sweep(id, o);
+    await sweep(id, o);
+    expect((await todoOf(id, o.bee)).todo.completed).toBe(false);
+    const past = day(-1);
+    await c.query(`update recommendations set extras = jsonb_set(extras, '{shows}', (extras->'shows')
+        || jsonb_build_object('todoDate', $2::text, 'items', jsonb_build_array((extras->'shows'->'items'->0) || jsonb_build_object('date', $2::text))))
+      where id = $1`, [id, past]);
+    await sweep(id, o);
+    expect((await todoOf(id, o.bee)).todo.completed).toBe(true);
+  });
+
+  it("a newer show refreshes the open todo in place: one todo, its text and alarm moved to the new show", async () => {
+    const id = await addArtist(`IT Septet ${RUN}`);
+    const o = { net: fakeNet(), gen: model(), bee: fakeBee() };
+    await sweep(id, o);
+    await c.query(`update recommendations set extras = jsonb_set(extras, '{shows,checkedAt}', to_jsonb((now() - interval '25 hours')::text)) where id = $1`, [id]);
+    o.gen.mockImplementation(async () => ({ output: { shows: [
+      { date: day(5), venue: "Pabst Theater", city: "Milwaukee, WI", result: 1 }, { date: SHOW_DAY, venue: "Cactus Club", city: "Milwaukee, WI", result: 1 },
+    ] } }));
+    expect(await sweep(id, o)).toMatchObject({ showChecks: 1, showTodos: 1 });
+    expect(o.bee.createTodo).toHaveBeenCalledTimes(1);
+    const { todo } = await todoOf(id, o.bee);
+    expect(todo).toMatchObject({ completed: false, alarm_at: `${day(4)}T15:00:00.000Z` });
+    expect(todo.text).toContain(`IT Septet ${RUN} plays Pabst Theater`);
+    expect((await shows(id)).todoDate).toBe(day(5));
+  });
 });

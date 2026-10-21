@@ -1,4 +1,5 @@
 import { beeTodoEffect } from "../sync/bee-todos";
+import { closeShowTodoQuietly } from "./show-todos";
 import { closeWhichOneTodoQuietly } from "./which-one-todo";
 import type { RecStatus } from "../types";
 
@@ -29,6 +30,10 @@ export const STATUS_EFFECTS: readonly StatusEffect[] = [
   // Decision 062: a dismissed or composted tip no longer asks "Which one?", so its Bee todo is done. Loaded when used (cycle).
   { name: "which-one-todo", run: async (c) => {
     if (c.next === "dismissed" || c.next === "composted") await closeWhichOneTodoQuietly(c.recId);
+  } },
+  // Decision 064: a cleared tip's "plays nearby" todo is done too.
+  { name: "show-todo", run: async (c) => {
+    if (c.next === "dismissed" || c.next === "composted") await closeShowTodoQuietly(c.recId);
   } },
   // notion: M3-T2b when NOTION_TOKEN exists, e.g.
   //   { name: "notion", run: async (c) => { if (c.origin !== "notion") await pushRecToNotion(c.recId); } }
