@@ -54,7 +54,11 @@ export function PlaceDetails({ place: p, now = new Date() }: { place: PlaceExtra
         </ul>
       )}
       <p className="tip-attribution">
-        Place details © <a href="https://www.openstreetmap.org/copyright" rel="noopener noreferrer" target="_blank">OpenStreetMap contributors</a>.
+        {p.source ? (
+          <>Details from <a href={p.source.url} rel="noopener noreferrer" target="_blank">{p.source.site}</a>.</>
+        ) : (
+          <>Place details © <a href="https://www.openstreetmap.org/copyright" rel="noopener noreferrer" target="_blank">OpenStreetMap contributors</a>.</>
+        )}
       </p>
     </section>
   );

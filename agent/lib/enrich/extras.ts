@@ -13,7 +13,8 @@
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
 //  - anything with a Wikipedia about_url (lane.ts about step): the page summary's extract, up to 600 characters.
 //  - place: one Nominatim /lookup?extratags=1 for the OpenStreetMap link the match stored → kind, hours, website, phone,
-//    menu, reservations, takeaway and the like (place-details.ts, decision 058). No OSM link (an owner-pasted page): nothing.
+//    menu, reservations, takeaway and the like (place-details.ts, decision 058). No OSM link but a web link (a place found
+//    on the web): one search + one page read + one model call instead (place-web.ts, decision 063).
 //  - film_tv (keyed: the caller passes TMDB_API_KEY, the v4 Bearer token): ONE request, GET /3/{movie|tv}/{id}
 //    ?append_to_response=credits,videos,watch/providers (https://developer.themoviedb.org/docs/append-to-response) →
 //    synopsis, genres, runtime or seasons, directors or creators, top cast, the first official YouTube trailer, and US
@@ -23,7 +24,8 @@ import { BlockList, isIP } from "node:net";
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
 import { fetchDiscogsSoft, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
-import { fetchPlaceDetails, readPlace, type PlaceExtras } from "./place-details";
+import { fetchPlaceDetails, osmLookupId, readPlace, type PlaceExtras } from "./place-details";
+import { fetchWebPlaceDetails, type WebPlaceAccess } from "./place-web";
 import { getJson, USER_AGENT } from "./types";
 import { youtubeVideoUrl } from "./youtube";
 
@@ -60,6 +62,7 @@ export interface FilmExtras {
 }
 export interface ExtrasRec {
   type: RecType; canonical_name: string; creator: string | null; apple_music_id: string | null; links: unknown; about_url: string | null;
+  year_or_address?: string | null; // a place's street address, for the web details search (decision 063)
 }
 
 const WIKI = "https://en.wikipedia.org/wiki/";
@@ -428,7 +431,7 @@ async function wikipedia(aboutUrl: string | null, fetchImpl: typeof fetch): Prom
  * TMDB (film_tv) likewise only with the caller's token; a 429 there stops the step like any other 429.
  */
 export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetch, discogs: DiscogsAccess | null = null,
-  tmdbToken: string | null = null): Promise<RecExtras> {
+  tmdbToken: string | null = null, web: WebPlaceAccess | null = null): Promise<RecExtras> {
   const out: RecExtras = {};
   if (rec.type === "song" || rec.type === "album") {
     const preview = await itunesPreview(rec, rec.type, fetchImpl);
@@ -443,7 +446,8 @@ export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetc
     const book = await openLibraryBook(rec.links, fetchImpl);
     if (book) out.book = book;
   } else if (rec.type === "place") {
-    const place = await fetchPlaceDetails(rec.links, fetchImpl);
+    const place = osmLookupId(rec.links) ? await fetchPlaceDetails(rec.links, fetchImpl)
+      : web ? await fetchWebPlaceDetails(rec, web) : null; // no OSM link: a web-found place (decision 063)
     if (place) out.place = place;
   } else if (rec.type === "film_tv" && tmdbToken) {
     const film = await tmdbFilm(rec.links, tmdbToken, fetchImpl);

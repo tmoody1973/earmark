@@ -18,6 +18,7 @@ export interface PlaceExtras {
   reservation: Reservation | null;
   reservationUrl: string | null;
   features: string[]; // "Takeaway", "Delivery", "Outdoor seating", "Wheelchair accessible"
+  source?: { site: string; url: string }; // set when the details were read from a web page (decision 063); unset = OpenStreetMap
 }
 
 const RESERVATIONS: readonly string[] = ["yes", "no", "required", "recommended"];
@@ -185,6 +186,7 @@ export function readPlace(raw: unknown): PlaceExtras | null {
     reservation: RESERVATIONS.includes(x.reservation) ? x.reservation : null,
     reservationUrl: https(x.reservationUrl),
     features: Array.isArray(x.features) ? x.features.filter((f: unknown): f is string => typeof f === "string" && !!f) : [],
+    ...(str(x.source?.site) && https(x.source?.url) ? { source: { site: str(x.source.site)!, url: https(x.source.url)! } } : {}),
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

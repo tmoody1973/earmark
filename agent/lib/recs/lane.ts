@@ -42,7 +42,7 @@ export const MAX_EMBEDS_PER_RUN = 20;
 // M3-T4b. The Wikipedia note: <=10 tips a run, 2 keyless requests each (search, summary; music adds one Wikidata ASK).
 export const MAX_ABOUTS_PER_RUN = 10;
 export const MAX_ABOUT_TRIES = 3; // errors/timeouts (not 503/429): then done, no note
-// Decision 045. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia).
+// Decision 045. The tip page's extras: <=10 tips a run, 0-3 keyless requests each (iTunes, a feed, Open Library, Wikipedia); a web-found place adds 1 TinyFish search + fetch + model call (063).
 export const MAX_EXTRAS_PER_RUN = 10;
 export const MAX_EXTRAS_TRIES = 3; // errors/timeouts (not 503/429): then the lane stops asking (extras_at stays null)
 // Decision 051. Find it on the web: <=3 tips a run, each 1 TinyFish Search (free) + <=1 EXTRACT_MODEL call + <=3 catalog
@@ -108,7 +108,8 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
     summarize: (input) => writeContextSummary(input),
     beeSummary: async (id) => conversationSummary(await createBeeClient().getConversation(id)),
     embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec),
-    extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env), (deps.env ?? process.env).TMDB_API_KEY?.trim() || null),
+    extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env), (deps.env ?? process.env).TMDB_API_KEY?.trim() || null,
+      (deps.env ?? process.env).TINYFISH_API_KEY?.trim() ? { key: (deps.env ?? process.env).TINYFISH_API_KEY!.trim(), fetchImpl: fetch } : null),
     webFind: (tip) => findOnWeb(tip, { env: deps.env ?? process.env, fetchImpl: fetch }),
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
@@ -326,7 +327,7 @@ async function writeAbouts(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 // this step for the run. Never a model call.
 async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Promise<void> {
   const rows = (await db()`
-    select id, type, canonical_name, creator, apple_music_id, links, about_url, enriched_at::text as enriched_key from recommendations
+    select id, type, canonical_name, creator, year_or_address, apple_music_id, links, about_url, enriched_at::text as enriched_key from recommendations
     where enrichment_status = 'matched' and about_at is not null and extras_at is null and extras_tries < ${MAX_EXTRAS_TRIES}
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
       and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
@@ -336,7 +337,7 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
     const id = Number(row.id);
     try {
       const extras = await d.extras({ type: row.type, canonical_name: row.canonical_name, creator: row.creator,
-        apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
+        year_or_address: row.year_or_address, apple_music_id: row.apple_music_id, links: row.links, about_url: row.about_url });
       // Merged, never replaced (the refresh script may have added extras.discogs already); links.discogs follows it.
       const saved = await db()`update recommendations set extras = coalesce(extras, '{}'::jsonb) || ${JSON.stringify(extras)}::jsonb,
           links = case when ${extras.discogs?.url ?? null}::text is null then links
