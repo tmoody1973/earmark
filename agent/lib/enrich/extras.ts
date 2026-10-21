@@ -12,7 +12,8 @@
 //  - video: the YouTube id from the stored link; no request.
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
 //  - anything with a Wikipedia about_url (lane.ts about step): the page summary's extract, up to 600 characters.
-//  - place: nothing (the other lane fills lat/lng; the address is already the tip's year_or_address).
+//  - place: one Nominatim /lookup?extratags=1 for the OpenStreetMap link the match stored → kind, hours, website, phone,
+//    menu, reservations, takeaway and the like (place-details.ts, decision 058). No OSM link (an owner-pasted page): nothing.
 //  - film_tv (keyed: the caller passes TMDB_API_KEY, the v4 Bearer token): ONE request, GET /3/{movie|tv}/{id}
 //    ?append_to_response=credits,videos,watch/providers (https://developer.themoviedb.org/docs/append-to-response) →
 //    synopsis, genres, runtime or seasons, directors or creators, top cast, the first official YouTube trailer, and US
@@ -22,6 +23,7 @@ import { BlockList, isIP } from "node:net";
 import type { RecType } from "../types";
 import { norm } from "./apple-music";
 import { fetchDiscogsSoft, logDiscogsSkippedOnce, readDiscogs, type DiscogsAccess, type DiscogsExtras } from "./discogs";
+import { fetchPlaceDetails, readPlace, type PlaceExtras } from "./place-details";
 import { getJson, USER_AGENT } from "./types";
 import { youtubeVideoUrl } from "./youtube";
 
@@ -41,6 +43,7 @@ export interface RecExtras {
   wiki?: { text: string; url: string };
   discogs?: DiscogsExtras; // albums, songs, artists (decision 047); its url is also copied to links.discogs
   film?: FilmExtras; // film_tv, from TMDB (decision 056)
+  place?: PlaceExtras; // places, from OpenStreetMap (decision 058)
 }
 export interface WatchProvider { name: string; logoUrl: string | null }
 export interface FilmExtras {
@@ -268,6 +271,8 @@ export function readExtras(raw: unknown): RecExtras {
   if (discogs) out.discogs = discogs;
   const film = readFilm(x.film);
   if (film) out.film = film;
+  const place = readPlace(x.place);
+  if (place) out.place = place;
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -437,6 +442,9 @@ export async function fetchExtras(rec: ExtrasRec, fetchImpl: typeof fetch = fetc
   } else if (rec.type === "book") {
     const book = await openLibraryBook(rec.links, fetchImpl);
     if (book) out.book = book;
+  } else if (rec.type === "place") {
+    const place = await fetchPlaceDetails(rec.links, fetchImpl);
+    if (place) out.place = place;
   } else if (rec.type === "film_tv" && tmdbToken) {
     const film = await tmdbFilm(rec.links, tmdbToken, fetchImpl);
     if (film) out.film = film;
