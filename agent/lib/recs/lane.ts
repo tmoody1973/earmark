@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { createBeeClient } from "../bee/client";
 import { db } from "../db";
+import { biasFor } from "../enrich/bias";
 import { ownerFirstName } from "../env";
 import { fetchAbout, type About, type AboutRec } from "../enrich/about";
 import { enrichRec, type RecToEnrich } from "../enrich/enrich";
@@ -360,12 +361,14 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 async function findOnTheWeb(d: SweepDeps, r: Done, overBudget: () => boolean, types: readonly RecType[]): Promise<void> {
   const rows = (await db()`
     select id, type, canonical_name, creator, context_summary, match_candidates, enriched_at::text as enriched_key,
+      lat, lng, said_lat, said_lng,
       (select first_name from recommenders p where p.id = recommendations.recommender_id) as recommender_first_name from recommendations
     where enrichment_status = 'no_match' and match_source = 'auto' and web_looked_at is null
       and (summarized_at is not null or why_source = 'owner') and (candidates_at is null or candidates_at <= enriched_at)
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${WEB_FIND_TYPES.filter((t) => types.includes(t))}::text[])
       and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
-    order by id desc limit ${MAX_WEB_FINDS_PER_RUN}`) as (Omit<WebTip, "id"> & { id: number | string; match_candidates: unknown; enriched_key: string | null; recommender_first_name: string | null })[];
+    order by id desc limit ${MAX_WEB_FINDS_PER_RUN}`) as (Omit<WebTip, "id"> & { id: number | string; match_candidates: unknown; enriched_key: string | null; recommender_first_name: string | null;
+      lat: number | null; lng: number | null; said_lat: number | null; said_lng: number | null })[];
   for (const row of rows) {
     if (overBudget()) break;
     const id = Number(row.id);
@@ -373,7 +376,8 @@ async function findOnTheWeb(d: SweepDeps, r: Done, overBudget: () => boolean, ty
     let found: WebFound;
     try {
       found = await d.webFind({ id, type: row.type, canonical_name: row.canonical_name, creator: row.creator, context_summary: row.context_summary,
-        names: [row.recommender_first_name, ownerFirstName()] });
+        names: [row.recommender_first_name, ownerFirstName()],
+        near: biasFor({ saidLat: row.said_lat, saidLng: row.said_lng, lat: row.lat, lng: row.lng }, d.env) });
     } catch (err) {
       logEnrichError("rec-lane web find", { rec: id }, err);
       if (err instanceof ProviderHttpError) break; // not this tip's answer: it is asked again next run

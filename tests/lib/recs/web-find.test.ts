@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EnrichQuery } from "../../../agent/lib/enrich/types";
-import type { StoredCandidate } from "../../../agent/lib/garden/which-one";
+import { WEB_PLACE_PROVIDER, type StoredCandidate } from "../../../agent/lib/garden/which-one";
 import { findOnWeb, readWebResults, searchWeb, webQuery, type WebResult, type WebTip } from "../../../agent/lib/recs/web-find";
 
 // "Find it on the web" (decision 051), without the database: TinyFish, the model and the catalogs are fakes.
@@ -188,5 +188,60 @@ describe("findOnWeb", () => {
     await findOnWeb({ ...tip, type: "artist" }, deps({ fetchImpl, search: catalog({}) }));
     const url = new URL((fetchImpl.mock.calls[0] as unknown as [string])[0]);
     expect(url.searchParams.get("purpose")).toBe("identify the exact name of a recommended musician");
+  });
+});
+
+// Decision 059: places get the web find too, because OpenStreetMap misses small businesses (tip 130, Diaspora).
+describe("findOnWeb for a place", () => {
+  const place: WebTip = { id: 130, type: "place", canonical_name: "Diaspora", creator: null,
+    context_summary: "Ann says it is a bar with great DJs.", names: ["Ann"], near: { lat: 43, lng: -87.9 } };
+  const PAGE = "https://diasporamke.example.com/";
+  const osm = (name: string, over: Partial<StoredCandidate> = {}): StoredCandidate => ({ provider: "nominatim", canonicalName: name, creator: null,
+    yearOrAddress: `${name}, Milwaukee`, imageUrl: null, links: { openstreetmap: "https://www.openstreetmap.org/node/9" }, lat: 43.05, lng: -87.9, ...over });
+  const deps = (o: { fetchImpl?: unknown; generateImpl?: unknown; search?: unknown; city?: unknown } = {}) =>
+    ({ env: ENV, fetchImpl: tinyfish([result("Diaspora | Bar", PAGE)]), model: "test/model", city: vi.fn(async () => "Milwaukee, Wisconsin"), ...o }) as never;
+  const DIASPORA = [{ title: "Diaspora", creator: "1234 W Example St, Milwaukee, WI", result: 1 }];
+
+  it("searches with the city around the hint and asks for the place's name and street address", async () => {
+    const fetchImpl = tinyfish([]);
+    const city = vi.fn(async () => "Milwaukee, Wisconsin");
+    await findOnWeb(place, deps({ fetchImpl, city, search: catalog({}) }));
+    expect(city).toHaveBeenCalledWith({ lat: 43, lng: -87.9 });
+    const url = new URL((fetchImpl.mock.calls[0] as unknown as [string])[0]);
+    expect(url.searchParams.get("query")).toBe("Diaspora place Milwaukee, Wisconsin says it is a bar with great DJs.");
+    expect(url.searchParams.get("purpose")).toBe("identify the exact name and street address of a recommended place");
+  });
+
+  it("OpenStreetMap has it by that name: its entry is a Which one? option, never matched on its own", async () => {
+    const hit = osm("Diaspora");
+    const search = catalog({ Diaspora: [hit, osm("Diaspora Lounge")] });
+    const found = await findOnWeb(place, deps({ generateImpl: answer(DIASPORA), search }));
+    expect(found).toEqual({ kind: "options", candidates: [hit] });
+    expect(search).toHaveBeenCalledWith({ type: "place", name: "Diaspora", creator: null, lat: 43, lng: -87.9 });
+  });
+
+  it("OpenStreetMap doesn't have it: the street address the web gave is pinned, with the web's name and page", async () => {
+    const spot = osm("1234", { yearOrAddress: "1234, West Example Street, Milwaukee", lat: 43.06, lng: -87.91 });
+    const search = catalog({ "1234 W Example St, Milwaukee, WI": [spot] });
+    const generateImpl = answer(DIASPORA);
+    const found = await findOnWeb(place, deps({ generateImpl, search }));
+    expect(found).toEqual({ kind: "options", candidates: [{ provider: WEB_PLACE_PROVIDER, canonicalName: "Diaspora", creator: null,
+      yearOrAddress: "1234 W Example St, Milwaukee, WI", detail: "diasporamke.example.com", imageUrl: null, links: { web: PAGE },
+      lat: 43.06, lng: -87.91 }] });
+    const { instructions } = (generateImpl as unknown as { mock: { calls: [{ instructions: string }][] } }).mock.calls[0]![0];
+    expect(instructions).toContain("street address");
+  });
+
+  it("no address and nothing on the map: the page about it, as for any other type", async () => {
+    const found = await findOnWeb(place, deps({ generateImpl: answer([{ title: "Diaspora", creator: null, result: 1 }]), search: catalog({}) }));
+    expect(found).toMatchObject({ kind: "options", candidates: [{ provider: "web", links: { web: PAGE } }] });
+  });
+
+  it("no hint: no city lookup, and the search runs without one", async () => {
+    const city = vi.fn(async () => "x");
+    const fetchImpl = tinyfish([]);
+    await findOnWeb({ ...place, near: null }, deps({ fetchImpl, city, search: catalog({}) }));
+    expect(city).not.toHaveBeenCalled();
+    expect(new URL((fetchImpl.mock.calls[0] as unknown as [string])[0]).searchParams.get("query")).toBe("Diaspora place says it is a bar with great DJs.");
   });
 });
