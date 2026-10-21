@@ -177,11 +177,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Find it on the web on the Neon 
 
   it("once per tip: a tip already looked for is never searched again; the owner's own search or None of these is left alone", async () => {
     const looked = await addRec({ set: `${NO_MATCH}, web_looked_at = now()` });
-    const searched = await addRec({ set: `${NO_MATCH}, match_candidates = '[]'::jsonb, candidates_at = now()` });
+    const opt = JSON.stringify([{ provider: "apple", canonicalName: "MettaSun", creator: "Jimetta Rose", yearOrAddress: null, imageUrl: null, links: {} }]);
+    const searched = await addRec({ set: `${NO_MATCH}, match_candidates = '${opt}'::jsonb, candidates_at = now()` });
     const none = await addRec({ set: `${NO_MATCH}, match_source = 'owner', owner_none_at = now()` });
     const webFind = vi.fn();
     expect(await sweep({ env: KEY_ENV, webFind, onlyIds: [looked, searched, none] })).toMatchObject({ webFinds: 0 });
     expect(webFind).not.toHaveBeenCalled();
+  });
+
+  it("the owner's own search came up empty: the agent keeps looking on the web (decision 060)", async () => {
+    const empty = await addRec({ set: `${NO_MATCH}, match_candidates = '[]'::jsonb, candidates_at = now()` });
+    const webFind = vi.fn(async () => ({ kind: "nothing" as const }));
+    expect(await sweep({ env: KEY_ENV, webFind, onlyIds: [empty] })).toMatchObject({ webFinds: 1 });
+    expect((await row(empty)).web_looked_at).not.toBeNull();
   });
 
   it("at most 3 web lookups a run", async () => {

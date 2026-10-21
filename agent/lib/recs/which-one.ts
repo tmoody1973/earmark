@@ -2,7 +2,7 @@
 // - pick a stored candidate: applied through the lane's own saveMatch, and final (match_source 'owner');
 // - None of these: final no_match (owner_none_at), the question goes away;
 // - Search again: the tip type's provider with the owner's words (music: MusicBrainz and Apple together, decision 050),
-//   new candidates stored, nothing picked.
+//   new candidates stored, nothing picked. When it finds nothing, the web is asked with the same words (decision 060).
 // Picking a page the lane found on the web (decision 051) is the owner's Link (tip-link.ts): its page is fetched then.
 // Only Search again calls a provider, and only when the owner asks: one search per tip per 10 s, refused when the
 // provider isn't configured, a 503/429 answered with "try again in a bit". The query is the owner's own words (2-120
@@ -15,6 +15,7 @@ import { providerFor, type NamedProvider } from "../enrich/registry";
 import { logEnrichError, runProvider, type EnrichQuery } from "../enrich/types";
 import { candidateKey, readCandidates, WEB_PROVIDER, type StoredCandidate } from "../garden/which-one";
 import type { RecType } from "../types";
+import { findOnWeb, type WebFound, type WebTip } from "./web-find";
 import { applyReviewReason, isBackOffSignal, saveMatch, SWEEP_SKIPS_STATUSES } from "./lane";
 import { applyTipLink, type TipLinkDeps } from "./tip-link";
 
@@ -57,7 +58,21 @@ export type SearchResult =
   | { status: "ok"; found: number }
   | { status: "refused"; reason: "too_soon" | "not_configured" | "busy" | "gone" | "failed" };
 
-export interface SearchDeps { env?: Record<string, string | undefined>; fetchImpl?: typeof fetch }
+export interface SearchDeps { env?: Record<string, string | undefined>; fetchImpl?: typeof fetch; webFind?: (tip: WebTip) => Promise<WebFound> }
+
+// The owner's words found nothing in the type's catalog or on the map: one web find (decision 051's, with the owner's
+// words as the name; a place adds its city, decision 059). Any failure is "nothing came up", never an error page.
+async function webFallback(tip: WebTip, env: Record<string, string | undefined>, deps: SearchDeps): Promise<StoredCandidate[]> {
+  if (!env.TINYFISH_API_KEY?.trim()) return [];
+  try {
+    const found = await (deps.webFind ?? ((t: WebTip) => findOnWeb(t, { env, fetchImpl: deps.fetchImpl ?? fetch })))(tip);
+    if (found.kind === "options") return found.candidates;
+    if (found.kind === "match") return [found.match as unknown as StoredCandidate]; // an option here: the owner picks
+  } catch (err) {
+    logEnrichError("which-one web search", { rec: tip.id }, err);
+  }
+  return [];
+}
 
 /** The type's provider; music: MusicBrainz and Apple together, as the lane does (decision 050). Each tagged with its provider. */
 export async function searchCandidates(
@@ -88,7 +103,9 @@ export async function searchAgain(id: number, query: string, deps: SearchDeps = 
   // creator null: the owner's words are the whole search (the old creator may belong to the wrong match)
   const q: EnrichQuery = { type: tip.type as RecType, name: query, creator: null, lat: bias?.lat ?? null, lng: bias?.lng ?? null };
   try {
-    const found = await searchCandidates(provider, q, env, deps.fetchImpl ?? fetch);
+    const mapped = await searchCandidates(provider, q, env, deps.fetchImpl ?? fetch);
+    const found = mapped.length > 0 ? mapped
+      : await webFallback({ id, type: tip.type as RecType, canonical_name: query, creator: null, context_summary: null, near: bias }, env, deps);
     await db()`update recommendations set match_candidates = ${JSON.stringify(found)}::jsonb,
         enrichment_status = case when enrichment_status = 'pending' then 'no_match' else enrichment_status end,
         enriched_at = coalesce(enriched_at, now()), updated_at = now()

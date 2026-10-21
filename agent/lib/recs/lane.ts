@@ -354,7 +354,7 @@ async function writeExtras(d: SweepDeps, r: Done, overBudget: () => boolean): Pr
 
 // Find it on the web (decision 051): automatic no-matches the web hasn't been asked about, whose why step is done (the
 // query reads it) and whose options the owner hasn't searched for (candidates_at later than enriched_at: decision 048's
-// rule), newest first. A refusal from TinyFish or a catalog (ProviderHttpError: 402/429/503…) leaves the tip as it was and
+// rule) unless that search came up empty (decision 060: the agent keeps looking for the owner), newest first. A refusal from TinyFish or a catalog (ProviderHttpError: 402/429/503…) leaves the tip as it was and
 // stops this step: the next run asks again. Any other failure (the model, a timeout) ends the tip's one look, so a bad
 // answer never costs a call every run. web_looked_at is claimed only while the tip is still the no_match that was read
 // (enriched_at unchanged); every write after is guarded the same way.
@@ -364,7 +364,8 @@ async function findOnTheWeb(d: SweepDeps, r: Done, overBudget: () => boolean, ty
       lat, lng, said_lat, said_lng,
       (select first_name from recommenders p where p.id = recommendations.recommender_id) as recommender_first_name from recommendations
     where enrichment_status = 'no_match' and match_source = 'auto' and web_looked_at is null
-      and (summarized_at is not null or why_source = 'owner') and (candidates_at is null or candidates_at <= enriched_at)
+      and (summarized_at is not null or why_source = 'owner')
+      and (candidates_at is null or candidates_at <= enriched_at or coalesce(match_candidates, '[]'::jsonb) = '[]'::jsonb)
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[]) and type = any(${WEB_FIND_TYPES.filter((t) => types.includes(t))}::text[])
       and (${d.onlyIds}::bigint[] is null or id = any(${d.onlyIds}::bigint[]))
     order by id desc limit ${MAX_WEB_FINDS_PER_RUN}`) as (Omit<WebTip, "id"> & { id: number | string; match_candidates: unknown; enriched_key: string | null; recommender_first_name: string | null;
