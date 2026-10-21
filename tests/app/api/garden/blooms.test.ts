@@ -7,6 +7,7 @@ const store = vi.hoisted(() => ({
   listGardenEventsSince: vi.fn(async (_since: Date, _limit?: number) => [
     { id: 1, kind: "bloom", clusterId: 12, title: "AI newsletter", stage: "ready", mentionCount: 3, createdAt: "2026-10-17T15:00:06.000Z" },
   ]),
+  latestTipChangeSince: vi.fn(async (_since: Date): Promise<string | null> => null),
 }));
 vi.mock("../../../../agent/lib/store/garden-events", () => store);
 
@@ -58,6 +59,15 @@ describe("GET /api/garden/blooms", () => {
     const body = await (await get("?since=2026-10-17T15:00:00.000Z")).json();
     // 1 ms before the last event: events sharing its timestamp (one save) are re-read; the ticker dedupes by id.
     expect(body.now).toBe("2026-10-17T15:00:02.999Z");
+  });
+
+  it("says when a visible tip last changed after since (new, or its match filled in), so the page refreshes for tips too", async () => {
+    clerk.auth.mockResolvedValue({ userId: "user_owner" });
+    store.latestTipChangeSince.mockResolvedValueOnce("2026-10-17T15:00:04.000Z");
+    const body = await (await get("?since=2026-10-17T15:00:00.000Z")).json();
+    expect(body.tipsAt).toBe("2026-10-17T15:00:04.000Z");
+    expect(store.latestTipChangeSince).toHaveBeenCalledWith(new Date("2026-10-17T15:00:00.000Z"));
+    expect((await (await get("?since=2026-10-17T15:00:00.000Z")).json()).tipsAt).toBeNull();
   });
 
   it("accepts an offset ISO time", async () => {

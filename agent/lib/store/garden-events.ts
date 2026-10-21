@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { HIDDEN_TIP_STATUSES } from "../recs/status";
 import type { IdeaStage } from "../types";
 
 // Rows are written only by buildSaveQueries (pipeline/save-item.ts), in the same statement as the mention they record.
@@ -20,4 +21,15 @@ export async function listGardenEventsSince(since: Date, limit = GARDEN_EVENTS_L
     id: Number(r.id), kind: r.kind as GardenEventKind, clusterId: Number(r.cluster_id), title: String(r.title),
     stage: r.stage as IdeaStage, mentionCount: Number(r.mention_count), createdAt: new Date(r.created_at).toISOString(),
   }));
+}
+
+// The live page's tips (Home's New and Maybe? rows): when a visible tip last appeared or had its match filled in after
+// `since`, or null. Cleared and overheard tips never refresh the page.
+const LIVE_TIP_HIDDEN = HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
+export async function latestTipChangeSince(since: Date): Promise<string | null> {
+  const [r] = await db()`
+    select max(greatest(created_at, coalesce(enriched_at, created_at))) as at from recommendations
+    where greatest(created_at, coalesce(enriched_at, created_at)) > ${since.toISOString()}::timestamptz
+      and status <> all(${LIVE_TIP_HIDDEN}::text[])`;
+  return r?.at ? new Date(r.at).toISOString() : null;
 }

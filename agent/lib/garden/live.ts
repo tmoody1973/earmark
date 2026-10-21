@@ -18,7 +18,8 @@ const FeedEventSchema = z.object({
   mentionCount: z.number().int(),
   createdAt: z.string(),
 });
-const BloomsResponseSchema = z.object({ events: z.array(FeedEventSchema), now: z.string() });
+// tipsAt: the newest visible tip change after `since` (a new tip, or its match filled in), so tips go live too.
+const BloomsResponseSchema = z.object({ events: z.array(FeedEventSchema), now: z.string(), tipsAt: z.string().nullable().catch(null) });
 
 export type FeedEvent = z.infer<typeof FeedEventSchema>;
 export type BloomsResponse = z.infer<typeof BloomsResponseSchema>;
@@ -28,6 +29,11 @@ export function parseBloomsResponse(json: unknown): BloomsResponse {
   const r = BloomsResponseSchema.safeParse(json);
   if (!r.success) throw new Error(`Unexpected blooms response: ${r.error.message}`);
   return r.data;
+}
+
+/** A tip changed after the last one the page refreshed for (ISO times compare as strings). Pure. */
+export function newTipsSince(seen: string, tipsAt: string | null): boolean {
+  return tipsAt !== null && tipsAt > seen;
 }
 
 /** 5 s while healthy; doubling after each failed poll, capped at a minute. */

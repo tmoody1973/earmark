@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  emptyLive, isBlooming, parseBloomsResponse, reduceFeed, settleBloom, type DrawnPlant, type LiveState, type PlantPatch,
+  emptyLive, isBlooming, newTipsSince, parseBloomsResponse, reduceFeed, settleBloom, type DrawnPlant, type LiveState, type PlantPatch,
 } from "@/agent/lib/garden/live";
 import { matchesQuery } from "@/agent/lib/garden/search";
 import { recordGardenVisit } from "./actions";
@@ -53,6 +53,7 @@ export function GardenLive({ initialSince, onPage, recordsVisits = true, childre
   const [shown] = useState(() => onPage.map(([id]) => id));
   const state = useRef(live);
   const since = useRef(initialSince);
+  const tipsSeen = useRef(initialSince); // the page was drawn with every tip up to here
   const drawn = useRef<ReadonlyMap<number, DrawnPlant>>(new Map(onPage));
   const refreshWaiting = useRef(false);
 
@@ -105,7 +106,9 @@ export function GardenLive({ initialSince, onPage, recordsVisits = true, childre
         since.current = data.now;
         const r = reduceFeed(state.current, data.events, drawn.current);
         commit(r.state);
-        if (r.refresh) refresh();
+        const tips = newTipsSince(tipsSeen.current, data.tipsAt);
+        if (tips) tipsSeen.current = data.tipsAt!;
+        if (r.refresh || tips) refresh(); // a new tip, or its cover art or map arriving, redraws Home
       },
     });
     document.addEventListener("visibilitychange", poller.visibilityChanged);
