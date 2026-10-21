@@ -44,7 +44,9 @@ export interface RecExtras {
   discogs?: DiscogsExtras; // albums, songs, artists (decision 047); its url is also copied to links.discogs
   film?: FilmExtras; // film_tv, from TMDB (decision 056)
   place?: PlaceExtras; // places, from OpenStreetMap (decision 058)
+  shows?: Show[]; // artists and albums: stored as extras.shows.items by the lane's daily shows step (decision 064)
 }
+export interface Show { date: string; venue: string; city: string; url: string } // date: YYYY-MM-DD, the show's own day
 export interface WatchProvider { name: string; logoUrl: string | null }
 export interface FilmExtras {
   kind: "movie" | "tv";
@@ -273,6 +275,12 @@ export function readExtras(raw: unknown): RecExtras {
   if (film) out.film = film;
   const place = readPlace(x.place);
   if (place) out.place = place;
+  const shows = Array.isArray(x.shows?.items) ? x.shows.items.flatMap((s: any): Show[] => {
+    const url = https(s?.url);
+    const ok = typeof s?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.date) && typeof s.venue === "string" && typeof s.city === "string";
+    return ok && url ? [{ date: s.date, venue: s.venue, city: s.city, url }] : [];
+  }) : [];
+  if (shows.length) out.shows = shows;
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

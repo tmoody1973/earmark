@@ -7,6 +7,7 @@ import { isOwner } from "@/agent/lib/owner";
 import { HIDDEN_TIP_STATUSES } from "@/agent/lib/garden/queries";
 import { getTipDetail } from "@/agent/lib/garden/tip-detail";
 import { TIMELINE_TZ } from "@/agent/lib/ideas/timeline-format";
+import { showDay, todayIn } from "@/agent/lib/recs/shows";
 import { Artwork } from "@/app/garden/cards/Artwork";
 import { Icon } from "@/app/garden/cards/icons";
 import { cardSubline, TYPE_LABEL } from "@/app/garden/cards/RecCard";
@@ -61,6 +62,8 @@ export default async function TipPage({ params }: Props) {
   const onShelf = !HIDDEN_TIP_STATUSES.includes(card.status);
   const from = card.recommender;
   const videoId = extras.videoId ?? extras.film?.trailer ?? null; // a film's trailer: the same tap-to-load player
+  const today = todayIn(new Date());
+  const shows = (extras.shows ?? []).filter((s) => s.date >= today);
 
   return (
     <>
@@ -164,6 +167,24 @@ export default async function TipPage({ params }: Props) {
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* Decision 064: shows the lane found on the web, each with the page that lists it; past ones drop off */}
+        {shows.length > 0 && (
+          <section className="idea-panel" aria-labelledby="shows-h">
+            <h2 id="shows-h">Playing nearby</h2>
+            <ol className="tip-episodes">
+              {shows.map((s) => (
+                <li key={`${s.date}${s.venue}`}>
+                  <p className="tip-episode-title">{s.venue}</p>
+                  <time className="tip-episode-date" dateTime={s.date}>{showDay(s.date)} · {s.city}</time>
+                  <p className="tip-attribution">
+                    From <a href={s.url} rel="noopener noreferrer" target="_blank">{new URL(s.url).hostname.replace(/^www\./, "")}</a>
+                  </p>
+                </li>
+              ))}
+            </ol>
           </section>
         )}
 
