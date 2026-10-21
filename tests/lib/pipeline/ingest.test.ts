@@ -11,6 +11,7 @@ vi.mock("../../../agent/lib/pipeline/process-conversation", () => ({
 vi.mock("../../../agent/lib/pipeline/process-journal", () => ({ processJournal: vi.fn(async () => ({ created: "rec" })) }));
 vi.mock("../../../agent/lib/recs/nudges", () => ({ handleLocationUpdate: vi.fn(async () => "none") }));
 vi.mock("../../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
+vi.mock("../../../agent/lib/ideas/research", () => ({ requestResearchOnBloom: vi.fn(async () => ({ requested: true })) }));
 vi.mock("../../../agent/lib/sync/handlers", () => ({ handleTodoChange: vi.fn(async () => {}), handleFactChange: vi.fn() }));
 
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../../../agent/lib/store/conversations";
@@ -21,6 +22,7 @@ import { handleLocationUpdate } from "../../../agent/lib/recs/nudges";
 import { handleBeeEvent } from "../../../agent/lib/pipeline/ingest";
 import { parseBeeEnvelope } from "../../../agent/lib/bee/events";
 import { draftBlooms } from "../../../agent/lib/ideas/one-pager";
+import { requestResearchOnBloom } from "../../../agent/lib/ideas/research";
 import { handleTodoChange } from "../../../agent/lib/sync/handlers";
 import type { BeeClient } from "../../../agent/lib/bee/client";
 
@@ -162,6 +164,27 @@ describe("handleBeeEvent", () => {
   describe("drafting a one-pager after a bloom", () => {
     const saved = (bloomedClusterIds: number[]) => ({ recIds: [], ideaClusterIds: [12], mentionIds: [1], bloomedClusterIds });
     const quiet = () => vi.spyOn(console, "log").mockImplementation(() => {});
+
+    it("a bloom also requests research once per bloomed cluster (decision 061)", async () => {
+      quiet();
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([12, 13]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      expect(requestResearchOnBloom).toHaveBeenCalledTimes(2);
+      expect(requestResearchOnBloom).toHaveBeenCalledWith(12);
+      expect(requestResearchOnBloom).toHaveBeenCalledWith(13);
+      expect(vi.mocked(draftBlooms).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(requestResearchOnBloom).mock.invocationCallOrder[0]!);
+    });
+
+    it("no bloom, no research request; a failing request never breaks the event", async () => {
+      quiet();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([]) });
+      await handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }));
+      expect(requestResearchOnBloom).not.toHaveBeenCalled();
+      vi.mocked(requestResearchOnBloom).mockRejectedValueOnce(new Error("db down"));
+      vi.mocked(handleLiveUtterance).mockResolvedValueOnce({ triaged: true, windows: 1, ideas: 1, saved: saved([12]) });
+      await expect(handleBeeEvent(evt("new-utterance", { utterance: { text: "hi" }, conversation_uuid: "u1" }))).resolves.not.toThrow();
+    });
 
     it("live: drafts the clusters the save just bloomed, after the save returned", async () => {
       quiet();

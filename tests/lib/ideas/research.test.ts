@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderHttpError } from "../../../agent/lib/enrich/types";
 import {
   afterFailure, asksForResearch, BRIEF_INSTRUCTIONS, briefPrompt, fetchPages, finishBrief, PAGE_CHARS, pickUrls,
-  RESEARCH_MAX_ATTEMPTS, researchQueries, researchTodoTitle, takeawayOf, type ResearchPage,
+  RESEARCH_MAX_ATTEMPTS, requestResearchOnBloom, researchQueries, researchTodoTitle, takeawayOf, type ResearchPage,
 } from "../../../agent/lib/ideas/research";
 import type { WebResult } from "../../../agent/lib/recs/web-find";
 
@@ -163,6 +163,17 @@ describe("the brief", () => {
     expect(researchTodoTitle("Agent to help people navigate local government", "The gap is an agent on the resident's side."))
       .toBe("Earmark · Research: Agent to help people navigate local government — The gap is an agent on the resident's side.");
     expect(researchTodoTitle("Local gov agent", null)).toBe("Earmark · Research ready: Local gov agent");
+  });
+
+  it("a bloomed idea's todo says it bloomed (decision 061), with the takeaway when there is one", () => {
+    expect(researchTodoTitle("Local gov agent", null, true)).toBe("Earmark · 'Local gov agent' bloomed: draft and research ready");
+    expect(researchTodoTitle("Local gov agent", "The gap is the resident's side.", true))
+      .toBe("Earmark · 'Local gov agent' bloomed: draft and research ready — The gap is the resident's side.");
+  });
+
+  it("requestResearchOnBloom does nothing, and does not touch the database, while TINYFISH_API_KEY is unset", async () => {
+    expect(await requestResearchOnBloom(5, {})).toEqual({ requested: false, reason: "off" });
+    expect(await requestResearchOnBloom(5, { TINYFISH_API_KEY: "  " })).toEqual({ requested: false, reason: "off" });
   });
 });
 
