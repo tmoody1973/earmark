@@ -24,6 +24,7 @@
     "backfill:said-location": "tsx --env-file=.env.local scripts/backfill-said-location.ts",
     "requeue:unmatched": "tsx --env-file=.env.local scripts/requeue-unmatched.ts",
     "requeue:film-extras": "tsx --env-file=.env.local scripts/requeue-film-extras.ts",
+    "requeue:place-details": "tsx --env-file=.env.local scripts/requeue-place-details.ts",
     "move:heard": "tsx --env-file=.env.local scripts/move-to-heard-nearby.ts",
     "migrate:test": "tsx --env-file=.env.local scripts/migrate.ts --test",
     "seed:demo": "tsx scripts/seed-demo.ts",
