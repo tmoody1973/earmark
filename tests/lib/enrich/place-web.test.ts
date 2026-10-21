@@ -32,7 +32,8 @@ const fetchedUrls = (f: ReturnType<typeof tinyfish>): string[] =>
 describe("isSocialUrl", () => {
   it("skips the six networks and their subdomains, not lookalikes", () => {
     for (const u of ["https://www.facebook.com/x", "https://m.facebook.com/x", "https://instagram.com/x", "https://www.tiktok.com/@x",
-      "https://x.com/x", "https://twitter.com/x", "https://threads.net/@x"]) expect(isSocialUrl(u), u).toBe(true);
+      "https://x.com/x", "https://twitter.com/x", "https://threads.net/@x", "https://www.reddit.com/r/milwaukee/comments/1",
+      "https://www.linkedin.com/company/x", "https://youtu.be/x", "https://pinterest.com/x"]) expect(isSocialUrl(u), u).toBe(true);
     for (const u of ["https://diasporamke.com", "https://notfacebook.com", "https://box.com/x"]) expect(isSocialUrl(u), u).toBe(false);
   });
 });
@@ -95,6 +96,12 @@ describe("fetchWebPlaceDetails", () => {
     const p = await fetchWebPlaceDetails(rec, { key: "k", fetchImpl: tinyfish() as never,
       generateImpl: model({ ...FILLED, website: "javascript:alert(1)", phone: "call us!", menu: "http://diasporamke.com/menu" }) });
     expect(p).toMatchObject({ website: null, phone: null, menu: "https://diasporamke.com/menu" });
+  });
+
+  it("a kind alone (no hours, phone, website, menu or reservations) is not worth a card or a credit (tip 130)", async () => {
+    const onlyKind = { kind: "Sports bar", hours: null, phone: null, website: null, menu: null, reservation: null, reservationUrl: null,
+      features: ["Outdoor seating"] };
+    expect(await fetchWebPlaceDetails(rec, { key: "k", fetchImpl: tinyfish() as never, generateImpl: model(onlyKind) })).toBeNull();
   });
 
   it("nothing stated: null, not an empty card; no web link: null with no request", async () => {
