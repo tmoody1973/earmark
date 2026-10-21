@@ -78,8 +78,8 @@ const MERGES = `idea_merges where $1 = keep_id or $1 = merged_id`;
 const MERGES_OF_MENTION = `idea_merges where $2 = any(mention_ids) or $1 = keep_id or $1 = merged_id`;
 const mergedNote = (id: number, keep: number) => `idea ${id} was merged into ${keep}: undo the merge or forget ${keep}`;
 
-// An idea's research todo ("Research ready", decision 057) is its own bee_sync type, keyed by the idea's id.
-const SYNC_OF = `bee_sync where (entity_type = $1 or ($1 = 'idea' and entity_type = 'idea_research')) and entity_id = $2`;
+// An idea's research todo ("Research ready", decision 057) and a tip's "Which one?" todo (decision 062) are their own bee_sync types, keyed by the idea's or tip's id.
+const SYNC_OF = `bee_sync where (entity_type = $1 or ($1 = 'idea' and entity_type = 'idea_research') or ($1 = 'rec' and entity_type = 'which_one')) and entity_id = $2`;
 
 async function shared(c: PoolClient, type: "rec" | "idea", id: number) {
   const sync = await rows(c, `select bee_object, bee_id from ${SYNC_OF}`, [type, id]);

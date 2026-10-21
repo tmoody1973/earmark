@@ -25,6 +25,10 @@ export const STATUS_EFFECTS: readonly StatusEffect[] = [
   // M3-T7: entering or leaving "queued" nudges the Bee todo reconciler (sync/bee-todos.ts) now instead of at the next
   // bee-changes tick. It needs no origin check: it writes Bee only where Bee differs from Postgres.
   { name: "bee-todos", run: (c) => beeTodoEffect(c) },
+  // Decision 062: a dismissed or composted tip no longer asks "Which one?", so its Bee todo is done. Loaded when used (cycle).
+  { name: "which-one-todo", run: async (c) => {
+    if (c.next === "dismissed" || c.next === "composted") await (await import("./which-one-todo")).closeWhichOneTodoQuietly(c.recId);
+  } },
   // notion: M3-T2b when NOTION_TOKEN exists, e.g.
   //   { name: "notion", run: async (c) => { if (c.origin !== "notion") await pushRecToNotion(c.recId); } }
 ];
