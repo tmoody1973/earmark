@@ -328,4 +328,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Which one? on the Neon test bra
     for (const id of [owner, dismissed]) expect((await row(id)).enrichment_status).toBe("no_match");
     expect((await row(matched)).enrichment_status).toBe("matched");
   });
+
+  it("Search again finds nothing on the map: the web is asked with the owner's words and its options are stored (decision 060)", async () => {
+    const { searchAgain } = await whichOne();
+    const id = await addRec({ type: "place", name: "Diaspora", set: `enrichment_status = 'no_match', said_lat = 43.04, said_lng = -87.91` });
+    const empty = vi.fn(async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    const web = { provider: "web_place", canonicalName: "Diaspora MKE", creator: null, yearOrAddress: "735 E Center St", imageUrl: null,
+      links: { web: "https://diaspora.example.com/" }, lat: 43.07, lng: -87.9 };
+    const webFind = vi.fn(async () => ({ kind: "options" as const, candidates: [web] }));
+    const env = { TINYFISH_API_KEY: "tf-test-key" };
+    expect(await searchAgain(id, "Diaspora bar milwaukee", { env, fetchImpl: empty as unknown as typeof fetch, webFind }))
+      .toEqual({ status: "ok", found: 1 });
+    expect(webFind).toHaveBeenCalledWith(expect.objectContaining({ type: "place", canonical_name: "Diaspora bar milwaukee",
+      context_summary: null, near: { lat: 43, lng: -87.9 } }));
+    expect((await row(id)).match_candidates).toEqual([web]);
+  });
+
+  it("Search again: the map found something, or no TinyFish key: the web is never asked", async () => {
+    const { searchAgain } = await whichOne();
+    const webFind = vi.fn();
+    const book = await addRec({ set: `enrichment_status = 'no_match'` });
+    const ol = vi.fn(async () => olAnswer(["Night Garden"]));
+    expect(await searchAgain(book, "Night Garden", { env: { TINYFISH_API_KEY: "k" }, fetchImpl: ol as unknown as typeof fetch, webFind }))
+      .toEqual({ status: "ok", found: 1 });
+    const other = await addRec({ set: `enrichment_status = 'no_match'` });
+    const none = vi.fn(async () => olAnswer([]));
+    expect(await searchAgain(other, "Nothing Here", { env: {}, fetchImpl: none as unknown as typeof fetch, webFind })).toEqual({ status: "ok", found: 0 });
+    expect(webFind).not.toHaveBeenCalled();
+  });
 });
