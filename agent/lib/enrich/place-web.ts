@@ -11,7 +11,10 @@ import { getEnv } from "../env";
 import { searchWeb, type WebResult } from "../recs/web-find";
 import { readPlace, type PlaceExtras } from "./place-details";
 
-const SOCIAL = ["facebook.com", "instagram.com", "tiktok.com", "x.com", "twitter.com", "threads.net"];
+// research.ts's list (kept in step by hand: importing research from enrich/ breaks eve's schedule bundle). Tip 130's
+// first real run credited a reddit thread about its liquor licence.
+const SOCIAL = ["facebook.com", "linkedin.com", "reddit.com", "instagram.com", "youtube.com", "youtu.be", "x.com", "twitter.com",
+  "tiktok.com", "threads.net", "pinterest.com"];
 const MODEL_TIMEOUT_MS = 20_000;
 const SNIPPET_MAX = 400;
 const PAGE_MAX = 6_000;
@@ -22,7 +25,7 @@ export interface WebPlaceAccess { key: string; fetchImpl: typeof fetch; generate
 export interface WebPlaceRec { canonical_name: string; year_or_address?: string | null; links: unknown }
 
 const host = (url: string) => new URL(url).hostname.replace(/^www\./, "").toLowerCase();
-/** facebook.com and any subdomain of it, for the six networks above. Pure. */
+/** facebook.com and any subdomain of it, for the networks above. Pure. */
 export const isSocialUrl = (url: string): boolean => {
   if (!URL.canParse(url)) return true; // unreadable: never fetched
   const h = host(url);
@@ -80,6 +83,7 @@ export async function fetchWebPlaceDetails(rec: WebPlaceRec, access: WebPlaceAcc
   });
   const citedUrl = page ? page.url : results.find((r) => !isSocialUrl(r.url))?.url ?? best.url; // snippets only: the top non-social result
   const place = readPlace({ ...output, source: { site: host(citedUrl), url: citedUrl } });
-  const worthKeeping = place && (place.kind || place.hours || place.website || place.phone || place.menu || place.reservation || place.features.length);
+  // A kind alone ("Sports bar") credited to a stray listing page is noise (tip 130): keep only something you can act on.
+  const worthKeeping = place && (place.hours || place.website || place.phone || place.menu || place.reservation);
   return worthKeeping ? place : null;
 }
