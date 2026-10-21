@@ -13,7 +13,11 @@ import { logEnrichError } from "../enrich/types";
 import { readCandidates } from "../garden/which-one";
 import { createEarmarkTodo, withLease } from "../sync/bee-todos";
 import { TODO_PREFIX, withLink } from "../sync/todo-text";
-import { SWEEP_SKIPS_STATUSES } from "./lane";
+import { HIDDEN_TIP_STATUSES } from "./status";
+
+// lane.ts's SWEEP_SKIPS_STATUSES (cleared and overheard tips; maybes stay), read when called: importing lane, or a
+// dynamic import, breaks eve's one-module-per-schedule bundle (CI, Oct 21).
+const sweepSkips = () => HIDDEN_TIP_STATUSES.filter((s) => s !== "needs_review");
 
 export const WHICH_ONE_ENTITY = "which_one";
 export const MAX_WRIST_ASKS_PER_PASS = 3;
@@ -48,7 +52,7 @@ export async function openWhichOneTodos(deps: WristDeps = {}): Promise<Pick<Wris
     left join bee_sync s on s.entity_type = ${WHICH_ONE_ENTITY} and s.entity_id = r.id and s.bee_object = 'todo'
     where r.enrichment_status = 'no_match' and r.match_source = 'auto' and r.owner_none_at is null
       and jsonb_typeof(r.match_candidates) = 'array' and r.match_candidates <> '[]'::jsonb
-      and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+      and r.status <> all(${sweepSkips()}::text[])
       and coalesce(s.last_written_state->>'completed', 'false') <> 'true'
       and (${only}::bigint[] is null or r.id = any(${only}::bigint[]))
     order by r.id desc limit 20`) as { id: number | string; match_candidates: unknown; last_written_state: Written | null; owner_searched: boolean }[];
@@ -85,7 +89,7 @@ export async function closeWhichOneTodos(deps: WristDeps = {}): Promise<number> 
       and coalesce(s.last_written_state->>'completed', 'false') <> 'true'
       and (${only}::bigint[] is null or s.entity_id = any(${only}::bigint[]))
       and not (r.id is not null and r.match_source = 'auto' and r.owner_none_at is null
-        and r.enrichment_status in ('no_match', 'pending') and r.status <> all(${SWEEP_SKIPS_STATUSES}::text[])
+        and r.enrichment_status in ('no_match', 'pending') and r.status <> all(${sweepSkips()}::text[])
         and jsonb_typeof(r.match_candidates) = 'array' and r.match_candidates <> '[]'::jsonb)`) as
     { id: number | string; bee_id: number | string; last_written_state: Written }[];
   if (rows.length === 0) return 0;
