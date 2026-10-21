@@ -18,6 +18,7 @@ import type { RecType } from "../types";
 import { findOnWeb, type WebFound, type WebTip } from "./web-find";
 import { applyReviewReason, isBackOffSignal, saveMatch, SWEEP_SKIPS_STATUSES } from "./lane";
 import { applyTipLink, type TipLinkDeps } from "./tip-link";
+import { closeWhichOneTodoQuietly, type WristDeps } from "./which-one-todo";
 
 export const SEARCH_EVERY_SECONDS = 10;
 
@@ -25,7 +26,13 @@ export const SEARCH_EVERY_SECONDS = 10;
  * The owner picks stored candidate `index`, which the page named `key` (candidateKey). changed false: the stored list
  * moved on (a second look or another tab's search replaced it), no such candidate, a cleared tip, or already settled.
  */
-export async function pickCandidate(id: number, index: number, key: string, linkDeps: TipLinkDeps = {}): Promise<{ changed: boolean }> {
+export async function pickCandidate(id: number, index: number, key: string, linkDeps: TipLinkDeps = {}, wrist: WristDeps = {}): Promise<{ changed: boolean }> {
+  const out = await pick(id, index, key, linkDeps);
+  if (out.changed) await closeWhichOneTodoQuietly(id, wrist); // answered: its Bee todo is done (decision 062)
+  return out;
+}
+
+async function pick(id: number, index: number, key: string, linkDeps: TipLinkDeps): Promise<{ changed: boolean }> {
   const [row] = await db()`select match_candidates from recommendations where id = ${id} and match_source = 'auto'`;
   const c = row ? readCandidates(row.match_candidates)[index] : undefined;
   if (!c || candidateKey(c) !== key) return { changed: false };
@@ -44,13 +51,16 @@ export async function pickCandidate(id: number, index: number, key: string, link
 }
 
 /** None of these: final. The tip stays (or becomes) no_match, so it is still in review, and the lane never looks again. */
-export async function noneOfThese(id: number): Promise<{ changed: boolean }> {
+export async function noneOfThese(id: number, wrist: WristDeps = {}): Promise<{ changed: boolean }> {
   const rows = await db()`update recommendations set owner_none_at = now(), match_source = 'owner',
       enrichment_status = 'no_match', enriched_at = coalesce(enriched_at, now()), updated_at = now()
     where id = ${id} and match_source = 'auto' and owner_none_at is null and enrichment_status in ('no_match', 'pending')
       and status <> all(${SWEEP_SKIPS_STATUSES}::text[])
     returning id`;
-  if (rows.length > 0) await applyReviewReason(id);
+  if (rows.length > 0) {
+    await applyReviewReason(id);
+    await closeWhichOneTodoQuietly(id, wrist); // answered: its Bee todo is done (decision 062)
+  }
   return { changed: rows.length > 0 };
 }
 
