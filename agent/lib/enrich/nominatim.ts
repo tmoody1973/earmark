@@ -11,7 +11,8 @@ export const NOMINATIM_GAP_MS = 1_100; // policy says 1 req/s; keep a margin
 // ponytail: per-instance gap only, not global across concurrent functions. Fine at a few lookups a day under the
 // rec-lane lease (one sweep at a time). Upgrade: a DB-held "last call" timestamp.
 let lastCallAt = 0;
-async function nominatimSlot(): Promise<void> {
+/** Waits for this instance's next Nominatim slot: every Nominatim request (search and the place-details lookup) takes one. */
+export async function nominatimSlot(): Promise<void> {
   const at = Math.max(Date.now(), lastCallAt + NOMINATIM_GAP_MS);
   lastCallAt = at;
   const wait = at - Date.now();
@@ -22,8 +23,13 @@ export function resetNominatimThrottle(): void {
   lastCallAt = 0;
 }
 
-export function nominatimProvider(env: Record<string, string | undefined> = process.env): ProviderDef {
+/** The identifying User-Agent the usage policy asks for. */
+export function nominatimHeaders(env: Record<string, string | undefined> = process.env): Record<string, string> {
   const base = env.EARMARK_PUBLIC_BASE_URL?.trim();
+  return { "User-Agent": `Earmark/1.0 (+${base || "https://github.com/tmoody1973/earmark"})` };
+}
+
+export function nominatimProvider(env: Record<string, string | undefined> = process.env): ProviderDef {
   const email = env.NOMINATIM_EMAIL?.trim();
   return {
     async build(q) {
@@ -43,7 +49,7 @@ export function nominatimProvider(env: Record<string, string | undefined> = proc
       await nominatimSlot();
       return {
         url: `https://nominatim.openstreetmap.org/search?${params}`,
-        init: { headers: { "User-Agent": `Earmark/1.0 (+${base || "https://github.com/tmoody1973/earmark"})` } },
+        init: { headers: nominatimHeaders(env) },
       };
     },
     /* eslint-disable @typescript-eslint/no-explicit-any -- untyped external JSON, read defensively */

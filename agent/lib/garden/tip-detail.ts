@@ -32,7 +32,7 @@ export interface TipDetail {
 
 const SERVICE: Record<string, string> = {
   apple_music: "Apple Music", apple_podcasts: "Apple Podcasts", podcast_index: "Podcast Index", musicbrainz: "MusicBrainz",
-  discogs: "Discogs", openlibrary: "Open Library", wikipedia: "Wikipedia", tmdb: "TMDB", google_maps: "Google Maps", youtube: "YouTube",
+  discogs: "Discogs", openlibrary: "Open Library", wikipedia: "Wikipedia", tmdb: "TMDB", google_maps: "Google Maps", openstreetmap: "OpenStreetMap", youtube: "YouTube",
   bandcamp: "Bandcamp", // links.web (an owner-pasted page, decision 049) is labelled by its site
 };
 const VERB: Record<RecType, string> = {

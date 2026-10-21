@@ -15,6 +15,7 @@ import { TabBar } from "@/app/garden/TabBar";
 import { Credits } from "./Credits";
 import { FilmDetails } from "./FilmDetails";
 import { FixTip } from "./FixTip";
+import { PlaceDetails } from "./PlaceDetails";
 import { VideoPlayer } from "./VideoPlayer";
 import { WhichOne } from "./WhichOne";
 import "@/app/garden/shell.css";
@@ -203,6 +204,8 @@ export default async function TipPage({ params }: Props) {
         )}
 
         {extras.film && <FilmDetails film={extras.film} year={card.yearOrAddress} />}
+
+        {extras.place && <PlaceDetails place={extras.place} />}
 
         {extras.discogs && <Credits discogs={extras.discogs} />}
 

@@ -198,10 +198,16 @@ describe("fetchExtras (fetch mocked)", () => {
       wiki: { text: "Suzanne Collins is an American writer.", url: "https://en.wikipedia.org/wiki/Suzanne_Collins" },
     });
   });
-  it("a place: nothing to fetch (its address is already on the tip)", async () => {
+  it("a place without an OpenStreetMap link: nothing to fetch", async () => {
     const f = vi.fn();
     expect(await fetchExtras(rec({ type: "place" }), f as never)).toEqual({});
     expect(f).not.toHaveBeenCalled();
+  });
+  it("a place matched on OpenStreetMap: its details from one Nominatim lookup (decision 058), read back by readExtras", async () => {
+    const f = vi.fn(async () => json([{ category: "amenity", type: "cafe", extratags: { cuisine: "coffee_shop", takeaway: "yes" } }]));
+    const x = await fetchExtras(rec({ type: "place", links: { openstreetmap: "https://www.openstreetmap.org/node/7" } }), f as never);
+    expect(x.place).toMatchObject({ kind: "Coffee shop · Cafe", features: ["Takeaway"] });
+    expect(readExtras(JSON.parse(JSON.stringify(x))).place).toEqual(x.place);
   });
   it("a 429 or a 5xx throws for the lane (which backs off or counts a try)", async () => {
     const f = vi.fn(async () => json({}, 429));

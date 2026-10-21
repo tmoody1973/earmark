@@ -5,7 +5,6 @@ import { appleAccess, appleMusicSearch } from "./apple-music";
 import { musicBrainzProvider } from "./musicbrainz";
 import { nominatimProvider } from "./nominatim";
 import { openLibraryProvider } from "./open-library";
-import { placesProvider } from "./places";
 import { itunesPodcastProvider, podcastIndexProvider } from "./podcasts";
 import { tmdbProvider } from "./tmdb";
 import type { ProviderDef } from "./types";
@@ -40,10 +39,8 @@ export function providerFor(type: RecType, env: Env = process.env): NamedProvide
     }
     case "video":
       return { name: "youtube", def: youtubeOEmbedProvider }; // keyless; enrich.ts routes these through enrichVideo
-    case "place": {
-      const key = set(env.GOOGLE_PLACES_API_KEY);
-      return key ? { name: "places", def: placesProvider(key) } : { name: "nominatim", def: nominatimProvider(env) }; // decision 044
-    }
+    case "place":
+      return { name: "nominatim", def: nominatimProvider(env) }; // decisions 044, 058: Google's terms forbid storing its place data
   }
 }
 

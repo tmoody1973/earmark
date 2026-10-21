@@ -1,0 +1,54 @@
+[
+  {
+    "place_id": 371594530,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 1171650361,
+    "lat": "43.0607588",
+    "lon": "-87.8857710",
+    "category": "amenity",
+    "type": "restaurant",
+    "place_rank": 30,
+    "importance": 0.0000675265125505,
+    "addresstype": "amenity",
+    "name": "Kawa Ramen & Sushi",
+    "display_name": "Kawa Ramen & Sushi, 2321, North Murray Avenue, Murray Hill, East Side, Milwaukee, Milwaukee County, Wisconsin, 53211, United States",
+    "address": {
+      "amenity": "Kawa Ramen & Sushi",
+      "house_number": "2321",
+      "road": "North Murray Avenue",
+      "quarter": "Murray Hill",
+      "suburb": "East Side",
+      "city": "Milwaukee",
+      "county": "Milwaukee County",
+      "state": "Wisconsin",
+      "ISO3166-2-lvl4": "US-WI",
+      "postcode": "53211",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "extratags": {
+      "access": "customers",
+      "cuisine": "japanese",
+      "delivery": "yes",
+      "entrance": "yes",
+      "takeaway": "yes",
+      "start_date": "2017-09-25",
+      "reservation": "yes",
+      "contact:yelp": "https://www.yelp.com/biz/kawa-ramen-and-sushi-milwaukee-2",
+      "contact:phone": "+1 414 800 7979",
+      "opening_hours": "Mo-Th 11:30-22:00; Fr 11:30-22:30; Sa 11:30-09:30; Su 12:30-21:00",
+      "contact:website": "https://kawaramensushi.com",
+      "internet_access": "wlan",
+      "outdoor_seating": "yes",
+      "contact:facebook": "https://www.facebook.com/kawasushiandramen/",
+      "internet_access:fee": "no"
+    },
+    "boundingbox": [
+      "43.0607088",
+      "43.0608088",
+      "-87.8858210",
+      "-87.8857210"
+    ]
+  }
+]

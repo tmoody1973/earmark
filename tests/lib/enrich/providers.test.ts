@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openLibraryProvider } from "../../../agent/lib/enrich/open-library";
-import { placesProvider, PLACES_FIELD_MASK } from "../../../agent/lib/enrich/places";
 import { itunesPodcastProvider, podcastIndexHeaders, podcastIndexProvider } from "../../../agent/lib/enrich/podcasts";
 import { enabledTypes, providerFor } from "../../../agent/lib/enrich/registry";
 import { tmdbProvider } from "../../../agent/lib/enrich/tmdb";
@@ -9,7 +8,7 @@ import type { EnrichQuery } from "../../../agent/lib/enrich/types";
 import { wikipediaProvider } from "../../../agent/lib/enrich/wikipedia";
 import type { RecType } from "../../../agent/lib/types";
 
-// Recorded fixtures = one real keyless call each (Open Library, Wikipedia, iTunes). Keyed providers (TMDB, Places,
+// Recorded fixtures = one real keyless call each (Open Library, Wikipedia, iTunes). Keyed providers (TMDB,
 // Podcast Index) have no keys yet, so their parse tests use hand-built responses in the documented shape.
 const fx = (f: string) => JSON.parse(readFileSync(`tests/fixtures/enrich/${f}`, "utf8"));
 const q = (type: RecType, name: string, creator: string | null = null, lat: number | null = null, lng: number | null = null): EnrichQuery =>
@@ -72,21 +71,6 @@ describe("keyed providers (documented shapes)", () => {
     expect(url).toBe("https://api.themoviedb.org/3/search/multi?query=Night%20Garden&include_adult=false&page=1");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
-  it("Places: Essentials/Pro field mask only, biased to where it was said, parses address + coordinates + maps link", async () => {
-    const { url, init } = await placesProvider("k").build(q("place", "Ramen-Ya", null, 43.04, -87.91));
-    expect(url).toBe("https://places.googleapis.com/v1/places:searchText");
-    expect((init.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(PLACES_FIELD_MASK);
-    expect(JSON.parse(String(init.body))).toEqual({ textQuery: "Ramen-Ya", pageSize: 3,
-      locationBias: { circle: { center: { latitude: 43.04, longitude: -87.91 }, radius: 20000 } } });
-    const [p] = placesProvider("k").parse({ places: [{ id: "x", displayName: { text: "Ramen-Ya" }, formattedAddress: "1 Main St, Milwaukee, WI",
-      location: { latitude: 43.05, longitude: -87.9 }, googleMapsUri: "https://maps.google.com/?cid=1" }] }, q("place", "Ramen-Ya"));
-    expect(p).toEqual({ canonicalName: "Ramen-Ya", creator: null, yearOrAddress: "1 Main St, Milwaukee, WI", imageUrl: null,
-      links: { google_maps: "https://maps.google.com/?cid=1" }, lat: 43.05, lng: -87.9 });
-  });
-  it("Places without coordinates sends no location bias", async () => {
-    const { init } = await placesProvider("k").build(q("place", "Ramen-Ya"));
-    expect(JSON.parse(String(init.body))).toEqual({ textQuery: "Ramen-Ya", pageSize: 3 });
-  });
   it("Podcast Index parses feeds", () => {
     const [p] = podcastIndexProvider("k", "s").parse({ feeds: [{ id: 7, title: "Night Garden Radio", author: "Mara Vell",
       artwork: "https://img/x.jpg", link: "" }] }, q("podcast", "Night Garden Radio"));
@@ -112,14 +96,12 @@ describe("registry: provider per type, keyed ones only when their env is set", (
     expect(providerFor("video", none)?.name).toBe("youtube");
     expect(enabledTypes(none)).toEqual(["album", "song", "artist", "book", "place", "podcast", "video", "other"]);
   });
-  it("a Google key wins for places; a blank key falls back to Nominatim", () => {
-    expect(providerFor("place", { GOOGLE_PLACES_API_KEY: "g" })?.name).toBe("places");
-    expect(providerFor("place", { GOOGLE_PLACES_API_KEY: "  " })?.name).toBe("nominatim");
+  it("places always use OpenStreetMap, even with a Google key set (decision 058: Google's terms forbid storing its place data)", () => {
+    expect(providerFor("place", { GOOGLE_PLACES_API_KEY: "g" })?.name).toBe("nominatim");
   });
-  it("keys switch TMDB, Places and Podcast Index on", () => {
-    const env = { TMDB_API_KEY: "t", GOOGLE_PLACES_API_KEY: "g", PODCAST_INDEX_KEY: "k", PODCAST_INDEX_SECRET: "s" };
+  it("keys switch TMDB and Podcast Index on", () => {
+    const env = { TMDB_API_KEY: "t", PODCAST_INDEX_KEY: "k", PODCAST_INDEX_SECRET: "s" };
     expect(providerFor("film_tv", env)?.name).toBe("tmdb");
-    expect(providerFor("place", env)?.name).toBe("places");
     expect(providerFor("podcast", env)?.name).toBe("podcastindex");
     expect(providerFor("podcast", { PODCAST_INDEX_KEY: "k" })?.name).toBe("itunes"); // half a key pair = not configured
     expect(enabledTypes(env)).toHaveLength(9);
