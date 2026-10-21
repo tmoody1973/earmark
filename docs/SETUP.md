@@ -91,6 +91,16 @@ Uses the same `EARMARK_CAPTURE_TOKEN` as photos. Build the "Earmark this song" S
 
 Only https `music.apple.com` links are accepted. A bad field returns 400 with the reason in `error`; a non-JSON body returns 415.
 
+## The Earmarked playlist (Apple Music)
+
+Matched song and album tips, and every song you capture with Shazam (when it came with an Apple Music link), are added to a playlist called "Earmarked" in your Apple Music library on the next rec-lane pass (every 10 minutes, at most 5 a pass). An album adds its first song. A tip is added once; cleared, overheard and "maybe" tips never are. Decision 065.
+
+1. Needs an active Apple Music subscription and the `APPLE_*` developer secrets above.
+2. Set `MUSIC_TOKEN_KEY` in Vercel (Production) and `.env.local`: 32 random bytes, base64, from `openssl rand -base64 32`. It encrypts your Apple Music sign-in at rest. Changing it later signs Apple Music out.
+3. Open `/music` (Safari works best), press **Connect Apple Music** and sign in with your Apple Account. Earmark finds or creates the "Earmarked" playlist straight away.
+
+Apple sign-ins expire (about every six months) or can be revoked in Apple's settings. When Apple refuses it, Earmark stops asking Apple, tips wait, and `/music` says **Reconnect**. Alexa+ and the MCP server can also add a named music tip ("add Promises to my Earmarked playlist"); for an artist that adds their top song.
+
 ## Capture an email
 
 Forward an email in which a friend recommends something to your Earmark address, `earmark@<your-id>.resend.app` (Resend dashboard, Emails, Receiving, the Receiving address menu). Resend calls `POST /api/email/inbound`; Earmark checks the Resend signature, fetches the email, saves the recommendation as source `email` and credits the friend named in the forwarded header (first name only). Only forwards sent **from your own address** are accepted; anything else is ignored. A forward the triage model doubts is saved as "needs review", not dropped. Resend retries are safe: each email id is processed once.

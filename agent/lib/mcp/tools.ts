@@ -61,7 +61,7 @@ export async function addToEarmarkedPlaylist({ item }: { item: string }) {
   switch (await addRecToPlaylist(Number(rec.id))) {
     case "added": return { text: `Added ${name} to your Earmarked playlist.` };
     case "already": return { text: `${name} is already in your Earmarked playlist.` };
-    case "no_auth": return { text: "Apple Music needs to be reconnected in the garden first." };
+    case "no_auth": return { text: "Apple Music needs to be reconnected on Earmark's Music page first." };
     case "no_match": return { text: `I couldn't find ${name} in Apple Music.` };
     case "not_music": return { text: `${name} isn't a music recommendation.` };
     default: return { text: "Your Earmarked playlist isn't connected yet." };
