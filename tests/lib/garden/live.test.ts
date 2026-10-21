@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  BLOOM_POLL_MS, emptyLive, isBlooming, parseBloomsResponse, pollDelay, reduceFeed, settleBloom, stableOrder,
+  BLOOM_POLL_MS, emptyLive, isBlooming, newTipsSince, parseBloomsResponse, pollDelay, reduceFeed, settleBloom, stableOrder,
   type DrawnPlant, type FeedEvent,
 } from "../../../agent/lib/garden/live";
 import type { PlantLevel } from "../../../agent/lib/garden/plant";
@@ -22,6 +22,19 @@ describe("parseBloomsResponse", () => {
   });
   it("throws a readable error when the endpoint shape drifts", () => {
     expect(() => parseBloomsResponse({ items: [] })).toThrow(/blooms response/);
+  });
+});
+
+describe("tips on the live page", () => {
+  it("an older server reply without tipsAt still parses (null)", () => {
+    expect(parseBloomsResponse({ events: [], now: "2026-10-17T15:00:00.000Z" }).tipsAt).toBeNull();
+  });
+  it("refreshes once per newer tip change: never for none, an older or the same time", () => {
+    const seen = "2026-10-17T15:00:00.000Z";
+    expect(newTipsSince(seen, null)).toBe(false);
+    expect(newTipsSince(seen, "2026-10-17T14:59:59.000Z")).toBe(false);
+    expect(newTipsSince(seen, seen)).toBe(false);
+    expect(newTipsSince(seen, "2026-10-17T15:00:01.000Z")).toBe(true);
   });
 });
 
