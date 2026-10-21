@@ -101,6 +101,7 @@ export default async function TipPage({ params }: Props) {
               ))}
             </ul>
           )}
+          {tip.inPlaylist && <p className="idea-quiet">In your Earmarked playlist</p>}
           {tip.whichOne?.mode === "correct" && (
             <WhichOne tipId={card.id} type={card.type} heading="Not the right one?" view={tip.whichOne} />
           )}

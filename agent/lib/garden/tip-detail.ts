@@ -22,6 +22,8 @@ export interface TipDetail {
   knownLink: string | null;
   links: TipLink[];
   extras: RecExtras;
+  /** Added to the owner's "Earmarked" Apple Music playlist (decision 065). */
+  inPlaylist: boolean;
   /** Spaces Tarik kept it in (space_items 'accepted'). */
   spaces: { id: number; name: string }[];
   /** Ideas it fits (links kind 'fits'), by the idea page's own rule (backlinks.ts). */
@@ -65,9 +67,9 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     select r.id, r.type, r.canonical_name, r.creator, r.year_or_address, r.image_url,
       r.context_summary, r.said_at, r.created_at, r.status, r.rating, r.lat, r.lng, r.links, r.about, r.about_url,
       r.excerpt, r.extras, r.enrichment_status, r.match_source, r.owner_none_at, r.match_candidates, r.auto_pick,
-      r.candidates_at, r.enriched_at, p.id as recommender_id, p.first_name
+      r.candidates_at, r.enriched_at, r.added_to_playlist_at is not null as in_playlist, p.id as recommender_id, p.first_name
     from recommendations r left join recommenders p on p.id = r.recommender_id
-    where r.id = ${id}`) as Array<GardenRecRow & WhichOneRow & { excerpt: string; extras: unknown }>;
+    where r.id = ${id}`) as Array<GardenRecRow & WhichOneRow & { excerpt: string; extras: unknown; in_playlist: boolean }>;
   if (!r) return null;
   const spaces = (await sql`
     select s.id, s.name from space_items si join spaces s on s.id = si.space_id
@@ -90,6 +92,7 @@ export async function getTipDetail(id: number): Promise<TipDetail | null> {
     knownLink: ownerLink ?? cardLink(r.links),
     links: tipLinks(card.type, r.links),
     extras: readExtras(r.extras),
+    inPlaylist: r.in_playlist === true,
     spaces: spaces.map((s) => ({ id: Number(s.id), name: s.name })),
     ideas: ideas.map((c) => ({ id: Number(c.id), title: c.title })),
     whichOne: whichOneView(r),
