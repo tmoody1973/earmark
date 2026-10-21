@@ -591,4 +591,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("pnpm forget on the Neon test br
     await forget(c, { type: "idea", id: other }, { yes: true, deps: fakeDeps() as ExternalDeps });
     expect(await count(`idea_clusters where id = $1`, [other])).toBe(0);
   });
+
+  it("forgetting a tip deletes its shows-nearby todo (decision 064) from Bee and bee_sync", async () => {
+    const { forget } = await mod();
+    const id = await addRec(null);
+    await c.query(`insert into bee_sync (entity_type, entity_id, bee_object, bee_id) values ('show', $1, 'todo', $2)`, [id, beeId(7)]);
+    const d = fakeDeps();
+    const done = await forget(c, { type: "rec", id }, { yes: true, deps: d as ExternalDeps });
+    expect(done.incomplete).toBe(0);
+    expect(d.deleteTodo).toHaveBeenCalledWith(beeId(7));
+    expect(await count(`bee_sync where entity_type = 'show' and entity_id = $1`, [id])).toBe(0);
+  });
 });

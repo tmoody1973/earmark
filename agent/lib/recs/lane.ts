@@ -21,6 +21,8 @@ import { ensureRecEmbeddings } from "../links/candidates";
 import { addTipsToPlaylist } from "../music/library";
 import { CLAIM_LEASE } from "../store/conversations";
 import type { RecStatus, RecType } from "../types";
+import { closeShowTodos } from "./show-todos";
+import { lookForShows, type ShowsDeps } from "./shows";
 import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
 import { findOnWeb, WEB_FIND_TYPES, type WebFound, type WebTip } from "./web-find";
 import { closeWhichOneTodos, openWhichOneTodos, type WristDeps } from "./which-one-todo";
@@ -80,7 +82,8 @@ export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
       jevCalls: number; artFixed: number; abouts: number; extras: number; summarized: number; summaryFailed: number; embedded: number;
-      webFinds: number; webMatched: number; wristAsks: number; playlistAdds: number; stoppedOn: string | null; waitingForKeys: RecType[] };
+      webFinds: number; webMatched: number; wristAsks: number; playlistAdds: number;
+      showChecks: number; showTodos: number; stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
 export interface SweepDeps {
@@ -95,6 +98,8 @@ export interface SweepDeps {
   webFind: (tip: WebTip) => Promise<WebFound>;
   bee?: WristDeps["bee"]; // tests: a fake Bee for the "Which one?" todos (decision 062)
   appleFetch: typeof fetch; // the Earmarked playlist step's Apple Music API calls (decision 065)
+  showsFetch: typeof fetch; // the shows step's TinyFish and Nominatim calls (decision 064)
+  showsGenerate?: ShowsDeps["generateImpl"]; // tests: a fake model for the shows step
   env: Record<string, string | undefined>;
   budgetMs: number;
   onlyIds: readonly number[] | null; // tests: scope the sweep to their own rows
@@ -114,7 +119,7 @@ export async function sweepRecLane(deps: Partial<SweepDeps> = {}): Promise<Sweep
     embedRecs: (limit) => ensureRecEmbeddings(limit), about: (rec) => fetchAbout(rec),
     extras: (rec) => fetchExtras(rec, fetch, discogsAccess(deps.env ?? process.env), (deps.env ?? process.env).TMDB_API_KEY?.trim() || null,
       (deps.env ?? process.env).TINYFISH_API_KEY?.trim() ? { key: (deps.env ?? process.env).TINYFISH_API_KEY!.trim(), fetchImpl: fetch } : null),
-    webFind: (tip) => findOnWeb(tip, { env: deps.env ?? process.env, fetchImpl: fetch }), appleFetch: fetch,
+    webFind: (tip) => findOnWeb(tip, { env: deps.env ?? process.env, fetchImpl: fetch }), appleFetch: fetch, showsFetch: fetch,
     budgetMs: SWEEP_BUDGET_MS, onlyIds: null, ...deps };
   // The repo's lease pattern (cf. claimDraftableClusters): one conditional upsert takes the lease if it's free or
   // older than CLAIM_LEASE (a crashed run); release only while our token still holds it.
@@ -153,7 +158,8 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number; pendingKey: string })[];
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
-    summarized: 0, summaryFailed: 0, embedded: 0, webFinds: 0, webMatched: 0, wristAsks: 0, playlistAdds: 0, stoppedOn: null, waitingForKeys };
+    summarized: 0, summaryFailed: 0, embedded: 0, webFinds: 0, webMatched: 0, wristAsks: 0, playlistAdds: 0, showChecks: 0, showTodos: 0,
+    stoppedOn: null, waitingForKeys };
   // What Jev was shown and what it chose, for this tip ("Which one?", decision 048). Every provider asks pick once.
   type Seen = { candidates: readonly Candidate[]; picked: EnrichmentMatch | null };
   const last: { seen: Seen | null } = { seen: null };
@@ -263,6 +269,19 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       r.playlistAdds = (await addTipsToPlaylist({ env: d.env, fetchImpl: d.appleFetch, onlyIds: d.onlyIds, overBudget })).added;
     } catch (err) {
       logEnrichError("rec-lane playlist step", {}, err); // the embed step below still runs
+    }
+  }
+  // Shows nearby (decision 064): standing artist/album tips, each once a day, <=5 a run; the first show not told yet
+  // becomes the tip's one Bee todo. Off while TINYFISH_API_KEY is unset or no home is set (EARMARK_HOME_LAT/LNG).
+  // First, every pass: a todo whose show has passed or whose tip was cleared is completed (it never holds a slot).
+  if (!overBudget()) {
+    try {
+      await closeShowTodos({ bee: d.bee, env: d.env, onlyIds: d.onlyIds });
+      const shows = await lookForShows({ env: d.env, fetchImpl: d.showsFetch, generateImpl: d.showsGenerate, bee: d.bee, onlyIds: d.onlyIds, overBudget });
+      r.showChecks = shows.checked;
+      r.showTodos = shows.told;
+    } catch (err) {
+      logEnrichError("rec-lane shows step", {}, err); // the embed step below still runs
     }
   }
   if (!overBudget()) {
