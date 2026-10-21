@@ -10,7 +10,7 @@ Lines to say, in order, for every beat of the video. Say them in your own words 
   2. **One thing per note.**
   3. **Say a first name** for a friend's tip. Your own name is never credited.
   4. **Name the actual thing** ("Kawa Ramen", not "that place").
-- **Which page updates live:** Home checks for new idea activity every 5 seconds, so plants grow and bloom on screen without touching it. For a friend's tip, pull to refresh after the voice note.
+- **Which page updates live:** Home checks every 5 seconds, so plants grow and bloom, and a friend's tip appears (then gains its cover art or map), on screen without touching it.
 - No music audible in any shot (contest rule). Shazam a song with headphones on, or film the phone screen only.
 
 ---
