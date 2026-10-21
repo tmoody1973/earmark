@@ -12,6 +12,7 @@ import { db } from "../db";
 import { REC_TYPES } from "../enrich/registry";
 import type { RecType } from "../types";
 import { PROVIDER_LINK_KEYS, SONG_CAPTURE_STRIPS, SWEEP_SKIPS_STATUSES } from "./lane";
+import { closeWhichOneTodoQuietly } from "./which-one-todo";
 
 export interface TipFix { name?: string; creator?: string | null; type?: RecType; note?: string | null }
 
@@ -91,5 +92,7 @@ export async function applyTipFix(id: number, fix: TipFix): Promise<{ changed: b
       and r.type = ${now!.type} and r.canonical_name = ${now!.canonical_name} and r.creator is not distinct from ${now!.creator}
       and r.context_summary is not distinct from ${now!.context_summary}
     returning r.id`;
+  // New words clear the old options, so a "Which one?" todo for them is done (decision 062).
+  if (rows.length > 0 && p.relook) await closeWhichOneTodoQuietly(id);
   return { changed: rows.length > 0, requeued: rows.length > 0 && p.relook };
 }

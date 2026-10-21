@@ -23,6 +23,7 @@ import { CLAIM_LEASE } from "../store/conversations";
 import type { RecStatus, RecType } from "../types";
 import { conversationSummary, writeContextSummary, type SummaryInput } from "./summary";
 import { findOnWeb, WEB_FIND_TYPES, type WebFound, type WebTip } from "./web-find";
+import { closeWhichOneTodos, openWhichOneTodos, type WristDeps } from "./which-one-todo";
 
 export const MAX_RECS_PER_RUN = 10;
 export const MAX_JEV_CALLS_PER_RUN = 8; // ≤1 Jev call per tip; tips with no candidates cost none
@@ -79,7 +80,7 @@ export type SweepResult =
   | { status: "locked" }
   | { status: "done"; tried: number; matched: number; noMatch: number; secondLook: number; retry: number; gaveUp: number;
       jevCalls: number; artFixed: number; abouts: number; extras: number; summarized: number; summaryFailed: number; embedded: number;
-      webFinds: number; webMatched: number; playlistAdds: number; stoppedOn: string | null; waitingForKeys: RecType[] };
+      webFinds: number; webMatched: number; wristAsks: number; playlistAdds: number; stoppedOn: string | null; waitingForKeys: RecType[] };
 type Done = Extract<SweepResult, { status: "done" }>;
 
 export interface SweepDeps {
@@ -92,6 +93,7 @@ export interface SweepDeps {
   about: (rec: AboutRec) => Promise<About | null>;
   extras: (rec: ExtrasRec) => Promise<RecExtras>;
   webFind: (tip: WebTip) => Promise<WebFound>;
+  bee?: WristDeps["bee"]; // tests: a fake Bee for the "Which one?" todos (decision 062)
   appleFetch: typeof fetch; // the Earmarked playlist step's Apple Music API calls (decision 065)
   env: Record<string, string | undefined>;
   budgetMs: number;
@@ -150,7 +152,7 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
     limit ${MAX_RECS_PER_RUN}`) as (RecToEnrich & { enrich_attempts: number; pendingKey: string })[];
 
   const r: Done = { status: "done", tried: 0, matched: 0, noMatch: 0, secondLook: 0, retry: 0, gaveUp: 0, jevCalls: 0, artFixed: 0, abouts: 0, extras: 0,
-    summarized: 0, summaryFailed: 0, embedded: 0, webFinds: 0, webMatched: 0, playlistAdds: 0, stoppedOn: null, waitingForKeys };
+    summarized: 0, summaryFailed: 0, embedded: 0, webFinds: 0, webMatched: 0, wristAsks: 0, playlistAdds: 0, stoppedOn: null, waitingForKeys };
   // What Jev was shown and what it chose, for this tip ("Which one?", decision 048). Every provider asks pick once.
   type Seen = { candidates: readonly Candidate[]; picked: EnrichmentMatch | null };
   const last: { seen: Seen | null } = { seen: null };
@@ -240,6 +242,17 @@ async function sweepLeased(d: SweepDeps): Promise<Done> {
       await findOnTheWeb(d, r, overBudget, types);
     } catch (err) {
       logEnrichError("rec-lane web find step", {}, err); // the embed step below still runs
+    }
+  }
+  // Decision 062: a tip left asking "Which one?" (the second look's or the web's options) gets one Bee todo; an answered one's is completed.
+  if (!overBudget()) {
+    try {
+      const wrist = { bee: d.bee, env: d.env, onlyIds: d.onlyIds };
+      await closeWhichOneTodos(wrist);
+      const asked = await openWhichOneTodos(wrist);
+      r.wristAsks = asked.created + asked.refreshed;
+    } catch (err) {
+      logEnrichError("rec-lane which-one todos", {}, err); // the embed step below still runs
     }
   }
   // The Earmarked playlist (decision 065): matched song/album tips and song captures, once each, <=5 a run. Not signed

@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("eve/schedules", () => ({ defineSchedule: <T>(s: T) => s }));
 vi.mock("../../agent/lib/sync/bee-changes", () => ({ runBeeChangesSync: vi.fn() }));
 vi.mock("../../agent/lib/ideas/one-pager", () => ({ draftBlooms: vi.fn(async () => []) }));
+vi.mock("../../agent/lib/ideas/research", () => ({ requestResearchOnBloom: vi.fn(async () => ({ requested: true })) }));
 vi.mock("../../agent/lib/sync/bee-todos", () => ({ drainTodoQueue: vi.fn(async () => ({ status: "skipped" })) }));
 
 import schedule from "../../agent/schedules/bee-changes";
 import { draftBlooms } from "../../agent/lib/ideas/one-pager";
+import { requestResearchOnBloom } from "../../agent/lib/ideas/research";
 import { runBeeChangesSync } from "../../agent/lib/sync/bee-changes";
 import { drainTodoQueue } from "../../agent/lib/sync/bee-todos";
 
@@ -47,5 +49,15 @@ describe("bee-changes schedule tail (M2-T7)", () => {
     vi.mocked(drainTodoQueue).mockRejectedValueOnce(Object.assign(new Error("db"), { name: "NeonDbError" }));
     await expect(run()).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalledWith("[bee-todos] reconcile failed error=NeonDbError");
+  });
+
+  it("requests research for blooms the tail drafted (merges, backfills, retried drafts), never throwing", async () => {
+    vi.mocked(runBeeChangesSync).mockResolvedValueOnce({} as never);
+    vi.mocked(draftBlooms).mockResolvedValueOnce([{ clusterId: 4 }, { clusterId: 9 }] as never);
+    vi.mocked(requestResearchOnBloom).mockRejectedValueOnce(new Error("db down"));
+    await run();
+    expect(requestResearchOnBloom).toHaveBeenCalledWith(4);
+    expect(requestResearchOnBloom).toHaveBeenCalledWith(9);
+    expect(drainTodoQueue).toHaveBeenCalledTimes(1);
   });
 });
