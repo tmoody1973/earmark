@@ -155,8 +155,10 @@ export function takeawayOf(md: string): string | null {
   const t = clip(full, TAKEAWAY_MAX - 1);
   return !t ? null : t === full ? t : `${t}…`;
 }
-/** The Bee todo's text before its link: the takeaway when there is one. Pure. */
-export function researchTodoTitle(title: string, takeaway: string | null): string {
+/** The Bee todo's text before its link: the takeaway when there is one. A bloomed idea (decision 061) says so, since its
+ *  draft is waiting too. Pure. */
+export function researchTodoTitle(title: string, takeaway: string | null, bloomed = false): string {
+  if (bloomed) return `${TODO_PREFIX}'${clip(title, TITLE_IN_QUERY)}' bloomed: draft and research ready${takeaway ? ` — ${takeaway}` : ""}`;
   return takeaway ? `${TODO_PREFIX}Research: ${clip(title, TITLE_IN_QUERY)} — ${takeaway}` : `${TODO_PREFIX}Research ready: ${clip(title, TITLE_IN_QUERY)}`;
 }
 const shown = (url: string) => `${host(url)}${new URL(url).pathname.replace(/\/$/, "")}`;
@@ -206,6 +208,16 @@ export async function requestResearch(clusterId: number): Promise<{ requested: t
   if (Number(r!.requested) > 0) return { requested: true };
   if (Number(r!.found) === 0) return { requested: false, reason: "missing" };
   return { requested: false, reason: r!.was === "requested" || r!.was === "running" ? "busy" : "recent" };
+}
+
+/** An idea just bloomed (decision 061): ask for research once, ever. Off while TINYFISH_API_KEY is unset (no row piles up
+ *  waiting for a key). Any existing row (the owner asked at mention 3, or research ran before) means no second request. */
+export async function requestResearchOnBloom(
+  clusterId: number, env: Record<string, string | undefined> = process.env,
+): Promise<{ requested: true } | { requested: false; reason: "off" | "already" | "missing" | "busy" | "recent" }> {
+  if (!env.TINYFISH_API_KEY?.trim()) return { requested: false, reason: "off" };
+  if (await getIdeaResearch(clusterId)) return { requested: false, reason: "already" };
+  return requestResearch(clusterId);
 }
 
 interface Claim { clusterId: number; attempts: number; key: string }
@@ -279,7 +291,7 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
       await release(c, "requested", true);
       continue;
     }
-    const [idea] = await db()`select title, summary from idea_clusters where id = ${c.clusterId}`;
+    const [idea] = await db()`select title, summary, stage from idea_clusters where id = ${c.clusterId}`;
     if (!idea) continue; // forgotten meanwhile: its research row went with it
     try {
       const { md, sources } = await research({ title: String(idea.title), summary: (idea.summary as string | null) ?? null }, key, d);
@@ -288,7 +300,7 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
       if (saved.length === 0) continue; // the claim was taken over or the idea forgotten: no todo
       r.done++;
       console.log(`[research] idea=${c.clusterId} done pages=${sources.length}`);
-      if (await tell(c.clusterId, String(idea.title), takeawayOf(md), d)) r.notified++;
+      if (await tell(c.clusterId, String(idea.title), takeawayOf(md), BLOOMED.has(String(idea.stage)), d)) r.notified++;
     } catch (err) {
       const next = afterFailure(c.attempts, err);
       const status = err instanceof ProviderHttpError ? ` status=${err.status}` : "";
@@ -303,9 +315,10 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
   return r;
 }
 
-// "Earmark · Research: <title> — <takeaway> <link>" (or "Research ready: <title>"). Never fails the brief: a Bee error or skip is only logged.
-async function tell(clusterId: number, title: string, takeaway: string | null, d: ResearchDeps): Promise<boolean> {
-  const text = withLink(researchTodoTitle(title, takeaway), "ideas", clusterId, d.env.EARMARK_PUBLIC_BASE_URL?.trim());
+const BLOOMED = new Set(["ready", "drafted", "used"]); // at or past bloom
+// "Earmark · Research: <title> — <takeaway> <link>" (or "Research ready: <title>"; "'<title>' bloomed: draft and research ready" past bloom). Never fails the brief: a Bee error or skip is only logged.
+async function tell(clusterId: number, title: string, takeaway: string | null, bloomed: boolean, d: ResearchDeps): Promise<boolean> {
+  const text = withLink(researchTodoTitle(title, takeaway, bloomed), "ideas", clusterId, d.env.EARMARK_PUBLIC_BASE_URL?.trim());
   try {
     const out = await d.notify({ entityType: "idea_research", entityId: clusterId, text, alarmAt: alarmSoon(), refresh: true });
     if ("skipped" in out) console.log(`[research] idea=${clusterId} todo skipped=${out.skipped}`);

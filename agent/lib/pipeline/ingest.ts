@@ -4,6 +4,7 @@ import { conversationRef, isJournalComplete, type BeeEvent } from "../bee/events
 import { shapeOf } from "../bee/webhook";
 import { handleLocationUpdate } from "../recs/nudges";
 import { draftBlooms } from "../ideas/one-pager";
+import { requestResearchOnBloom } from "../ideas/research";
 import { pruneUtteranceBuffer, rememberConversationUuid } from "../store/conversations";
 import { handleTodoChange } from "../sync/handlers";
 import { handleLiveUtterance } from "./live";
@@ -25,7 +26,13 @@ async function maybePrune(now: Date): Promise<void> {
 // claims each cluster first, so this kick and the bee-changes schedule tail never draft the same one twice; it logs
 // and gives back the claim on failure, and the schedule tail retries.
 async function draftIfBloomed(saved: { bloomedClusterIds: number[] } | undefined): Promise<void> {
-  if (saved?.bloomedClusterIds.length) await draftBlooms({ clusterIds: saved.bloomedClusterIds });
+  if (!saved?.bloomedClusterIds.length) return;
+  await draftBlooms({ clusterIds: saved.bloomedClusterIds });
+  // Decision 061: the same bloom asks for research (a no-op without a TinyFish key or when research already exists).
+  // The draft is not rewritten when it lands; a failed request never breaks the event.
+  for (const id of saved.bloomedClusterIds) {
+    await requestResearchOnBloom(id).catch((err: unknown) => console.error(`[research] bloom request idea=${id} failed error=${err instanceof Error ? err.name : "unknown"}`));
+  }
 }
 
 // The stream sends no created_at, yet a voice note's recording time is its rec's said_at and what the ±60 s

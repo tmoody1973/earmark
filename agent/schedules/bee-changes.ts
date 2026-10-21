@@ -1,6 +1,7 @@
 import { defineSchedule } from "eve/schedules";
 import { skipInDemo } from "../lib/demo";
 import { draftBlooms } from "../lib/ideas/one-pager";
+import { requestResearchOnBloom } from "../lib/ideas/research";
 import { runBeeChangesSync } from "../lib/sync/bee-changes";
 import { drainTodoQueue } from "../lib/sync/bee-todos";
 import { handleRecTodoChange } from "../lib/sync/todo-handlers";
@@ -25,6 +26,10 @@ export default defineSchedule({
         console.error(`[draft] tail failed error=${err instanceof Error ? err.name : "unknown"}`);
         return [];
       });
+      // Decision 061: blooms drafted here (merges, backfills, a retried draft) ask for research too; once per idea.
+      for (const { clusterId } of drafted) {
+        await requestResearchOnBloom(clusterId).catch((err: unknown) => console.error(`[research] bloom request idea=${clusterId} failed error=${err instanceof Error ? err.name : "unknown"}`));
+      }
       if (drafted.length) console.log(`[draft] tail drafted clusters=${drafted.map((r) => r.clusterId).join(",")}`);
       // checkLinked (M3-T8): the backstop for Bee completions/deletions whose change was lost or dropped.
       const todos = await drainTodoQueue({ checkLinked: handleRecTodoChange }).catch((err: unknown) => {
