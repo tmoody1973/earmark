@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { isDemo } from "@/agent/lib/demo";
 import { isOwner } from "@/agent/lib/owner";
 import { getPlants } from "@/agent/lib/garden/queries";
 import { IdeaBed } from "./IdeaPlant";
@@ -25,7 +26,8 @@ export default async function GardenPage() {
           <h1>Garden</h1>
           {/* Heard once (decision 055): ideas overheard once wait there, findable, never pushed. No count. */}
           <span className="garden-head-links">
-            <Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link><Link href="/heard-once">Heard once</Link>
+            <Link href="/gardeners">Gardeners</Link><Link href="/alexa">Alexa+</Link>
+            {!isDemo() && <Link href="/music">Apple Music</Link>}<Link href="/heard-once">Heard once</Link>
           </span>
         </header>
         <section className="zone" aria-labelledby="all-ideas-h">
