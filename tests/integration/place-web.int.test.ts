@@ -68,4 +68,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("web place details in the rec la
     expect(extras).not.toHaveBeenCalled(); // extras_at is set: never refetched
     expect(calls("api.search.tinyfish.ai")).toBe(1);
   });
+
+  it("a web_place pick saved with links {} and an address (tip 130) gets extras.place on a lane pass", async () => {
+    const { sweepRecLane } = await import("../../agent/lib/recs/lane");
+    const id = await place("IT Diaspora no link", {});
+    await sweepRecLane({ ...quiet, extras, env: {}, onlyIds: [id] });
+    expect((await placeOf(id)).extras.place).toMatchObject({ kind: "Bar", source: { url: "https://diasporamke.com/" } });
+  });
+
+  it("requeue: a dry run lists, --yes re-opens only looked-at web places without place details; their extras stay", async () => {
+    const { requeuePlaceDetails } = await import("../../scripts/requeue-place-details");
+    const lacking = await place("IT requeue lacking", {});
+    const hasOsm = await place("IT requeue osm", { openstreetmap: "https://www.openstreetmap.org/node/1" });
+    const hasPlace = await place("IT requeue has place", { web: "https://a.example/" });
+    const ambiguous = await place("IT requeue ambiguous", {}, null);
+    const cleared = await place("IT requeue cleared", {});
+    const scope = { scopeRecIds: [lacking, hasOsm, hasPlace, ambiguous, cleared] };
+    await c.query(`update recommendations set extras = '{"wiki":{"text":"t","url":"https://en.wikipedia.org/wiki/X"}}'::jsonb, extras_at = now(), extras_tries = 2 where id = $1`, [lacking]);
+    await c.query(`update recommendations set extras = '{}'::jsonb, extras_at = now() where id = any($1::bigint[])`, [[hasOsm, ambiguous, cleared]]);
+    await c.query(`update recommendations set extras = '{"place":{"kind":"Bar"}}'::jsonb, extras_at = now() where id = $1`, [hasPlace]);
+    await c.query(`update recommendations set status = 'dismissed' where id = $1`, [cleared]);
+
+    expect(await requeuePlaceDetails(c, { yes: false }, scope)).toEqual({ requeued: [lacking] });
+    expect((await placeOf(lacking)).looked).toBe(true);
+    expect(await requeuePlaceDetails(c, { yes: true }, scope)).toEqual({ requeued: [lacking] });
+    const after = (await c.query(`select extras, extras_at is not null as looked, extras_tries as tries from recommendations where id = $1`, [lacking])).rows[0];
+    expect(after).toMatchObject({ looked: false, tries: 0, extras: { wiki: { text: "t" } } });
+    for (const id of [hasOsm, hasPlace, ambiguous, cleared]) expect((await placeOf(id)).looked).toBe(true);
+  });
 });

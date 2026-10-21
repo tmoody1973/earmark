@@ -1,5 +1,5 @@
 // Details for a place found on the web (decision 063): a matched place with no OpenStreetMap entry has no hours, phone or
-// menu from decision 058's lookup. For one with a web link, the rec lane's extras step asks the web instead: ONE TinyFish
+// menu from decision 058's lookup. For one with a web link or a street address, the rec lane's extras step asks the web instead: ONE TinyFish
 // Search ("<name> <address> hours": Earmark's derived words only, never an excerpt or a person's name), ONE TinyFish Fetch
 // of the best page that is not a social network (their login walls, and their text isn't ours to store; snippets only
 // when there is none), ONE EXTRACT_MODEL read → the same PlaceExtras as OpenStreetMap's, plus where it was read from.
@@ -61,10 +61,10 @@ const ownLink = (links: unknown): string | null => {
  *  refusal or a timeout throws, like every other extras provider: the lane counts a try or backs off. */
 export async function fetchWebPlaceDetails(rec: WebPlaceRec, access: WebPlaceAccess): Promise<PlaceExtras | null> {
   const own = ownLink(rec.links);
-  if (!own) return null;
+  if (!own && !rec.year_or_address?.trim()) return null; // a name alone is too ambiguous to search
   const results = await searchWeb(placeQuery(rec), PURPOSE, access.key, access.fetchImpl);
-  const candidates: WebResult[] = [{ title: rec.canonical_name, snippet: "", site_name: host(own), url: own }, ...results.filter((r) => r.url !== own)]
-    .filter((r) => !isSocialUrl(r.url));
+  const candidates: WebResult[] = [...(own ? [{ title: rec.canonical_name, snippet: "", site_name: host(own), url: own }] : []),
+    ...results.filter((r) => r.url !== own)].filter((r) => !isSocialUrl(r.url));
   const best = candidates[0];
   const page = best ? (await fetchPages([best], PURPOSE, access.key, access.fetchImpl))[0] : undefined;
   const snippets = results.filter((r) => !isSocialUrl(r.url)).map((r, i) => `${i + 1}. ${r.title} (${r.site_name})\n${r.snippet.slice(0, SNIPPET_MAX).replace(/\s+/g, " ")}`);

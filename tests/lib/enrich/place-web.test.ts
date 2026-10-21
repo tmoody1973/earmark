@@ -55,6 +55,21 @@ describe("fetchWebPlaceDetails", () => {
     expect(p?.source?.url).toBe("https://diasporamke.com/");
   });
 
+  it("an address and no link at all (tip 130): the best non-social search result is read and cited", async () => {
+    const fetchImpl = tinyfish();
+    const p = await fetchWebPlaceDetails({ ...rec, links: {} }, { key: "k", fetchImpl: fetchImpl as never, generateImpl: model(FILLED) });
+    expect(fetchedUrls(fetchImpl)).toEqual(["https://diasporamke.com/"]); // not the Facebook result ahead of it
+    expect(p?.source).toEqual({ site: "diasporamke.com", url: "https://diasporamke.com/" });
+  });
+
+  it("neither link nor address: too ambiguous, null with no request", async () => {
+    const fetchImpl = tinyfish();
+    for (const year_or_address of [null, undefined, "  "]) {
+      expect(await fetchWebPlaceDetails({ ...rec, year_or_address, links: {} }, { key: "k", fetchImpl: fetchImpl as never })).toBeNull();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("only social results exist: nothing is fetched and nothing is stored", async () => {
     const fetchImpl = tinyfish([SEARCH[0]!]);
     const p = await fetchWebPlaceDetails({ ...rec, links: { web: "https://www.facebook.com/diasporamke" } },
@@ -86,7 +101,7 @@ describe("fetchWebPlaceDetails", () => {
     const empty = { kind: null, hours: null, phone: null, website: null, menu: null, reservation: null, reservationUrl: null, features: [] };
     expect(await fetchWebPlaceDetails(rec, { key: "k", fetchImpl: tinyfish() as never, generateImpl: model(empty) })).toBeNull();
     const fetchImpl = tinyfish();
-    expect(await fetchWebPlaceDetails({ ...rec, links: {} }, { key: "k", fetchImpl: fetchImpl as never })).toBeNull();
+    expect(await fetchWebPlaceDetails({ ...rec, year_or_address: null, links: {} }, { key: "k", fetchImpl: fetchImpl as never })).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

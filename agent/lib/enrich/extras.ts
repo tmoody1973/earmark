@@ -13,7 +13,7 @@
 //  - book: the Open Library work JSON (description, first_publish_date) and search.json for number_of_pages_median.
 //  - anything with a Wikipedia about_url (lane.ts about step): the page summary's extract, up to 600 characters.
 //  - place: one Nominatim /lookup?extratags=1 for the OpenStreetMap link the match stored → kind, hours, website, phone,
-//    menu, reservations, takeaway and the like (place-details.ts, decision 058). No OSM link but a web link (a place found
+//    menu, reservations, takeaway and the like (place-details.ts, decision 058). No OSM link but a web link or a street address (a place found
 //    on the web): one search + one page read + one model call instead (place-web.ts, decision 063).
 //  - film_tv (keyed: the caller passes TMDB_API_KEY, the v4 Bearer token): ONE request, GET /3/{movie|tv}/{id}
 //    ?append_to_response=credits,videos,watch/providers (https://developer.themoviedb.org/docs/append-to-response) →
