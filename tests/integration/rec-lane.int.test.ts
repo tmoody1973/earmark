@@ -465,7 +465,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("rec lane sweep on the Neon test
     expect(await sweepRecLane({ env: {}, onlyIds: all, extras, about })).toMatchObject({ extras: 1 });
     expect(extras.mock.calls.map(([r]) => r.canonical_name).sort()).toEqual(["Flaky book", "Kopp's", "Movement 1"]);
     expect(extras.mock.calls.find(([r]) => r.canonical_name === "Movement 1")![0]).toEqual({ type: "song",
-      canonical_name: "Movement 1", creator: "Floating Points", apple_music_id: null, links: {}, about_url: null });
+      canonical_name: "Movement 1", creator: "Floating Points", year_or_address: null, apple_music_id: null, links: {}, about_url: null });
     expect(await extrasOf(song)).toEqual({ extras: PREVIEW, looked: true, tries: 0 });
     expect(await extrasOf(nothing)).toEqual({ extras: {}, looked: true, tries: 0 }); // looked, nothing: never asked again
     expect(await extrasOf(failing)).toEqual({ extras: null, looked: false, tries: 1 });

@@ -12,7 +12,9 @@ import { getEnv } from "../env";
 import { PROVIDER_TIMEOUT_MS, ProviderHttpError } from "../enrich/types";
 import { RESEARCH_AGAIN_MINUTES } from "../pipeline/save-item";
 import { searchWeb, type WebResult } from "../recs/web-find";
-import type { createEarmarkTodo } from "../sync/bee-todos";
+// Static, not import(): web place details (decision 063) reach this module from the schedules, and a dynamic import
+// there breaks eve's one-module-per-schedule bundle (CI, Oct 21).
+import { createEarmarkTodo } from "../sync/bee-todos";
 import { alarmSoon, TODO_PREFIX, withLink } from "../sync/todo-text";
 
 export const TINYFISH_FETCH = "https://api.fetch.tinyfish.ai";
@@ -281,7 +283,7 @@ export async function runIdeaResearch(deps: Partial<ResearchDeps> = {}): Promise
   if (!key) return { status: "off" };
   const d: ResearchDeps = {
     env, fetchImpl: fetch, onlyIds: null, ...deps,
-    notify: deps.notify ?? (async (input) => (await import("../sync/bee-todos")).createEarmarkTodo(input)),
+    notify: deps.notify ?? createEarmarkTodo,
   };
   const claims = await claim(d.onlyIds);
   const r = { status: "done" as const, claimed: claims.length, done: 0, retry: 0, failed: 0, busy: 0, notified: 0 };
