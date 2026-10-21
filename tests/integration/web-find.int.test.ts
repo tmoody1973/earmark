@@ -200,4 +200,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Find it on the web on the Neon 
     expect(await applyTipFix(id, { name: "MettaSun" })).toMatchObject({ changed: true, requeued: true });
     expect((await row(id)).web_looked_at).toBeNull();
   });
+
+  it("a place OpenStreetMap lacks (decision 059): searched near where it was said, pinned by its address, saved when picked", async () => {
+    const id = await addRec({ set: `type = 'place', canonical_name = 'Diaspora', creator = null, said_lat = 43.04, said_lng = -87.91, ${NO_MATCH}` });
+    const spot = { provider: "nominatim", canonicalName: "1234", creator: null, yearOrAddress: "1234, West Example Street, Milwaukee",
+      imageUrl: null, links: { openstreetmap: "https://www.openstreetmap.org/node/1" }, lat: 43.06, lng: -87.92 };
+    const search = vi.fn(async (q: { name: string }) => (q.name === "1234 W Example St, Milwaukee, WI" ? [spot] : []));
+    const site = "https://diasporamke.example.com/";
+    const fetchImpl = vi.fn(async () => json({ query: "q", results: [{ title: "Diaspora", snippet: "a bar", site_name: "diasporamke", url: site }] }));
+    const city = vi.fn(async () => "Milwaukee, Wisconsin");
+    const webFind = async (t: WebTip) => (await import("../../agent/lib/recs/web-find")).findOnWeb(t, { env: KEY_ENV,
+      fetchImpl: fetchImpl as unknown as typeof fetch, model: "test/model", search: search as never, city,
+      generateImpl: answer([{ title: "Diaspora", creator: "1234 W Example St, Milwaukee, WI", result: 1 }]) as never });
+    expect(await sweep({ env: KEY_ENV, webFind, onlyIds: [id] })).toMatchObject({ webFinds: 1, webMatched: 0 });
+    expect(city).toHaveBeenCalledWith({ lat: 43, lng: -87.9 }); // the rounded hint (bias.ts), never the exact spot
+    const [opt] = (await row(id)).match_candidates;
+    expect(opt).toMatchObject({ provider: "web_place", canonicalName: "Diaspora", yearOrAddress: "1234 W Example St, Milwaukee, WI",
+      links: { web: site }, lat: 43.06, lng: -87.92 });
+
+    const { pickCandidate } = await import("../../agent/lib/recs/which-one");
+    const { candidateKey } = await import("../../agent/lib/garden/which-one");
+    expect(await pickCandidate(id, 0, candidateKey(opt))).toEqual({ changed: true });
+    const p = (await c.query(`select canonical_name, year_or_address, lat, lng, links, enrichment_status, match_source from recommendations
+      where id = $1`, [id])).rows[0];
+    expect(p).toMatchObject({ canonical_name: "Diaspora", year_or_address: "1234 W Example St, Milwaukee, WI", lat: 43.06, lng: -87.92,
+      enrichment_status: "matched", match_source: "owner" });
+    expect(p.links).toMatchObject({ web: site });
+  });
 });

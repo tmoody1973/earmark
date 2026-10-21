@@ -7,6 +7,8 @@ import { cardArtworkUrl } from "./cards";
 export interface StoredCandidate extends Candidate { provider: string }
 /** A page found on the web, no catalog's item (decision 051): links.web, settled through the Link path when picked. */
 export const WEB_PROVIDER = "web";
+/** A place OpenStreetMap doesn't know, found on the web and pinned by its street address (decision 059): saved like any match. */
+export const WEB_PLACE_PROVIDER = "web_place";
 
 const Stored = z.object({
   provider: z.string(), canonicalName: z.string().min(1), creator: z.string().nullable(), yearOrAddress: z.string().nullable(),

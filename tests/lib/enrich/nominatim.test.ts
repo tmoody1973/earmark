@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NOMINATIM_GAP_MS, nominatimProvider, resetNominatimThrottle } from "../../../agent/lib/enrich/nominatim";
+import { NOMINATIM_GAP_MS, nominatimCity, nominatimProvider, resetNominatimThrottle } from "../../../agent/lib/enrich/nominatim";
 import type { EnrichQuery } from "../../../agent/lib/enrich/types";
 
 const env = { EARMARK_PUBLIC_BASE_URL: "https://earmark.example" };
@@ -54,5 +54,35 @@ describe("Nominatim provider", () => {
     await vi.advanceTimersByTimeAsync(1);
     await pending;
     expect(second).toBe(true);
+  });
+  it("drops results more than 150 km from the location hint (a bias alone let Mexico and Kosovo through, tip 130)", () => {
+    const near = { osm_type: "node", osm_id: 1, lat: "43.05", lon: "-87.95", display_name: "Diaspora, Milwaukee, Wisconsin, USA" };
+    const chicago = { osm_type: "node", osm_id: 2, lat: "41.88", lon: "-87.63", display_name: "Diaspora, Chicago, Illinois, USA" };
+    const far = { osm_type: "node", osm_id: 3, lat: "19.43", lon: "-99.13", display_name: "Diaspora, Ciudad de México, México" };
+    const found = nominatimProvider(env).parse([near, chicago, far], q("Diaspora", null, 43.0, -87.9));
+    expect(found.map((c) => c.yearOrAddress)).toEqual([near.display_name, chicago.display_name]);
+    // No location hint at all: nothing to measure from, so nothing is dropped.
+    expect(nominatimProvider(env).parse([near, far], q("Diaspora"))).toHaveLength(2);
+  });
+});
+
+describe("nominatimCity", () => {
+  it("reverse-geocodes the location hint at city zoom with the identifying User-Agent and returns the city's name", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ name: "Milwaukee", address: { city: "Milwaukee", state: "Wisconsin" } })));
+    expect(await nominatimCity({ lat: 43.0, lng: -87.9 }, env, fetchImpl as never)).toBe("Milwaukee, Wisconsin");
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const u = new URL(url);
+    expect(u.pathname).toBe("/reverse");
+    expect(u.searchParams.get("zoom")).toBe("10");
+    expect(u.searchParams.get("lat")).toBe("43");
+    expect((init.headers as Record<string, string>)["User-Agent"]).toContain("Earmark/1.0");
+  });
+  it("is null when there is no hint, the service refuses, or the answer has no name", async () => {
+    const ok = vi.fn(async () => new Response(JSON.stringify({ name: "" })));
+    expect(await nominatimCity(null, env, ok as never)).toBeNull();
+    expect(ok).not.toHaveBeenCalled();
+    expect(await nominatimCity({ lat: 1, lng: 1 }, env, ok as never)).toBeNull();
+    expect(await nominatimCity({ lat: 1, lng: 1 }, env, vi.fn(async () => new Response("x", { status: 503 })) as never)).toBeNull();
+    expect(await nominatimCity({ lat: 1, lng: 1 }, env, vi.fn(async () => { throw new TypeError("net"); }) as never)).toBeNull();
   });
 });
